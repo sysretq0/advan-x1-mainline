@@ -1,0 +1,32 @@
+From b519cf2da44437763451b268d4884efd6108dc78 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@users.noreply.github.com>
+Date: Thu, 12 Nov 2026 16:20:34 +0000
+Subject: [PATCH 7/7] arm64: dts: mediatek: Add Advan X1 board device tree
+
+Advan X1 smartphone (MT6789). Memory map from live stock /proc/iomem audit
+(2026-11-11): one clean 3.64 GiB window, stock ramoops carveout declared as
+memory+reserved, loader kernel-staging region declared. simplefb panel
+console (1080x2460, stride 4352) and bootargs stub for the loki-loader LNXB
+chain (rewrites bootargs in place, publishes initrd coordinates via the
+linux,initrd-start/end stubs).
+
+Change-Id: I278fd2d0bd6d69b859101320a1a050a902f862c3
+Signed-off-by: sysretq0 <sysretq0@users.noreply.github.com>
+---
+ arch/arm64/boot/dts/mediatek/Makefile | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/arch/arm64/boot/dts/mediatek/Makefile b/arch/arm64/boot/dts/mediatek/Makefile
+index a86fb313b..3dfbb4bb4 100644
+--- a/arch/arm64/boot/dts/mediatek/Makefile
++++ b/arch/arm64/boot/dts/mediatek/Makefile
+@@ -1,5 +1,6 @@
+ # SPDX-License-Identifier: GPL-2.0
+ dtb-$(CONFIG_ARCH_MEDIATEK) += mt2712-evb.dtb
++dtb-$(CONFIG_ARCH_MEDIATEK) += mt6789-advan-x1.dtb
+ dtb-$(CONFIG_ARCH_MEDIATEK) += mt6755-evb.dtb
+ dtb-$(CONFIG_ARCH_MEDIATEK) += mt6779-evb.dtb
+ dtb-$(CONFIG_ARCH_MEDIATEK) += mt6795-evb.dtb
+-- 
+2.55.0
+
