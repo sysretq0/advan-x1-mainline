@@ -1,0 +1,22 @@
+# Advan X1 mainline exp2 config fragment — UFS root mount
+# Base: arm64 defconfig + advan_x1-exp1.configfrag (display console).
+# Goal: UFSHCI bring-up + ext4 root from xnu_data (Debian forky).
+# UFS quirk + PARTUUID rootwait live in advan_x1-linux.dts (loader rewrites bootargs).
+
+# UFS host stack (drivers/ufs/host): mt8183-ufshci compat in dts
+CONFIG_SCSI=y
+CONFIG_BLK_DEV_SD=y
+CONFIG_SCSI_UFSHCD=y
+CONFIG_SCSI_UFSHCD_PLATFORM=y
+CONFIG_SCSI_UFS_MEDIATEK=y
+# selects PHY_MTK_UFS + RESET_TI_SYSCON automatically; pin them anyway
+CONFIG_PHY_MTK_UFS=y
+CONFIG_RESET_TI_SYSCON=y
+
+# Debian forky ext4 features: metadata_csum (ro_compat 0x46b)
+# + metadata_csum_seed (incompat 0x22c2), superblock decoded from device
+CONFIG_EXT4_FS=y
+CONFIG_CRYPTO_CRC32C=y
+
+# toolchain: LLVM build (clang 21), no LTO
+CONFIG_LTO_NONE=y

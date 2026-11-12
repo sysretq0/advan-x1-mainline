@@ -1,0 +1,308 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Advan X1 (MT6789) minimal mainline bring-up DT — display console experiment 1
+// Board values from stock DT extracted/v5/dtb/main_dtb_0.dts (board authority).
+// Minimal by design: boot-to-fbcon verdict only. No UFS/I2C/touch in exp1.
+ 
+/dts-v1/;
+
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/phy/phy.h>
+
+/ {
+	model = "Advan X1";
+	compatible = "advan,x1", "mediatek,mt6789";
+	#address-cells = <2>;
+	#size-cells = <2>;
+
+	interrupt-parent = <&gic>;
+
+	aliases {
+		serial0 = &uart0;
+	};
+
+	// bootargs stub: loader (boot_linux) rewrites these exact value bytes in
+	// place, so this string IS the published cmdline. Do not shrink below
+	// what we need; length here is capacity.
+	chosen {
+		bootargs = "earlycon=uart8250,mmio32,0x11002000 console=tty0 console=ttyGS0,115200 clk_ignore_unused pd_ignore_unused nokaslr loglevel=7 initcall_debug=1 root=/dev/sdc72 rootwait rw";
+		// Loader publishes initrd coordinates ONLY when the DTB
+		// carries these stubs (boot.c/fdt.c FDT_NO_PROP otherwise).
+		// Boot 18 lost the initramfs entirely because these two
+		// properties went missing from this node — kernel ran
+		// /sbin/init directly with the untouched fstab.
+		linux,initrd-start = <0x00 0x00>;
+		linux,initrd-end = <0x00 0x00>;
+		stdout-path = "framebuffer0";
+
+		#address-cells = <2>;
+		#size-cells = <2>;
+
+		framebuffer0: framebuffer@fe007000 {
+			compatible = "simple-framebuffer";
+			// memory-region overrides reg; both kept for loader compat
+			// (older loader/staging code reads reg; kernel uses memory-region)
+			reg = <0x00 0xfe007000 0x00 0x00a80000>;
+			memory-region = <&fb_reserved>;
+			width = <1080>;
+			height = <2460>;
+			stride = <4352>;
+			format = "a8r8g8b8";
+			status = "okay";
+		};
+	};
+
+	// Page allocator would otherwise clobber the LK scanout buffer
+	// (Q4 finding: kernel never reserves bare-reg simplefb DRAM).
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		// 4352 B * 2460 rows = 10,705,920 B; padded to 0x00A80000
+		fb_reserved: framebuffer@fe007000 {
+			reg = <0x00 0xfe007000 0x00 0x00a80000>;
+			no-map;
+		};
+
+		// Stock ramoops carveout (live /proc/iomem 2026-11-11):
+		// 1 MiB window inside the stock hole keeps the page
+		// allocator off it in both directions. PSTORE_CONSOLE
+		// records console output continuously, so a silent hang
+		// still leaves the exact last lines readable from
+		// Android /sys/fs/pstore after the watchdog reset.
+		ramoops@48090000 {
+			compatible = "ramoops";
+			reg = <0x00 0x48090000 0x00 0x100000>;
+			record-size = <0x20000>;
+			console-size = <0x20000>;
+			pmsg-size = <0x20000>;
+			ecc-size = <0>;
+		};
+	};
+
+	// Memory: ONE verifiably clean window from live stock /proc/iomem
+	// (2026-11-11): 0x140000000-0x2296fffff has zero reserved children.
+	// Above it sit TZ/pKVM-class reservations to 0x23fffefff; device is
+	// 8 GB total, stock MemTotal 7.49 GiB. Do NOT widen without a fresh
+	// iomem audit.
+	//
+	// The stock ramoops carveout below is declared as memory + reserved
+	// (no no-map) so it exists as System RAM for memremap; a bare
+	// reserved-memory child with no memory node is not System RAM and
+	// the ramoops probe could not map it (boots 4-5: zero content
+	// written, 2026-11-11).
+	memory@48090000 {
+		device_type = "memory";
+		reg = <0x00 0x48090000 0x00 0x100000>; /* 1 MiB stock ramoops hole */
+	};
+
+	memory@61000000 {
+		// Kernel staging region: loader drops the Image at
+		// 0x61000000 (2 MiB aligned); the arm64 kernel needs its
+		// load address inside a declared memory region or the
+		// linear map never covers its own image (first-boot
+		// silence suspect, 2026-11-11: silent hang + 30 s WDT).
+		// image_size = 0x54a0000 (84.6 MiB) fits with margin;
+		// top 0x69000000 stays below the stock hole at
+		// 0x70000000-0x76bfffff. Loader image/stack/DTB staging
+		// (0x60000000-0x61000000) stay outside on purpose.
+		device_type = "memory";
+		reg = <0x00 0x61000000 0x00 0x08000000>; /* 128 MiB */
+	};
+
+	memory@140000000 {
+		device_type = "memory";
+		reg = <0x01 0x40000000 0x00 0xe9700000>; /* 3.64 GiB clean window */
+	};
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		cpu0: cpu@0 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a55";
+			reg = <0x000>;
+			enable-method = "psci";
+		};
+
+		cpu1: cpu@100 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a55";
+			reg = <0x100>;
+			enable-method = "psci";
+		};
+
+		cpu2: cpu@200 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a55";
+			reg = <0x200>;
+			enable-method = "psci";
+		};
+
+		cpu3: cpu@300 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a55";
+			reg = <0x300>;
+			enable-method = "psci";
+		};
+
+		cpu4: cpu@400 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a55";
+			reg = <0x400>;
+			enable-method = "psci";
+		};
+
+		cpu5: cpu@500 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a55";
+			reg = <0x500>;
+			enable-method = "psci";
+		};
+
+		cpu6: cpu@600 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a76";
+			reg = <0x600>;
+			enable-method = "psci";
+		};
+
+		cpu7: cpu@700 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a76";
+			reg = <0x700>;
+			enable-method = "psci";
+		};
+	};
+
+	psci {
+		compatible = "arm,psci-1.0", "arm,psci-0.2";
+		method = "smc";
+	};
+
+	timer {
+		compatible = "arm,armv8-timer";
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_PPI 13 (GIC_CPU_MASK_SIMPLE(8) | IRQ_TYPE_LEVEL_LOW)>,
+			     <GIC_PPI 14 (GIC_CPU_MASK_SIMPLE(8) | IRQ_TYPE_LEVEL_LOW)>,
+			     <GIC_PPI 11 (GIC_CPU_MASK_SIMPLE(8) | IRQ_TYPE_LEVEL_LOW)>,
+			     <GIC_PPI 10 (GIC_CPU_MASK_SIMPLE(8) | IRQ_TYPE_LEVEL_LOW)>;
+		// LK leaves the counter at 13 MHz (verified facts); no CNTFRQ
+		// programming assumed in EL1 handoff.
+		clock-frequency = <13000000>;
+	};
+
+	soc {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		compatible = "simple-bus";
+		ranges;
+
+		gic: interrupt-controller@c000000 {
+			compatible = "arm,gic-v3";
+			#interrupt-cells = <3>;
+			#address-cells = <2>;
+			#size-cells = <2>;
+			interrupt-controller;
+			reg = <0x00 0x0c000000 0x00 0x00040000>, /* GICD (256 KB) */
+			      <0x00 0x0c040000 0x00 0x00200000>; /* GICR (2 MB) */
+			interrupts = <GIC_PPI 9 (GIC_CPU_MASK_SIMPLE(8) | IRQ_TYPE_LEVEL_HIGH)>;
+		};
+
+		clk26m: clock-26m {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <26000000>;
+		};
+
+		uart0: serial@11002000 {
+			compatible = "mediatek,mt6577-uart";
+			reg = <0x00 0x11002000 0x00 0x00001000>;
+			interrupts = <GIC_SPI 141 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clk26m>, <&clk26m>;
+			clock-names = "baud", "bus";
+			status = "okay";
+		};
+
+		watchdog: watchdog@10007000 {
+			compatible = "mediatek,mt6789-wdt", "mediatek,mt6589-wdt";
+			reg = <0x00 0x10007000 0x00 0x00000100>;
+			status = "okay";
+		};
+
+		// Stock DT infracfg_ao (extracted/v5/dtb/main_dtb_0.dts).
+		// Boot 8 used its ti,syscon-reset for the UFSHCI reset dance;
+		// boot 9 drops the resets (MPHY link state must survive), so
+		// this node is parked until a consumer needs it again.
+		infracfg_ao: syscon@10001000 {
+			compatible = "mediatek,mt6789-infracfg_ao", "syscon",
+				     "simple-mfd";
+			reg = <0x00 0x10001000 0x00 0x1000>;
+		};
+
+		// exp3: USB 2.0 (MT6789 usb0@11200000 stock node). Mainline glue
+		// = mediatek,mtk-musb (drivers/usb/musb/mediatek.c): clocks
+		// "main/mcu/univpll" via clk_bulk_get, phy index 0, dr_mode from
+		// DT; USB_MUSB_GADGET forces peripheral. Clocks are fixed-clock
+		// stubs (26 MHz): MT6789 has no CCF in this bring-up and gates
+		// are live across the LK handoff (UFS precedent, boots 10-13;
+		// u-boot-g99 brought the same IP up with no clock driver).
+		// IRQ SPI 128 level-high (stock interrupts <0x00 0x80 0x04>).
+		usb0: usb@11200000 {
+			compatible = "mediatek,mtk-musb";
+			reg = <0x00 0x11200000 0x00 0x10000>;
+			interrupts = <GIC_SPI 128 IRQ_TYPE_LEVEL_HIGH>;
+			// musb_core requests the IRQ by name "mc"; without
+			// this property probe fails -ENXIO "IRQ mc not found"
+			// and no UDC is ever registered (boot 19 root cause).
+			interrupt-names = "mc";
+			clocks = <&clk26m>, <&clk26m>, <&clk26m>;
+			clock-names = "main", "mcu", "univpll";
+			phys = <&u2port0 PHY_TYPE_USB2>;
+			dr_mode = "peripheral";
+			status = "okay";
+		};
+
+		// exp3: U2 T-PHY (stock u2phy0 @ 0x11f40000, generic-tphy-v2).
+		// Addressing per u-boot-g99 finding: wrapper uses ranges +
+		// #address-cells=1, else the PHY port is never probed.
+		// ref clock = 26 MHz crystal stub.
+		u2phy0: t-phy@11f40000 {
+			compatible = "mediatek,generic-tphy-v2";
+			#address-cells = <1>;
+			#size-cells = <1>;
+			ranges = <0 0x00 0x11f40000 0x1000>;
+			status = "okay";
+
+			u2port0: usb-phy@0 {
+				reg = <0x0 0x700>;
+				clocks = <&clk26m>;
+				clock-names = "ref";
+				#phy-cells = <1>;
+				// calibration: stock DT u2port0 values (extracted/v5)
+				mediatek,eye-vrt = <4>;
+				mediatek,eye-term = <4>;
+				mediatek,discth = <7>;
+			};
+		};
+
+		// UFSHCI 2.x at 0x11270000, IRQ SPI 137 (stock: SPI 137,
+		// level-high). No clocks, no phys, no vcc, no resets: driver
+		// tolerates all four (verified by u-boot-mtk-g99 bringing
+		// this same IP up on MT6789 with "TODO: Clocks" and no
+		// mphy). mediatek,ufs-disable-mcq = UFS_MTK_CAP_DISABLE_MCQ
+		// -> UFSHCD_QUIRK_BROKEN_LSDBS_CAP: this IP's CAP register
+		// falsely reports legacy doorbell removed (bit29), which
+		// killed probe with -EINVAL at ufshcd_add_scsi_host in
+		// boots 8/9. U-Boot sets the same quirk unconditionally.
+		ufshci: ufshci@11270000 {
+			compatible = "mediatek,mt8183-ufshci";
+			reg = <0x00 0x11270000 0x00 0x2300>;
+			interrupts = <GIC_SPI 137 IRQ_TYPE_LEVEL_HIGH>;
+			mediatek,ufs-disable-mcq;
+			status = "okay";
+		};
+	};
+};

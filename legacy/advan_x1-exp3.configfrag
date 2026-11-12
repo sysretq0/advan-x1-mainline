@@ -1,0 +1,35 @@
+# Advan X1 mainline exp3 config fragment — USB serial control channel
+# Base: arm64 defconfig + advan_x1-exp1.configfrag + advan_x1-exp2.configfrag.
+# Goal: MUSB (MT6789 usb0@11200000) in peripheral mode + configfs gadget.
+# Control channel: USB ACM serial console (ttyGS0) to the operator PC.
+# Source: u-boot-mtk-g99 research (research/uboot-g99/compatibility.md):
+# USB ACM proven working on this device in the U-Boot fork; T-PHY needs
+# ranges/#address-cells=1; musb IP same as mt8518 family.
+# UFS precedent (boots 10-13): gates live across LK handoff, no CCF needed.
+# Controller
+CONFIG_USB_MUSB_HDRC=y
+CONFIG_USB_MUSB_GADGET=y
+CONFIG_USB_MUSB_MEDIATEK=y
+# glue deps
+CONFIG_USB_ROLE_SWITCH=y
+CONFIG_NOP_USB_XCEIV=y
+CONFIG_USB_PHY=y
+# T-PHY (u2port0 @ 0x11f40000, generic-tphy-v2)
+CONFIG_PHY_MTK_TPHY=y
+# gadget framework
+CONFIG_USB_GADGET=y
+CONFIG_USB_CONFIGFS=y
+# musb_core probe refuses to run without a DMA controller in the ops
+# table: mediatek glue's .dma_init is #ifdef USB_INVENTRA_DMA
+# ("DMA controller not set" -> -ENODEV, boot 20 root cause)
+CONFIG_USB_INVENTRA_DMA=y
+# initramfs devmem evidence pokes (infra_ao gate status, musb DEVCTL,
+# tphy u2port0 regs); strict devmem blocks /dev/mem for MMIO regions
+CONFIG_STRICT_DEVMEM=n
+# functions: ACM serial (primary), NCM/RNDIS (ssh, later)
+CONFIG_USB_U_SERIAL=y
+CONFIG_USB_F_ACM=y
+CONFIG_USB_F_NCM=y
+CONFIG_USB_U_ETHER=y
+CONFIG_USB_F_RNDIS=y
+CONFIG_USB_F_ECM=y

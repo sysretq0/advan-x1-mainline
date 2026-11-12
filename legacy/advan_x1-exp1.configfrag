@@ -1,0 +1,39 @@
+# Advan X1 mainline exp1 config fragment — display console
+# Base: arm64 defconfig. Merged via scripts/kconfig/merge_config.sh.
+# Goal: boot to fbcon on simpledrm handoff + UART console. No modules.
+
+# Trim build: no modules, no debug info, no warnings-as-errors (gcc 16)
+CONFIG_MODULES=n
+CONFIG_WERROR=n
+CONFIG_DEBUG_INFO_NONE=y
+
+# Console on simpledrm
+CONFIG_DRM=y
+CONFIG_DRM_SIMPLEDRM=y
+CONFIG_DRM_FBDEV_EMULATION=y
+CONFIG_FRAMEBUFFER_CONSOLE=y
+CONFIG_FRAMEBUFFER_CONSOLE_DETECT_PRIMARY=y
+CONFIG_VT=y
+CONFIG_VT_CONSOLE=y
+
+# UART0: mediatek,mt6577-uart via 8250_mtk + generic earlycon
+CONFIG_SERIAL_8250=y
+CONFIG_SERIAL_8250_CONSOLE=y
+CONFIG_SERIAL_8250_MT6577=y
+CONFIG_SERIAL_EARLYCON=y
+CONFIG_SERIAL_CORE_CONSOLE=y
+
+# Watchdog (mt6789-wdt/mt6589-wdt compat)
+CONFIG_WATCHDOG=y
+CONFIG_MEDIATEK_WATCHDOG=y
+
+# Base userspace visibility without a rootfs
+CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y
+
+# evidence: console output into stock ramoops carveout (hang diagnosis)
+CONFIG_PSTORE=y
+CONFIG_PSTORE_RAM=y
+CONFIG_PSTORE_CONSOLE=y
+CONFIG_PSTORE_DEFAULT_KMSG_BYTES=65536
+CONFIG_PRINTK_TIME=y
