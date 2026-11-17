@@ -16,6 +16,7 @@
 #include <dt-bindings/clock/mt6789-clk.h>
 #include <dt-bindings/reset/mt6789-resets.h>
 #include <dt-bindings/phy/phy.h>
+#include <dt-bindings/pinctrl/mt6789-pinfunc.h>
 
 / {
 	compatible = "mediatek,mt6789";
@@ -188,6 +189,29 @@
 			compatible = "mediatek,mt6789-apmixedsys", "syscon";
 			reg = <0x00 0x1000c000 0x00 0x1000>;
 			#clock-cells = <1>;
+		};
+
+		pio: pinctrl@10005000 {
+			compatible = "mediatek,mt6789-pinctrl";
+			reg = <0x00 0x10005000 0x00 0x1000>,
+			      <0x00 0x11c30000 0x00 0x1000>,
+			      <0x00 0x11d10000 0x00 0x1000>,
+			      <0x00 0x11d40000 0x00 0x1000>,
+			      <0x00 0x11e20000 0x00 0x1000>,
+			      <0x00 0x11e60000 0x00 0x1000>,
+			      <0x00 0x11ea0000 0x00 0x1000>;
+			reg-names = "gpio",
+				    "iocfg_rb",
+				    "iocfg_bm",
+				    "iocfg_br",
+				    "iocfg_lm",
+				    "iocfg_bl",
+				    "iocfg_rt";
+			gpio-controller;
+			#gpio-cells = <2>;
+			gpio-ranges = <&pio 0 0 188>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
 		};
 
 		watchdog: watchdog@10007000 {
