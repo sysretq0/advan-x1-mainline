@@ -68,6 +68,33 @@ fi
 # Print block device partitions for diagnostic confirmation
 log "Detected block devices: $(cat /proc/partitions 2>/dev/null | tr '\n' '; ')"
 
+# Mount debugfs for hardware introspection
+mount -t debugfs none /sys/kernel/debug 2>/dev/null || true
+
+log "=== Pinctrl & GPIO Diagnostics ==="
+log "GPIO chips: $(ls -d /sys/class/gpio/gpiochip* 2>/dev/null || echo 'None')"
+for chip in /sys/class/gpio/gpiochip*; do
+    if [ -d "$chip" ]; then
+        log "$chip: label=$(cat $chip/label 2>/dev/null), base=$(cat $chip/base 2>/dev/null), ngpio=$(cat $chip/ngpio 2>/dev/null)"
+    fi
+done
+
+if [ -d /sys/kernel/debug/pinctrl ]; then
+    log "Registered pinctrl devices: $(ls /sys/kernel/debug/pinctrl 2>/dev/null)"
+    for pctrl in /sys/kernel/debug/pinctrl/*; do
+        if [ -d "$pctrl" ]; then
+            log "Pinctrl $pctrl pin count: $(wc -l < $pctrl/pins 2>/dev/null || echo 'N/A') lines"
+            head -n 25 "$pctrl/pins" 2>/dev/null | while read -r line; do log "  PIN: $line"; done
+            tail -n 40 "$pctrl/pins" 2>/dev/null | while read -r line; do log "  PIN: $line"; done
+        fi
+    done
+fi
+
+if [ -f /sys/kernel/debug/gpio ]; then
+    log "=== /sys/kernel/debug/gpio ==="
+    cat /sys/kernel/debug/gpio 2>/dev/null | while read -r line; do log "  GPIO: $line"; done
+fi
+
 # Issue banner for getty logins
 cat << 'EOF' > /etc/issue
 
