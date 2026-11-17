@@ -1,32 +1,140 @@
-From b519cf2da44437763451b268d4884efd6108dc78 Mon Sep 17 00:00:00 2001
-From: sysretq0 <sysretq0@users.noreply.github.com>
-Date: Thu, 12 Nov 2026 16:20:34 +0000
+From 056477aa0c4beda1c0e3d551405f6949d8381761 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 12:03:48 +0000
 Subject: [PATCH 7/7] arm64: dts: mediatek: Add Advan X1 board device tree
 
-Advan X1 smartphone (MT6789). Memory map from live stock /proc/iomem audit
-(2026-11-11): one clean 3.64 GiB window, stock ramoops carveout declared as
-memory+reserved, loader kernel-staging region declared. simplefb panel
-console (1080x2460, stride 4352) and bootargs stub for the loki-loader LNXB
-chain (rewrites bootargs in place, publishes initrd coordinates via the
-linux,initrd-start/end stubs).
-
-Change-Id: I278fd2d0bd6d69b859101320a1a050a902f862c3
-Signed-off-by: sysretq0 <sysretq0@users.noreply.github.com>
 ---
- arch/arm64/boot/dts/mediatek/Makefile | 1 +
- 1 file changed, 1 insertion(+)
+ .../boot/dts/mediatek/mt6789-advan-x1.dts     | 121 ++++++++++++++++++
+ 1 file changed, 121 insertions(+)
+ create mode 100644 arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
 
-diff --git a/arch/arm64/boot/dts/mediatek/Makefile b/arch/arm64/boot/dts/mediatek/Makefile
-index a86fb313b..3dfbb4bb4 100644
---- a/arch/arm64/boot/dts/mediatek/Makefile
-+++ b/arch/arm64/boot/dts/mediatek/Makefile
-@@ -1,5 +1,6 @@
- # SPDX-License-Identifier: GPL-2.0
- dtb-$(CONFIG_ARCH_MEDIATEK) += mt2712-evb.dtb
-+dtb-$(CONFIG_ARCH_MEDIATEK) += mt6789-advan-x1.dtb
- dtb-$(CONFIG_ARCH_MEDIATEK) += mt6755-evb.dtb
- dtb-$(CONFIG_ARCH_MEDIATEK) += mt6779-evb.dtb
- dtb-$(CONFIG_ARCH_MEDIATEK) += mt6795-evb.dtb
+diff --git a/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
+new file mode 100644
+index 000000000..df137386c
+--- /dev/null
++++ b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
+@@ -0,0 +1,121 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++/*
++ * Advan X1 (MT6789) board device tree — clean redo.
++ *
++ * Board values from Advan X1 stock artifacts (extracted/v5/dtb/main_dtb_0.dts
++ * and live /proc/iomem audits 2026-11-11). Structure: upstream board-dts
++ * conventions. Loader interaction notes are evidence, not decoration — the
++ * loki-loader LNXB chain rewrites the chosen/bootargs bytes in place and
++ * publishes initrd coordinates only when the stub properties exist.
++ */
++
++/dts-v1/;
++
++#include <dt-bindings/interrupt-controller/arm-gic.h>
++#include <dt-bindings/interrupt-controller/irq.h>
++
++#include "mt6789.dtsi"
++
++/ {
++	model = "Advan X1";
++	compatible = "advan,x1", "mediatek,mt6789";
++
++	chosen {
++		/*
++		 * Bootargs stub: loader (loki-loader/src/boot.c) rewrites these
++		 * exact value bytes in place, so this string IS the published
++		 * cmdline. Do not shrink below current capacity.
++		 */
++		bootargs = "earlycon=uart8250,mmio32,0x11002000 console=tty0 console=ttyGS0,115200 nokaslr loglevel=7 initcall_debug=1 root=/dev/sdc72 rootwait rw";
++
++		/*
++		 * Loader publishes initrd coordinates ONLY when the DTB carries
++		 * these stubs (boot.c/fdt.c FDT_NO_PROP). Boot 18 lost the
++		 * initramfs entirely because these two properties went missing.
++		 */
++		linux,initrd-start = <0x00 0x00>;
++		linux,initrd-end = <0x00 0x00>;
++		stdout-path = "framebuffer0";
++
++		#address-cells = <2>;
++		#size-cells = <2>;
++
++		framebuffer0: framebuffer@fe007000 {
++			compatible = "simple-framebuffer";
++			/* memory-region overrides reg; both kept for loader
++			 * compat (older staging code reads reg; kernel uses
++			 * memory-region). */
++			reg = <0x00 0xfe007000 0x00 0x00a80000>;
++			memory-region = <&fb_reserved>;
++			width = <1080>;
++			height = <2460>;
++			stride = <4352>;
++			format = "a8r8g8b8";
++			status = "okay";
++		};
++	};
++
++	reserved-memory {
++		#address-cells = <2>;
++		#size-cells = <2>;
++		ranges;
++
++		/* 4352 B * 2460 rows = 10,705,920 B; padded to 0x00A80000.
++		 * no-map: page allocator would otherwise clobber the LK
++		 * scanout buffer (boot 1-3 finding: kernel never reserves
++		 * bare-reg simplefb DRAM). */
++		fb_reserved: framebuffer@fe007000 {
++			reg = <0x00 0xfe007000 0x00 0x00a80000>;
++			no-map;
++		};
++
++		/* Stock ramoops carveout (live /proc/iomem 2026-11-11): 1 MiB
++		 * window inside the stock hole keeps the page allocator off it
++		 * in both directions. PSTORE_CONSOLE records console output
++		 * continuously, so a silent hang still leaves the exact last
++		 * lines readable from Android /sys/fs/pstore after the WDT
++		 * reset. Declared as memory + reserved (no no-map) so it is
++		 * System RAM for memremap (boots 4-5: zero content written
++		 * otherwise). */
++		ramoops@48090000 {
++			compatible = "ramoops";
++			reg = <0x00 0x48090000 0x00 0x100000>;
++			record-size = <0x20000>;
++			console-size = <0x20000>;
++			pmsg-size = <0x20000>;
++			ecc-size = <0>;
++		};
++	};
++
++	/* Memory: ONE verifiably clean window from live stock /proc/iomem
++	 * (2026-11-11): 0x140000000-0x2296fffff has zero reserved children.
++	 * Above it sit TZ/pKVM-class reservations to 0x23fffefff; device is
++	 * 8 GB total, stock MemTotal 7.49 GiB. Do NOT widen without a fresh
++	 * iomem audit. The stock ramoops hole is declared as memory + reserved
++	 * above. */
++	memory@48090000 {
++		device_type = "memory";
++		reg = <0x00 0x48090000 0x00 0x100000>; /* 1 MiB stock ramoops hole */
++	};
++
++	/* Kernel staging region: loader drops the Image at 0x61000000 (2 MiB
++	 * aligned); the arm64 kernel needs its load address inside a declared
++	 * memory region or the linear map never covers its own image (first
++	 * boot silence, 2026-11-11: silent hang + 30 s WDT). image_size
++	 * 0x54a0000 (84.6 MiB) fits with margin; top 0x69000000 stays below
++	 * the stock hole at 0x70000000-0x76bfffff. Loader image/stack/DTB
++	 * staging (0x60000000-0x61000000) stay outside on purpose. */
++	memory@61000000 {
++		device_type = "memory";
++		reg = <0x00 0x61000000 0x00 0x08000000>; /* 128 MiB */
++	};
++
++	memory@140000000 {
++		device_type = "memory";
++		reg = <0x01 0x40000000 0x00 0xe9700000>; /* 3.64 GiB clean window */
++	};
++};
++
++&uart0 {
++	status = "okay";
++};
 -- 
 2.55.0
 

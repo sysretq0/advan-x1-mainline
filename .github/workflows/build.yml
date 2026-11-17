@@ -1,0 +1,90 @@
+name: Build Mainline Kernel & LNXB Bundle
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      linux_ref:
+        description: 'Upstream Linux Git Ref (tag, branch, commit)'
+        required: true
+        default: 'master'
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout port repository
+        uses: actions/checkout@v4
+
+      - name: Install build toolchain & dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang lld llvm gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+            bc bison flex libssl-dev libelf-dev device-tree-compiler xz-utils python3
+
+      - name: Checkout upstream Linux kernel
+        run: |
+          git clone --depth 1 --branch ${{ inputs.linux_ref || 'master' }} https://github.com/torvalds/linux.git /tmp/linux
+
+      - name: Apply MT6789 patch series
+        run: |
+          cd /tmp/linux
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          for p in "$GITHUB_WORKSPACE"/patches/*.patch; do
+            echo "Applying $(basename "$p")..."
+            git apply --whitespace=nowarn "$p"
+          done
+
+      - name: Configure kernel
+        run: |
+          cd /tmp/linux
+          make ARCH=arm64 defconfig
+          scripts/kconfig/merge_config.sh -m -O . .config "$GITHUB_WORKSPACE"/config/*.configfrag
+          make ARCH=arm64 olddefconfig LLVM=1
+
+      - name: Compile kernel Image
+        run: |
+          cd /tmp/linux
+          make -j$(nproc) ARCH=arm64 LLVM=1 Image
+
+      - name: Compile Advan X1 device tree blob
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/build"
+          cp /tmp/linux/arch/arm64/boot/Image "$GITHUB_WORKSPACE/build/Image"
+          
+          PDTB=$(mktemp /tmp/advan_x1.XXXX.dts)
+          clang -target aarch64-linux-gnu -E -nostdinc -undef -D__DTS__ -x assembler-with-cpp \
+            -I /tmp/linux/include -I /tmp/linux/include/dt-bindings -I /tmp/linux/arch/arm64/boot/dts \
+            "$GITHUB_WORKSPACE"/dts/mt6789-advan-x1.dts -o "$PDTB"
+          dtc -I dts -O dtb -o "$GITHUB_WORKSPACE/build/mt6789-advan-x1.dtb" "$PDTB"
+          rm -f "$PDTB"
+
+      - name: Pack LNXB bundle
+        run: |
+          python3 "$GITHUB_WORKSPACE/tools/pack_linux_bundle.py" \
+            --kernel "$GITHUB_WORKSPACE/build/Image" \
+            --dtb "$GITHUB_WORKSPACE/build/mt6789-advan-x1.dtb" \
+            --out "$GITHUB_WORKSPACE/build/bundle.img"
+          
+          cd "$GITHUB_WORKSPACE/build"
+          sha256sum Image mt6789-advan-x1.dtb bundle.img > sha256sums.txt
+          cat sha256sums.txt
+
+      - name: Compress artifacts into tar.xz
+        run: |
+          cd "$GITHUB_WORKSPACE/build"
+          tar -cJf "$GITHUB_WORKSPACE/bundle.tar.xz" bundle.img Image mt6789-advan-x1.dtb sha256sums.txt
+          ls -lh "$GITHUB_WORKSPACE/bundle.tar.xz"
+
+      - name: Upload bundle.tar.xz artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: advan-x1-mainline-bundle
+          path: bundle.tar.xz
+          if-no-files-found: error
+          retention-days: 14

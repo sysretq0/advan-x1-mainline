@@ -1,0 +1,4 @@
+build/
+*.tar.xz
+scripts/bin/llvm-*
+scripts/bin/ld.lld

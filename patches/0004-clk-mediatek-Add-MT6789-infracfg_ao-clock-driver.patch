@@ -1,29 +1,19 @@
-From bf7f3006a4ae569660304263321654003b44bd3d Mon Sep 17 00:00:00 2001
-From: MT6789 Clk Agent <agent@local>
-Date: Thu, 12 Nov 2026 16:11:53 +0000
+From fbb1e4179201b607286149e2e66ff6c108f0c7a9 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 12:03:46 +0000
 Subject: [PATCH 4/7] clk: mediatek: Add MT6789 infracfg_ao clock driver
 
-Register the 62 MT6789 infracfg_ao gates across the six
-set/clr/sta banks (0x80/0x88/0xa4/0xc0/0xe0/0xd0) using GATE_MTK
-macros and mtk_clk_simple_probe, following the mt8186 infra_ao
-structure. Gate names and gate bits are kept from the vendor
-tables; parent names are renamed to the topckgen outputs
-(top_axi, top_uart, top_msdc50_0, f26m, ...) per the mainline
-naming convention.
-
-Change-Id: Ic2cf146b03963d6b9908a054cd0921a41d825d67
-Signed-off-by: MT6789 Clk Agent <agent@local>
 ---
- drivers/clk/mediatek/clk-mt6789-infra_ao.c | 166 +++++++++++++++++++++
- 1 file changed, 166 insertions(+)
+ drivers/clk/mediatek/clk-mt6789-infra_ao.c | 216 +++++++++++++++++++++
+ 1 file changed, 216 insertions(+)
  create mode 100644 drivers/clk/mediatek/clk-mt6789-infra_ao.c
 
 diff --git a/drivers/clk/mediatek/clk-mt6789-infra_ao.c b/drivers/clk/mediatek/clk-mt6789-infra_ao.c
 new file mode 100644
-index 000000000..269e47b96
+index 000000000..78b293e78
 --- /dev/null
 +++ b/drivers/clk/mediatek/clk-mt6789-infra_ao.c
-@@ -0,0 +1,166 @@
+@@ -0,0 +1,216 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +//
 +// Copyright (c) 2022 MediaTek Inc.
@@ -32,9 +22,11 @@ index 000000000..269e47b96
 +#include <linux/clk-provider.h>
 +#include <linux/platform_device.h>
 +#include <dt-bindings/clock/mt6789-clk.h>
++#include <dt-bindings/reset/mt6789-resets.h>
 +
 +#include "clk-gate.h"
 +#include "clk-mtk.h"
++#include "reset.h"
 +
 +static const struct mtk_gate_regs ifrao0_cg_regs = {
 +	.set_ofs = 0x80,
@@ -72,34 +64,54 @@ index 000000000..269e47b96
 +	.sta_ofs = 0xd8,
 +};
 +
++#define GATE_IFRAO0_FLAGS(_id, _name, _parent, _shift, _flag)		\
++	GATE_MTK_FLAGS(_id, _name, _parent, &ifrao0_cg_regs, _shift,	\
++		&mtk_clk_gate_ops_setclr, _flag)
++
 +#define GATE_IFRAO0(_id, _name, _parent, _shift)			\
-+	GATE_MTK(_id, _name, _parent, &ifrao0_cg_regs, _shift,		\
-+		&mtk_clk_gate_ops_setclr)
++	GATE_IFRAO0_FLAGS(_id, _name, _parent, _shift, 0)
++
++#define GATE_IFRAO1_FLAGS(_id, _name, _parent, _shift, _flag)		\
++	GATE_MTK_FLAGS(_id, _name, _parent, &ifrao1_cg_regs, _shift,	\
++		&mtk_clk_gate_ops_setclr, _flag)
 +
 +#define GATE_IFRAO1(_id, _name, _parent, _shift)			\
-+	GATE_MTK(_id, _name, _parent, &ifrao1_cg_regs, _shift,		\
-+		&mtk_clk_gate_ops_setclr)
++	GATE_IFRAO1_FLAGS(_id, _name, _parent, _shift, 0)
++
++#define GATE_IFRAO2_FLAGS(_id, _name, _parent, _shift, _flag)		\
++	GATE_MTK_FLAGS(_id, _name, _parent, &ifrao2_cg_regs, _shift,	\
++		&mtk_clk_gate_ops_setclr, _flag)
 +
 +#define GATE_IFRAO2(_id, _name, _parent, _shift)			\
-+	GATE_MTK(_id, _name, _parent, &ifrao2_cg_regs, _shift,		\
-+		&mtk_clk_gate_ops_setclr)
++	GATE_IFRAO2_FLAGS(_id, _name, _parent, _shift, 0)
++
++#define GATE_IFRAO3_FLAGS(_id, _name, _parent, _shift, _flag)		\
++	GATE_MTK_FLAGS(_id, _name, _parent, &ifrao3_cg_regs, _shift,	\
++		&mtk_clk_gate_ops_setclr, _flag)
 +
 +#define GATE_IFRAO3(_id, _name, _parent, _shift)			\
-+	GATE_MTK(_id, _name, _parent, &ifrao3_cg_regs, _shift,		\
-+		&mtk_clk_gate_ops_setclr)
++	GATE_IFRAO3_FLAGS(_id, _name, _parent, _shift, 0)
++
++#define GATE_IFRAO4_FLAGS(_id, _name, _parent, _shift, _flag)		\
++	GATE_MTK_FLAGS(_id, _name, _parent, &ifrao4_cg_regs, _shift,	\
++		&mtk_clk_gate_ops_setclr, _flag)
 +
 +#define GATE_IFRAO4(_id, _name, _parent, _shift)			\
-+	GATE_MTK(_id, _name, _parent, &ifrao4_cg_regs, _shift,		\
-+		&mtk_clk_gate_ops_setclr)
++	GATE_IFRAO4_FLAGS(_id, _name, _parent, _shift, 0)
++
++#define GATE_IFRAO5_FLAGS(_id, _name, _parent, _shift, _flag)		\
++	GATE_MTK_FLAGS(_id, _name, _parent, &ifrao5_cg_regs, _shift,	\
++		&mtk_clk_gate_ops_setclr, _flag)
 +
 +#define GATE_IFRAO5(_id, _name, _parent, _shift)			\
-+	GATE_MTK(_id, _name, _parent, &ifrao5_cg_regs, _shift,		\
-+		&mtk_clk_gate_ops_setclr)
++	GATE_IFRAO5_FLAGS(_id, _name, _parent, _shift, 0)
 +
 +static const struct mtk_gate ifrao_clks[] = {
 +	/* IFRAO0 */
-+	GATE_IFRAO0(CLK_IFRAO_PMIC_TMR, "ifrao_pmic_tmr", "top_pwrap_ulposc", 0),
-+	GATE_IFRAO0(CLK_IFRAO_PMIC_AP, "ifrao_pmic_ap", "top_pwrap_ulposc", 1),
++	GATE_IFRAO0_FLAGS(CLK_IFRAO_PMIC_TMR, "ifrao_pmic_tmr", "top_pwrap_ulposc", 0,
++			  CLK_IS_CRITICAL),
++	GATE_IFRAO0_FLAGS(CLK_IFRAO_PMIC_AP, "ifrao_pmic_ap", "top_pwrap_ulposc", 1,
++			  CLK_IS_CRITICAL),
 +	GATE_IFRAO0(CLK_IFRAO_GCE, "ifrao_gce", "top_axi", 8),
 +	GATE_IFRAO0(CLK_IFRAO_GCE2, "ifrao_gce2", "top_axi", 9),
 +	GATE_IFRAO0(CLK_IFRAO_THERM, "ifrao_therm", "top_axi", 10),
@@ -123,7 +135,8 @@ index 000000000..269e47b96
 +	GATE_IFRAO1(CLK_IFRAO_MSDC1, "ifrao_msdc1", "top_axi", 4),
 +	GATE_IFRAO1(CLK_IFRAO_MSDC0_SRC, "ifrao_msdc0_clk", "top_msdc50_0", 6),
 +	GATE_IFRAO1(CLK_IFRAO_AUXADC, "ifrao_auxadc", "f26m", 10),
-+	GATE_IFRAO1(CLK_IFRAO_CPUM, "ifrao_cpum", "top_axi", 11),
++	GATE_IFRAO1_FLAGS(CLK_IFRAO_CPUM, "ifrao_cpum", "top_axi", 11,
++			  CLK_IS_CRITICAL),
 +	GATE_IFRAO1(CLK_IFRAO_CCIF1_AP, "ifrao_ccif1_ap", "top_axi", 12),
 +	GATE_IFRAO1(CLK_IFRAO_CCIF1_MD, "ifrao_ccif1_md", "top_axi", 13),
 +	GATE_IFRAO1(CLK_IFRAO_AUXADC_MD, "ifrao_auxadc_md", "f26m", 14),
@@ -146,7 +159,8 @@ index 000000000..269e47b96
 +	GATE_IFRAO2(CLK_IFRAO_UFS_SAP_BCLK, "ifrao_u_bclk", "f26m", 13),
 +	GATE_IFRAO2(CLK_IFRAO_SPI4, "ifrao_spi4", "top_spi", 25),
 +	GATE_IFRAO2(CLK_IFRAO_SPI5, "ifrao_spi5", "top_spi", 26),
-+	GATE_IFRAO2(CLK_IFRAO_CQ_DMA, "ifrao_cq_dma", "top_axi", 27),
++	GATE_IFRAO2_FLAGS(CLK_IFRAO_CQ_DMA, "ifrao_cq_dma", "top_axi", 27,
++			  CLK_IS_CRITICAL),
 +	GATE_IFRAO2(CLK_IFRAO_UFS, "ifrao_ufs", "top_ufs", 28),
 +	GATE_IFRAO2(CLK_IFRAO_UFS_AES, "ifrao_u_aes", "top_aes_ufsfde", 29),
 +	/* IFRAO3 */
@@ -162,14 +176,40 @@ index 000000000..269e47b96
 +	GATE_IFRAO3(CLK_IFRAO_SPI6_CK, "ifrao_spi6_ck", "top_spi", 30),
 +	GATE_IFRAO3(CLK_IFRAO_SPI7_CK, "ifrao_spi7_ck", "top_spi", 31),
 +	/* IFRAO4 */
-+	GATE_IFRAO4(CLK_IFRAO_66MP_BUS_MCLK_CKP, "ifrao_66mp_mclkp", "top_axi", 2),
++	GATE_IFRAO4_FLAGS(CLK_IFRAO_66MP_BUS_MCLK_CKP, "ifrao_66mp_mclkp", "top_axi", 2,
++			  CLK_IS_CRITICAL),
 +	/* IFRAO5 */
-+	GATE_IFRAO5(CLK_IFRAO_AP_DMA, "ifrao_ap_dma", "top_apdma", 31),
++	GATE_IFRAO5_FLAGS(CLK_IFRAO_AP_DMA, "ifrao_ap_dma", "top_apdma", 31,
++			  CLK_IS_CRITICAL),
++};
++
++static u16 infra_ao_rst_ofs[] = {
++	INFRA_RST0_SET_OFFSET,
++	INFRA_RST1_SET_OFFSET,
++	INFRA_RST2_SET_OFFSET,
++	INFRA_RST3_SET_OFFSET,
++	INFRA_RST4_SET_OFFSET,
++};
++
++static u16 infra_ao_idx_map[] = {
++	[MT6789_INFRA_RST0_THERM_CTRL_SWRST]	= 0 * RST_NR_PER_BANK + 0,
++	[MT6789_INFRA_RST1_UFS_SWRST]		= 1 * RST_NR_PER_BANK + 15,
++	[MT6789_INFRA_RST2_UFS_UNIPRO_SWRST]	= 2 * RST_NR_PER_BANK + 7,
++	[MT6789_INFRA_RST3_UFS_AES_SWRST]	= 3 * RST_NR_PER_BANK + 21,
++};
++
++static struct mtk_clk_rst_desc infra_ao_rst_desc = {
++	.version = MTK_RST_SET_CLR,
++	.rst_bank_ofs = infra_ao_rst_ofs,
++	.rst_bank_nr = ARRAY_SIZE(infra_ao_rst_ofs),
++	.rst_idx_map = infra_ao_idx_map,
++	.rst_idx_map_nr = ARRAY_SIZE(infra_ao_idx_map),
 +};
 +
 +static const struct mtk_clk_desc ifrao_desc = {
 +	.clks = ifrao_clks,
 +	.num_clks = ARRAY_SIZE(ifrao_clks),
++	.rst_desc = &infra_ao_rst_desc,
 +};
 +
 +static const struct of_device_id of_match_clk_mt6789_infra_ao[] = {

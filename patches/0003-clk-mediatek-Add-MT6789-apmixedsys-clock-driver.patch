@@ -1,20 +1,8 @@
-From 48233019a2ebf1b1fdf8f46147d3e6d480c7b02a Mon Sep 17 00:00:00 2001
-From: MT6789 Clk Agent <agent@local>
-Date: Thu, 12 Nov 2026 16:11:52 +0000
+From 59e14036b332c55b773ab7ccad74e6d0273e24ab Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 12:03:46 +0000
 Subject: [PATCH 3/7] clk: mediatek: Add MT6789 apmixedsys clock driver
 
-Register the 14 MT6789 apmixedsys PLLs (armpll_ll, armpll_bl0,
-ccipll, mpll, mainpll, univpll, msdcpll, mmpll, npupll, mfgpll,
-tvdpll, apll1, apll2, usbpll) with mt8186-style mtk_pll_data
-entries. Register offsets, post-divider shift/width, pcw width and
-tuner settings are kept from the vendor tables.
-
-usbpll deviates from the common layout: its enable bit is CON2 bit
-2 instead of CON0 bit 0, so its entry is spelled out explicitly
-using the en_reg/pll_en_bit fields instead of the PLL macro.
-
-Change-Id: If43974d2a36b8a00888dca164b4f5e188267b0a7
-Signed-off-by: MT6789 Clk Agent <agent@local>
 ---
  drivers/clk/mediatek/clk-mt6789-apmixedsys.c | 153 +++++++++++++++++++
  1 file changed, 153 insertions(+)

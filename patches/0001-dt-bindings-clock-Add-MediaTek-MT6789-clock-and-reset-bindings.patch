@@ -1,21 +1,15 @@
-From d657b43262310be3ecbecc63da0a6a28c4795d42 Mon Sep 17 00:00:00 2001
-From: MT6789 Clk Agent <agent@local>
-Date: Thu, 12 Nov 2026 16:11:51 +0000
-Subject: [PATCH 1/7] dt-bindings: clock: Add MediaTek MT6789 clock bindings
+From 24f0526252c483ca90279585360d094f2e553556 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 12:03:45 +0000
+Subject: [PATCH 1/7] dt-bindings: clock: Add MediaTek MT6789 clock and reset
+ bindings
 
-Add the clock ID header for the MediaTek MT6789 (Helio G99) SoC,
-covering topckgen, infracfg_ao, apmixedsys, imp_iic_wrap, afe,
-mfgcfg, dispsys, imgsys, vdec/venc gcon, camsys, ipesys and mdpsys
-clock IDs. IDs are taken verbatim from the MediaTek vendor CCF
-driver (GPL-2.0) so the same numeric values stay usable when the
-corresponding clock providers are brought up.
-
-Change-Id: I63c5707740ce75cfe12d3266fdea8589d6a19ff6
-Signed-off-by: MT6789 Clk Agent <agent@local>
 ---
- include/dt-bindings/clock/mt6789-clk.h | 444 +++++++++++++++++++++++++
- 1 file changed, 444 insertions(+)
+ include/dt-bindings/clock/mt6789-clk.h    | 444 ++++++++++++++++++++++
+ include/dt-bindings/reset/mt6789-resets.h |  14 +
+ 2 files changed, 458 insertions(+)
  create mode 100644 include/dt-bindings/clock/mt6789-clk.h
+ create mode 100644 include/dt-bindings/reset/mt6789-resets.h
 
 diff --git a/include/dt-bindings/clock/mt6789-clk.h b/include/dt-bindings/clock/mt6789-clk.h
 new file mode 100644
@@ -467,6 +461,26 @@ index 000000000..17871f14a
 +#define CLK_MDP_NR_CLK					16
 +
 +#endif /* __DT_BINDINGS_CLOCK_MT6789_CLK_H */
+diff --git a/include/dt-bindings/reset/mt6789-resets.h b/include/dt-bindings/reset/mt6789-resets.h
+new file mode 100644
+index 000000000..43a89940d
+--- /dev/null
++++ b/include/dt-bindings/reset/mt6789-resets.h
+@@ -0,0 +1,14 @@
++/* SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause) */
++/*
++ * Copyright (c) 2026 MediaTek Inc.
++ */
++
++#ifndef _DT_BINDINGS_RESET_CONTROLLER_MT6789
++#define _DT_BINDINGS_RESET_CONTROLLER_MT6789
++
++#define MT6789_INFRA_RST0_THERM_CTRL_SWRST	0
++#define MT6789_INFRA_RST1_UFS_SWRST		1
++#define MT6789_INFRA_RST2_UFS_UNIPRO_SWRST	2
++#define MT6789_INFRA_RST3_UFS_AES_SWRST		3
++
++#endif  /* _DT_BINDINGS_RESET_CONTROLLER_MT6789 */
 -- 
 2.55.0
 

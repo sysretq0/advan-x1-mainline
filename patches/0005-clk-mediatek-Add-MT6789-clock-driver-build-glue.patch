@@ -1,14 +1,8 @@
-From cee6682ab31714f4921ab3c0adce8db029ee9824 Mon Sep 17 00:00:00 2001
-From: MT6789 Clk Agent <agent@local>
-Date: Thu, 12 Nov 2026 16:11:53 +0000
+From 5ecf21fae65488f1303e733be07fe1d0d25a8a3c Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 12:03:47 +0000
 Subject: [PATCH 5/7] clk: mediatek: Add MT6789 clock driver build glue
 
-Add COMMON_CLK_MT6789 covering the apmixedsys, topckgen and
-infracfg_ao drivers (mt8186 builds infra_ao into its main config,
-so no separate infra option) and the matching Makefile entries.
-
-Change-Id: I2e1c3da063730f51ecbafadc222ec8a7eabf293b
-Signed-off-by: MT6789 Clk Agent <agent@local>
 ---
  drivers/clk/mediatek/Kconfig  | 9 +++++++++
  drivers/clk/mediatek/Makefile | 2 ++

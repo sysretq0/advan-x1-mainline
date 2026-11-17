@@ -1,38 +1,19 @@
-From 68986396313996d1bbf91839b3cbbfdf79fd1d58 Mon Sep 17 00:00:00 2001
-From: MT6789 Clk Agent <agent@local>
-Date: Thu, 12 Nov 2026 16:11:52 +0000
+From 02abbc669679a832162ff76fcbcf8e798958528b Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 12:03:45 +0000
 Subject: [PATCH 2/7] clk: mediatek: Add MT6789 topckgen clock driver
 
-Register the MT6789 topckgen clocks: 95 fixed factors, 53 muxes in
-CLK_CFG_0..16 (with CLK_CFG_UPDATE/1/2 reparent strobes) and 21
-composites for the audio APLL I2S mck selectors and APLL12 mst
-dividers, following the mt8186 topckgen structure using
-mtk_clk_simple_probe.
-
-Clock names follow mainline conventions: post-mux divider outputs
-are named top_* (top_axi, top_uart, top_msdc50_0, ...) so
-infracfg_ao gates can reference them the same way mt8186 does;
-one-to-one PLL alias factors keep the *_ck suffix to stay distinct
-from the apmixedsys PLL names (mfgpll_ck vs mfgpll), matching the
-mt8192 precedent. Parent arrays duplicated per mux in the vendor
-code (camtg2..6, seninf0..3) are deduplicated into shared arrays;
-all mux IDs, registers, bits and update strobes are unchanged.
-Derived PLL dividers (mainpll_d4, univpll_d6_d8, ...) are fixed
-factors off the apmixedsys PLL outputs per the vendor tables.
-
-Change-Id: I270e1a9eb406e3721ebc615d15dc971e06b95b78
-Signed-off-by: MT6789 Clk Agent <agent@local>
 ---
- drivers/clk/mediatek/clk-mt6789-topckgen.c | 710 +++++++++++++++++++++
- 1 file changed, 710 insertions(+)
+ drivers/clk/mediatek/clk-mt6789-topckgen.c | 714 +++++++++++++++++++++
+ 1 file changed, 714 insertions(+)
  create mode 100644 drivers/clk/mediatek/clk-mt6789-topckgen.c
 
 diff --git a/drivers/clk/mediatek/clk-mt6789-topckgen.c b/drivers/clk/mediatek/clk-mt6789-topckgen.c
 new file mode 100644
-index 000000000..581432460
+index 000000000..e70a74f85
 --- /dev/null
 +++ b/drivers/clk/mediatek/clk-mt6789-topckgen.c
-@@ -0,0 +1,710 @@
+@@ -0,0 +1,714 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +//
 +// Copyright (c) 2022 MediaTek Inc.
@@ -547,8 +528,9 @@ index 000000000..581432460
 +		axi_parents, 0x0010, 0x0014, 0x0018, 0, 3, 0x0004, 0),
 +	MUX_CLR_SET_UPD(CLK_TOP_SPM_SEL, "spm_sel",
 +		spm_parents, 0x0010, 0x0014, 0x0018, 8, 2, 0x0004, 1),
-+	MUX_GATE_CLR_SET_UPD(CLK_TOP_SCP_SEL, "scp_sel",
-+		scp_parents, 0x0010, 0x0014, 0x0018, 16, 3, 23, 0x0004, 2),
++	MUX_GATE_CLR_SET_UPD_FLAGS(CLK_TOP_SCP_SEL, "scp_sel",
++		scp_parents, 0x0010, 0x0014, 0x0018, 16, 3, 23, 0x0004, 2,
++		CLK_IS_CRITICAL | CLK_SET_RATE_PARENT),
 +	MUX_CLR_SET_UPD(CLK_TOP_BUS_AXIMEM_SEL, "bus_aximem_sel",
 +		bus_aximem_parents, 0x0010, 0x0014, 0x0018, 24, 3, 0x0004, 3),
 +	/* CLK_CFG_1 */
@@ -598,10 +580,12 @@ index 000000000..581432460
 +	/* CLK_CFG_8 */
 +	MUX_GATE_CLR_SET_UPD(CLK_TOP_AUD_INTBUS_SEL, "aud_intbus_sel",
 +		aud_intbus_parents, 0x0090, 0x0094, 0x0098, 0, 2, 7, 0x0008, 1),
-+	MUX_GATE_CLR_SET_UPD(CLK_TOP_PWRAP_ULPOSC_SEL, "pwrap_ulposc_sel",
-+		pwrap_ulposc_parents, 0x0090, 0x0094, 0x0098, 8, 3, 15, 0x0008, 2),
-+	MUX_GATE_CLR_SET_UPD(CLK_TOP_ATB_SEL, "atb_sel",
-+		atb_parents, 0x0090, 0x0094, 0x0098, 16, 2, 23, 0x0008, 3),
++	MUX_GATE_CLR_SET_UPD_FLAGS(CLK_TOP_PWRAP_ULPOSC_SEL, "pwrap_ulposc_sel",
++		pwrap_ulposc_parents, 0x0090, 0x0094, 0x0098, 8, 3, 15, 0x0008, 2,
++		CLK_IS_CRITICAL | CLK_SET_RATE_PARENT),
++	MUX_GATE_CLR_SET_UPD_FLAGS(CLK_TOP_ATB_SEL, "atb_sel",
++		atb_parents, 0x0090, 0x0094, 0x0098, 16, 2, 23, 0x0008, 3,
++		CLK_IS_CRITICAL | CLK_SET_RATE_PARENT),
 +	MUX_CLR_SET_UPD(CLK_TOP_SSPM_SEL, "sspm_sel",
 +		sspm_parents, 0x0090, 0x0094, 0x0098, 24, 3, 0x0008, 4),
 +	/* CLK_CFG_9 */
@@ -639,8 +623,9 @@ index 000000000..581432460
 +		aud_1_parents, 0x00e0, 0x00e4, 0x00e8, 0, 1, 7, 0x0008, 21),
 +	MUX_GATE_CLR_SET_UPD(CLK_TOP_AUD_2_SEL, "aud_2_sel",
 +		aud_2_parents, 0x00e0, 0x00e4, 0x00e8, 8, 1, 15, 0x0008, 22),
-+	MUX_GATE_CLR_SET_UPD(CLK_TOP_DPMAIF_MAIN_SEL, "dpmaif_main_sel",
-+		dpmaif_main_parents, 0x00e0, 0x00e4, 0x00e8, 24, 3, 31, 0x0008, 24),
++	MUX_GATE_CLR_SET_UPD_FLAGS(CLK_TOP_DPMAIF_MAIN_SEL, "dpmaif_main_sel",
++		dpmaif_main_parents, 0x00e0, 0x00e4, 0x00e8, 24, 3, 31, 0x0008, 24,
++		CLK_IS_CRITICAL | CLK_SET_RATE_PARENT),
 +	/* CLK_CFG_14 */
 +	MUX_GATE_CLR_SET_UPD(CLK_TOP_VENC_SEL, "venc_sel",
 +		venc_parents, 0x00f0, 0x00f4, 0x00f8, 0, 4, 7, 0x0008, 25),
