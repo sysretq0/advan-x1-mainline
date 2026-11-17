@@ -44,6 +44,7 @@ jobs:
           cd busybox-1.38.0
           make defconfig
           sed -i 's/^# CONFIG_STATIC is not set/CONFIG_STATIC=y/' .config
+          sed -i 's/CONFIG_TC=y/# CONFIG_TC is not set/' .config
           yes "" | make oldconfig
           make -j$(nproc) CROSS_COMPILE=aarch64-linux-gnu- install CONFIG_PREFIX="$GITHUB_WORKSPACE/initramfs_root"
           
