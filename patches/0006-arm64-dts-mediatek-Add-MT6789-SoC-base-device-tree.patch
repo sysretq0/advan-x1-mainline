@@ -15,7 +15,7 @@ new file mode 100644
 index 000000000..565710095
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
-@@ -0,0 +1,234 @@
+@@ -0,0 +1,235 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * MediaTek MT6789 (Helio G99) SoC base device tree — mainline shape.
@@ -246,6 +246,7 @@ index 000000000..565710095
 +				 <&infracfg_ao MT6789_INFRA_RST2_UFS_UNIPRO_SWRST>,
 +				 <&infracfg_ao MT6789_INFRA_RST3_UFS_AES_SWRST>;
 +			reset-names = "hci_rst", "unipro_rst", "crypto_rst";
++			mediatek,ufs-disable-mcq;
 +			status = "disabled";
 +		};
 +	};

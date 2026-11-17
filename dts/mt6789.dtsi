@@ -228,6 +228,7 @@
 				 <&infracfg_ao MT6789_INFRA_RST2_UFS_UNIPRO_SWRST>,
 				 <&infracfg_ao MT6789_INFRA_RST3_UFS_AES_SWRST>;
 			reset-names = "hci_rst", "unipro_rst", "crypto_rst";
+			mediatek,ufs-disable-mcq;
 			status = "disabled";
 		};
 	};
