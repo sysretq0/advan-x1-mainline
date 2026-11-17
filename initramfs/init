@@ -28,16 +28,6 @@ log "=== ADVAN X1 Mainline Linux BusyBox Initramfs ==="
 log "Kernel $(uname -r) on $(uname -m)"
 log "System uptime: $(cut -d' ' -f1 /proc/uptime) seconds"
 
-# Watchdog keepalive daemon: feed hardware watchdog every 5 seconds
-(
-    while true; do
-        if [ -c /dev/watchdog ]; then
-            printf '\0' > /dev/watchdog 2>/dev/null || true
-        fi
-        sleep 5
-    done
-) &
-log "Watchdog keepalive daemon started"
 
 # Setup USB gadget (ACM serial on /dev/ttyGS0)
 if [ -d /sys/kernel/config/usb_gadget ]; then
