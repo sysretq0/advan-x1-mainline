@@ -1,0 +1,89 @@
+#!/bin/sh
+# ADVAN X1 Mainline Linux Initramfs
+# Boots BusyBox into RAM, brings up USB ACM gadget, and runs interactive shell.
+
+# Essential mountpoints
+mkdir -p /proc /sys /dev /mnt /tmp /run /sys/kernel/config
+mount -t proc none /proc
+mount -t sysfs none /sys
+mount -t devtmpfs none /dev
+mount -t configfs none /sys/kernel/config 2>/dev/null || true
+
+# Display banner on console
+cat << "EOF" > /dev/console
+
+=============================================================
+         ADVAN X1 (Helio G99 / MT6789) Mainline Linux        
+             Minimal Standalone BusyBox Initramfs            
+=============================================================
+EOF
+
+echo "[INIT] Kernel $(uname -r) on $(uname -m)" > /dev/console
+echo "[INIT] System uptime: $(cut -d' ' -f1 /proc/uptime) seconds" > /dev/console
+
+# Watchdog keepalive daemon: feed hardware watchdog every 5 seconds
+(
+    while true; do
+        if [ -c /dev/watchdog ]; then
+            printf '\0' > /dev/watchdog 2>/dev/null || true
+        fi
+        sleep 5
+    done
+) &
+echo "[INIT] Watchdog keepalive daemon started" > /dev/console
+
+# Setup USB gadget (ACM serial on /dev/ttyGS0)
+if [ -d /sys/kernel/config/usb_gadget ]; then
+    echo "[INIT] Initializing USB ConfigFS gadget..." > /dev/console
+    cd /sys/kernel/config/usb_gadget
+    mkdir -p g1
+    cd g1
+    echo 0x1d6b > idVendor
+    echo 0x0104 > idProduct
+    echo 0x0100 > bcdDevice
+    mkdir -p strings/0x409
+    echo "Advan" > strings/0x409/manufacturer
+    echo "Advan X1 Mainline" > strings/0x409/product
+    mkdir -p configs/c.1/strings/0x409
+    echo "ACM" > configs/c.1/strings/0x409/configuration
+    echo 500 > configs/c.1/MaxPower
+    mkdir -p functions/acm.usb0
+    ln -sf functions/acm.usb0 configs/c.1/
+
+    # Wait up to 3 seconds for UDC registration
+    UDC=""
+    for i in 1 2 3; do
+        UDC=$(ls /sys/class/udc 2>/dev/null | head -n 1)
+        [ -n "$UDC" ] && break
+        sleep 1
+    done
+
+    if [ -n "$UDC" ]; then
+        echo "$UDC" > UDC 2>/dev/null && \
+            echo "[INIT] USB gadget bound to $UDC (/dev/ttyGS0 active)" > /dev/console || \
+            echo "[INIT] Failed to bind USB gadget to $UDC" > /dev/console
+    else
+        echo "[INIT] No UDC device found in /sys/class/udc" > /dev/console
+    fi
+fi
+
+# Print block device partitions for diagnostic confirmation
+echo "[INIT] Detected block devices:" > /dev/console
+cat /proc/partitions > /dev/console 2>/dev/null || true
+
+# Spawn background shell on USB serial ttyGS0 if present
+(
+    while true; do
+        if [ -c /dev/ttyGS0 ]; then
+            setsid cttyhack sh </dev/ttyGS0 >/dev/ttyGS0 2>&1
+        fi
+        sleep 2
+    done
+) &
+
+# Foreground interactive shell on primary console (simplefb / uart0)
+echo "[INIT] Starting interactive root shell on /dev/console..." > /dev/console
+while true; do
+    setsid cttyhack sh </dev/console >/dev/console 2>&1
+    sleep 1
+done

@@ -32,7 +32,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             clang lld llvm gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
-            bc bison flex libssl-dev libelf-dev device-tree-compiler xz-utils python3
+            bc bison flex libssl-dev libelf-dev device-tree-compiler xz-utils python3 \
+            cpio curl bzip2
 
       - name: Checkout upstream Linux kernel
         run: |
@@ -75,21 +76,43 @@ jobs:
           dtc -I dts -O dtb -o "$GITHUB_WORKSPACE/build/mt6789-advan-x1.dtb" "$PDTB"
           rm -f "$PDTB"
 
+      - name: Build static BusyBox & package initramfs
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/busybox-build"
+          cd "$GITHUB_WORKSPACE/busybox-build"
+          curl -sSL https://busybox.net/downloads/busybox-1.36.1.tar.bz2 | tar -xj
+          cd busybox-1.36.1
+          make defconfig
+          sed -i 's/.*CONFIG_STATIC.*/CONFIG_STATIC=y/' .config
+          sed -i 's/.*CONFIG_STATIC_LIBGCC.*/CONFIG_STATIC_LIBGCC=y/' .config
+          make -j$(nproc) CROSS_COMPILE=aarch64-linux-gnu- install CONFIG_PREFIX="$GITHUB_WORKSPACE/initramfs_root"
+          
+          # Setup directories and copy /init
+          cd "$GITHUB_WORKSPACE/initramfs_root"
+          mkdir -p dev proc sys mnt run tmp etc root
+          cp "$GITHUB_WORKSPACE/initramfs/init" init
+          chmod +x init
+          
+          # Package into initramfs.cpio.gz
+          find . | cpio -H newc -o | gzip -9 > "$GITHUB_WORKSPACE/build/initramfs.cpio.gz"
+          ls -lh "$GITHUB_WORKSPACE/build/initramfs.cpio.gz"
+
       - name: Pack LNXB bundle
         run: |
           python3 "$GITHUB_WORKSPACE/tools/pack_linux_bundle.py" \
             --kernel "$GITHUB_WORKSPACE/build/Image" \
             --dtb "$GITHUB_WORKSPACE/build/mt6789-advan-x1.dtb" \
+            --initramfs "$GITHUB_WORKSPACE/build/initramfs.cpio.gz" \
             --out "$GITHUB_WORKSPACE/build/bundle.img"
           
           cd "$GITHUB_WORKSPACE/build"
-          sha256sum Image mt6789-advan-x1.dtb bundle.img > sha256sums.txt
+          sha256sum Image mt6789-advan-x1.dtb initramfs.cpio.gz bundle.img > sha256sums.txt
           cat sha256sums.txt
 
       - name: Compress artifacts into tar.xz
         run: |
           cd "$GITHUB_WORKSPACE/build"
-          XZ_OPT="-9e -T0" tar -cJf "$GITHUB_WORKSPACE/bundle.tar.xz" bundle.img Image mt6789-advan-x1.dtb sha256sums.txt
+          XZ_OPT="-9e -T0" tar -cJf "$GITHUB_WORKSPACE/bundle.tar.xz" bundle.img Image mt6789-advan-x1.dtb initramfs.cpio.gz sha256sums.txt
           ls -lh "$GITHUB_WORKSPACE/bundle.tar.xz"
 
       - name: Upload bundle.tar.xz artifact

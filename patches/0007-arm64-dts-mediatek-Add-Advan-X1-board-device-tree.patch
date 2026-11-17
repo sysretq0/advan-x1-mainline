@@ -7,8 +7,8 @@ Change-Id: I0d623ead8108e78abc3a153625ae6e616ce065df
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  arch/arm64/boot/dts/mediatek/Makefile         |   1 +
- .../boot/dts/mediatek/mt6789-advan-x1.dts     | 125 ++++++++++++++++++
- 2 files changed, 126 insertions(+)
+ .../boot/dts/mediatek/mt6789-advan-x1.dts     | 133 ++++++++++++++++++
+ 2 files changed, 134 insertions(+)
  create mode 100644 arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
 
 diff --git a/arch/arm64/boot/dts/mediatek/Makefile b/arch/arm64/boot/dts/mediatek/Makefile
@@ -27,7 +27,7 @@ new file mode 100644
 index 000000000..843b637c7
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
-@@ -0,0 +1,125 @@
+@@ -0,0 +1,133 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Advan X1 (MT6789) board device tree — clean redo.
@@ -56,7 +56,7 @@ index 000000000..843b637c7
 +		 * exact value bytes in place, so this string IS the published
 +		 * cmdline. Do not shrink below current capacity.
 +		 */
-+		bootargs = "earlycon=uart8250,mmio32,0x11002000 console=tty0 console=ttyGS0,115200 nokaslr loglevel=7 initcall_debug=1 root=/dev/sdc72 rootwait rw";
++		bootargs = "earlycon=uart8250,mmio32,0x11002000 console=tty0 console=ttyGS0,115200 nokaslr loglevel=7 initcall_debug=1 rdinit=/init                  ";
 +
 +		/*
 +		 * Loader publishes initrd coordinates ONLY when the DTB carries
@@ -153,6 +153,13 @@ index 000000000..843b637c7
 +&ufshci {
 +	status = "okay";
 +};
++
++&u2phy0 {
++	status = "okay";
++};
++
++&usb0 {
++	status = "okay";
++};
 -- 
 2.55.0
-

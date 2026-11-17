@@ -15,6 +15,7 @@
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/clock/mt6789-clk.h>
 #include <dt-bindings/reset/mt6789-resets.h>
+#include <dt-bindings/phy/phy.h>
 
 / {
 	compatible = "mediatek,mt6789";
@@ -229,6 +230,36 @@
 				 <&infracfg_ao MT6789_INFRA_RST3_UFS_AES_SWRST>;
 			reset-names = "hci_rst", "unipro_rst", "crypto_rst";
 			mediatek,ufs-disable-mcq;
+			status = "disabled";
+		};
+
+		u2phy0: t-phy@11f40000 {
+			compatible = "mediatek,generic-tphy-v2";
+			#address-cells = <1>;
+			#size-cells = <1>;
+			ranges = <0 0x00 0x11f40000 0x1000>;
+			status = "disabled";
+
+			u2port0: usb-phy@0 {
+				reg = <0x0 0x700>;
+				clocks = <&clk26m>;
+				clock-names = "ref";
+				#phy-cells = <1>;
+				mediatek,eye-vrt = <4>;
+				mediatek,eye-term = <4>;
+				mediatek,discth = <7>;
+			};
+		};
+
+		usb0: usb@11200000 {
+			compatible = "mediatek,mtk-musb";
+			reg = <0x00 0x11200000 0x00 0x10000>;
+			interrupts = <GIC_SPI 128 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "mc";
+			clocks = <&clk26m>, <&clk26m>, <&clk26m>;
+			clock-names = "main", "mcu", "univpll";
+			phys = <&u2port0 PHY_TYPE_USB2>;
+			dr_mode = "peripheral";
 			status = "disabled";
 		};
 	};
