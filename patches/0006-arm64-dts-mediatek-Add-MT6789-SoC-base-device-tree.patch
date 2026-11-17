@@ -10,10 +10,10 @@ Signed-off-by: Diky Nugraha Djiu <diki.vinus54321@gmail.com>
 ---
 diff --git a/arch/arm64/boot/dts/mediatek/mt6789.dtsi b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
 new file mode 100644
-index 000000000..4b9020b42
+index 000000000..0aa9e80f2
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
-@@ -0,0 +1,292 @@
+@@ -0,0 +1,295 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * MediaTek MT6789 (Helio G99) SoC base device tree — mainline shape.
@@ -215,19 +215,22 @@ index 000000000..4b9020b42
 +			      <0x00 0x11d40000 0x00 0x1000>,
 +			      <0x00 0x11e20000 0x00 0x1000>,
 +			      <0x00 0x11e60000 0x00 0x1000>,
-+			      <0x00 0x11ea0000 0x00 0x1000>;
++			      <0x00 0x11ea0000 0x00 0x1000>,
++			      <0x00 0x1000b000 0x00 0x1000>;
 +			reg-names = "gpio",
 +				    "iocfg_rb",
 +				    "iocfg_bm",
 +				    "iocfg_br",
 +				    "iocfg_lm",
 +				    "iocfg_bl",
-+				    "iocfg_rt";
++				    "iocfg_rt",
++				    "eint";
 +			gpio-controller;
 +			#gpio-cells = <2>;
 +			gpio-ranges = <&pio 0 0 188>;
 +			interrupt-controller;
 +			#interrupt-cells = <2>;
++			interrupts = <GIC_SPI 244 IRQ_TYPE_LEVEL_HIGH 0>;
 +		};
 +
 +		watchdog: watchdog@10007000 {

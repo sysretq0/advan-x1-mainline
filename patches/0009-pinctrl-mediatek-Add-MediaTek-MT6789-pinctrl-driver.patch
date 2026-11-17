@@ -44,10 +44,10 @@ index 998286635..ae1c29e86 100644
  obj-$(CONFIG_PINCTRL_MT8189)            += pinctrl-mt8189.o
 diff --git a/drivers/pinctrl/mediatek/pinctrl-mt6789.c b/drivers/pinctrl/mediatek/pinctrl-mt6789.c
 new file mode 100644
-index 000000000..fbfcde32d
+index 000000000..30ae50ea7
 --- /dev/null
 +++ b/drivers/pinctrl/mediatek/pinctrl-mt6789.c
-@@ -0,0 +1,1245 @@
+@@ -0,0 +1,1254 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Copyright (C) 2021 MediaTek Inc.
@@ -1254,12 +1254,21 @@ index 000000000..fbfcde32d
 +	"iocfg_bl", "iocfg_rt",
 +};
 +
++static const struct mtk_eint_hw mt6789_eint_hw = {
++	.port_mask = 7,
++	.ports     = 6,
++	.ap_num    = 160,
++	.db_cnt    = 32,
++	.db_time   = debounce_time_mt6765,
++};
++
 +static const struct mtk_pin_soc mt6789_data = {
 +	.reg_cal = mt6789_reg_cals,
 +	.pins = mtk_pins_mt6789,
 +	.npins = ARRAY_SIZE(mtk_pins_mt6789),
 +	.ngrps = ARRAY_SIZE(mtk_pins_mt6789),
 +	.nfuncs = 8,
++	.eint_hw = &mt6789_eint_hw,
 +	.gpio_m = 0,
 +	.base_names = mt6789_pinctrl_register_base_names,
 +	.nbase_names = ARRAY_SIZE(mt6789_pinctrl_register_base_names),
