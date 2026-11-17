@@ -31,7 +31,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            clang lld llvm gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+            clang lld llvm gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu libc6-dev-arm64-cross \
             bc bison flex libssl-dev libelf-dev device-tree-compiler xz-utils python3 \
             cpio curl bzip2
 
