@@ -89,7 +89,7 @@ jobs:
       - name: Compress artifacts into tar.xz
         run: |
           cd "$GITHUB_WORKSPACE/build"
-          tar -cJf "$GITHUB_WORKSPACE/bundle.tar.xz" bundle.img Image mt6789-advan-x1.dtb sha256sums.txt
+          XZ_OPT="-9e -T0" tar -cJf "$GITHUB_WORKSPACE/bundle.tar.xz" bundle.img Image mt6789-advan-x1.dtb sha256sums.txt
           ls -lh "$GITHUB_WORKSPACE/bundle.tar.xz"
 
       - name: Upload bundle.tar.xz artifact

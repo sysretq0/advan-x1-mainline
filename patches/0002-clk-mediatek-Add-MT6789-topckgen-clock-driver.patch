@@ -534,8 +534,9 @@ index 000000000..e70a74f85
 +	MUX_CLR_SET_UPD(CLK_TOP_BUS_AXIMEM_SEL, "bus_aximem_sel",
 +		bus_aximem_parents, 0x0010, 0x0014, 0x0018, 24, 3, 0x0004, 3),
 +	/* CLK_CFG_1 */
-+	MUX_GATE_CLR_SET_UPD(CLK_TOP_DISP_SEL, "disp_sel",
-+		disp_parents, 0x0020, 0x0024, 0x0028, 0, 4, 7, 0x0004, 4),
++	MUX_GATE_CLR_SET_UPD_FLAGS(CLK_TOP_DISP_SEL, "disp_sel",
++		disp_parents, 0x0020, 0x0024, 0x0028, 0, 4, 7, 0x0004, 4,
++		CLK_IS_CRITICAL | CLK_SET_RATE_PARENT),
 +	MUX_GATE_CLR_SET_UPD(CLK_TOP_MDP_SEL, "mdp_sel",
 +		mdp_parents, 0x0020, 0x0024, 0x0028, 8, 4, 15, 0x0004, 5),
 +	MUX_GATE_CLR_SET_UPD(CLK_TOP_IMG1_SEL, "img1_sel",
@@ -591,8 +592,9 @@ index 000000000..e70a74f85
 +	/* CLK_CFG_9 */
 +	MUX_GATE_CLR_SET_UPD(CLK_TOP_SCAM_SEL, "scam_sel",
 +		scam_parents, 0x00a0, 0x00a4, 0x00a8, 8, 1, 15, 0x0008, 6),
-+	MUX_GATE_CLR_SET_UPD(CLK_TOP_DISP_PWM_SEL, "disp_pwm_sel",
-+		disp_pwm_parents, 0x00a0, 0x00a4, 0x00a8, 16, 3, 23, 0x0008, 7),
++	MUX_GATE_CLR_SET_UPD_FLAGS(CLK_TOP_DISP_PWM_SEL, "disp_pwm_sel",
++		disp_pwm_parents, 0x00a0, 0x00a4, 0x00a8, 16, 3, 23, 0x0008, 7,
++		CLK_IS_CRITICAL | CLK_SET_RATE_PARENT),
 +	MUX_GATE_CLR_SET_UPD(CLK_TOP_USB_TOP_SEL, "usb_sel",
 +		usb_parents, 0x00a0, 0x00a4, 0x00a8, 24, 2, 31, 0x0008, 8),
 +	/* CLK_CFG_10 */
@@ -633,8 +635,9 @@ index 000000000..e70a74f85
 +		vdec_parents, 0x00f0, 0x00f4, 0x00f8, 8, 4, 15, 0x0008, 26),
 +	MUX_GATE_CLR_SET_UPD(CLK_TOP_CAMTM_SEL, "camtm_sel",
 +		camtm_parents, 0x00f0, 0x00f4, 0x00f8, 16, 2, 23, 0x0008, 27),
-+	MUX_GATE_CLR_SET_UPD(CLK_TOP_PWM_SEL, "pwm_sel",
-+		pwm_parents, 0x00f0, 0x00f4, 0x00f8, 24, 1, 31, 0x0008, 28),
++	MUX_GATE_CLR_SET_UPD_FLAGS(CLK_TOP_PWM_SEL, "pwm_sel",
++		pwm_parents, 0x00f0, 0x00f4, 0x00f8, 24, 1, 31, 0x0008, 28,
++		CLK_IS_CRITICAL | CLK_SET_RATE_PARENT),
 +	/* CLK_CFG_15 */
 +	MUX_GATE_CLR_SET_UPD(CLK_TOP_AUDIO_H_SEL, "audio_h_sel",
 +		audio_h_parents, 0x0100, 0x0104, 0x0108, 0, 2, 7, 0x0008, 29),
@@ -647,8 +650,9 @@ index 000000000..e70a74f85
 +	/* CLK_CFG_16 */
 +	MUX_CLR_SET_UPD(CLK_TOP_MCUPM_SEL, "mcupm_sel",
 +		mcupm_parents, 0x0110, 0x0114, 0x0118, 0, 2, 0x000c, 2),
-+	MUX_GATE_CLR_SET_UPD(CLK_TOP_DSI_OCC_SEL, "dsi_occ_sel",
-+		dsi_occ_parents, 0x0110, 0x0114, 0x0118, 16, 2, 23, 0x000c, 4),
++	MUX_GATE_CLR_SET_UPD_FLAGS(CLK_TOP_DSI_OCC_SEL, "dsi_occ_sel",
++		dsi_occ_parents, 0x0110, 0x0114, 0x0118, 16, 2, 23, 0x000c, 4,
++		CLK_IS_CRITICAL | CLK_SET_RATE_PARENT),
 +};
 +
 +static const struct mtk_composite top_composites[] = {
