@@ -70,6 +70,9 @@ CONFIG_ARCH_ZYNQMP=n
 # MT6789 clock controllers (topckgen + apmixedsys + infracfg_ao), built-in
 CONFIG_COMMON_CLK_MT6789=y
 
+# MT6789 pinctrl and GPIO driver, built-in
+CONFIG_PINCTRL_MT6789=y
+
 # Console on simpledrm
 CONFIG_DRM=y
 CONFIG_DRM_SIMPLEDRM=y
