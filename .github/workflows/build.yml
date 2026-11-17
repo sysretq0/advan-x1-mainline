@@ -19,6 +19,14 @@ jobs:
       - name: Checkout port repository
         uses: actions/checkout@v4
 
+      - name: Configure runner swap and disk
+        run: |
+          sudo fallocate -l 4G /swapfile 2>/dev/null || true
+          sudo chmod 600 /swapfile 2>/dev/null || true
+          sudo mkswap /swapfile 2>/dev/null || true
+          sudo swapon /swapfile 2>/dev/null || true
+          free -h
+
       - name: Install build toolchain & dependencies
         run: |
           sudo apt-get update
@@ -28,11 +36,12 @@ jobs:
 
       - name: Checkout upstream Linux kernel
         run: |
-          git clone --depth 1 --branch ${{ inputs.linux_ref || 'master' }} https://github.com/torvalds/linux.git /tmp/linux
+          mkdir -p "$GITHUB_WORKSPACE/linux"
+          git clone --depth 1 --branch ${{ inputs.linux_ref || 'master' }} https://github.com/torvalds/linux.git "$GITHUB_WORKSPACE/linux"
 
       - name: Apply MT6789 patch series
         run: |
-          cd /tmp/linux
+          cd "$GITHUB_WORKSPACE/linux"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           for p in "$GITHUB_WORKSPACE"/patches/*.patch; do
@@ -42,24 +51,26 @@ jobs:
 
       - name: Configure kernel
         run: |
-          cd /tmp/linux
+          cd "$GITHUB_WORKSPACE/linux"
           make ARCH=arm64 defconfig
           scripts/kconfig/merge_config.sh -m -O . .config "$GITHUB_WORKSPACE"/config/*.configfrag
           make ARCH=arm64 olddefconfig LLVM=1
 
       - name: Compile kernel Image
         run: |
-          cd /tmp/linux
+          cd "$GITHUB_WORKSPACE/linux"
           make -j$(nproc) ARCH=arm64 LLVM=1 Image
 
       - name: Compile Advan X1 device tree blob
         run: |
           mkdir -p "$GITHUB_WORKSPACE/build"
-          cp /tmp/linux/arch/arm64/boot/Image "$GITHUB_WORKSPACE/build/Image"
+          cp "$GITHUB_WORKSPACE/linux/arch/arm64/boot/Image" "$GITHUB_WORKSPACE/build/Image"
           
-          PDTB=$(mktemp /tmp/advan_x1.XXXX.dts)
+          PDTB="$GITHUB_WORKSPACE/build/advan_x1.dts.tmp"
           clang -target aarch64-linux-gnu -E -nostdinc -undef -D__DTS__ -x assembler-with-cpp \
-            -I /tmp/linux/include -I /tmp/linux/include/dt-bindings -I /tmp/linux/arch/arm64/boot/dts \
+            -I "$GITHUB_WORKSPACE/linux/include" \
+            -I "$GITHUB_WORKSPACE/linux/include/dt-bindings" \
+            -I "$GITHUB_WORKSPACE/linux/arch/arm64/boot/dts" \
             "$GITHUB_WORKSPACE"/dts/mt6789-advan-x1.dts -o "$PDTB"
           dtc -I dts -O dtb -o "$GITHUB_WORKSPACE/build/mt6789-advan-x1.dtb" "$PDTB"
           rm -f "$PDTB"

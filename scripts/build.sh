@@ -78,7 +78,7 @@ echo "== Image (-j$JOBS, LLVM=1) =="
 make -j"$JOBS" O="$OUT" LLVM=1 Image
 
 echo "== dtb =="
-PDTB=$(mktemp /tmp/advan_x1.XXXX.dts)
+PDTB="$OUT/advan_x1.dts.tmp"
 clang -E -nostdinc -undef -D__DTS__ -x assembler-with-cpp \
     -I "$WORK/include" -I "$WORK/include/dt-bindings" -I "$WORK/arch/arm64/boot/dts" \
     "$REPO/dts/mt6789-advan-x1.dts" -o "$PDTB"
