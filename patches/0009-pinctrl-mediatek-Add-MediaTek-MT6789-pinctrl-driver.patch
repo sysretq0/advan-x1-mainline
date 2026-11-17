@@ -1295,10 +1295,10 @@ index 000000000..fbfcde32d
 +MODULE_DESCRIPTION("MediaTek MT6789 Pinctrl Driver");
 diff --git a/drivers/pinctrl/mediatek/pinctrl-mtk-mt6789.h b/drivers/pinctrl/mediatek/pinctrl-mtk-mt6789.h
 new file mode 100644
-index 000000000..15af571a1
+index 000000000..a8c13be78
 --- /dev/null
 +++ b/drivers/pinctrl/mediatek/pinctrl-mtk-mt6789.h
-@@ -0,0 +1,1744 @@
+@@ -0,0 +1,1750 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
 +/*
 + * Copyright (C) 2021 MediaTek Inc.
@@ -1312,8 +1312,14 @@ index 000000000..15af571a1
 +#include "pinctrl-paris.h"
 +
 +#ifndef MTK_PIN_NODRV
-+#define MTK_PIN_NODRV(_number, _name, _eint, ...) \
-+	MTK_PIN(_number, _name, _eint, 0, __VA_ARGS__)
++#define MTK_PIN_NODRV(_number, _name, _eint, ...) {	\
++		.number = _number,			\
++		.name = _name,				\
++		.eint = _eint,				\
++		.drv_n = 0,				\
++		.funcs = (struct mtk_func_desc[]){	\
++			__VA_ARGS__, { } },		\
++	}
 +#endif
 +
 +
