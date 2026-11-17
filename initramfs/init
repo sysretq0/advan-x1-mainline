@@ -3,7 +3,7 @@
 # Boots BusyBox into RAM, brings up USB ACM gadget, and runs interactive shell.
 
 # Essential mountpoints
-mkdir -p /proc /sys /dev /mnt /tmp /run /sys/kernel/config
+mkdir -p /proc /sys /dev /mnt /tmp /run /etc /sys/kernel/config
 mount -t proc none /proc
 mount -t sysfs none /sys
 mount -t devtmpfs none /dev
@@ -27,7 +27,6 @@ log "=== ADVAN X1 Mainline Linux BusyBox Initramfs ==="
 
 log "Kernel $(uname -r) on $(uname -m)"
 log "System uptime: $(cut -d' ' -f1 /proc/uptime) seconds"
-
 
 # Setup USB gadget (ACM serial on /dev/ttyGS0)
 if [ -d /sys/kernel/config/usb_gadget ]; then
@@ -69,29 +68,60 @@ fi
 # Print block device partitions for diagnostic confirmation
 log "Detected block devices: $(cat /proc/partitions 2>/dev/null | tr '\n' '; ')"
 
-# Spawn background shell on screen (tty0)
-(
-    while true; do
-        if [ -c /dev/tty0 ]; then
-            setsid cttyhack sh </dev/tty0 >/dev/tty0 2>&1
-        fi
-        sleep 2
-    done
-) &
+# Issue banner for getty logins
+cat << 'EOF' > /etc/issue
 
-# Spawn background shell on USB serial (ttyGS0)
+=============================================================
+         ADVAN X1 (Helio G99 / MT6789) Mainline Linux        
+         Interactive BusyBox Shell on /dev/ttyGS0            
+=============================================================
+
+EOF
+
+# Profile for ash shells
+cat << 'EOF' > /etc/profile
+export PS1='advan-x1:\w# '
+export PATH='/bin:/sbin:/usr/bin:/usr/sbin'
+echo "Welcome to ADVAN X1 Mainline Linux (Helio G99 / MT6789)!"
+EOF
+
+# Ensure /dev/ttyGS0 is available before launching getty
+for i in 1 2 3 4 5; do
+    [ -c /dev/ttyGS0 ] && break
+    sleep 0.5
+done
+
+# Spawn getty on USB serial ttyGS0 with CLOCAL (no carrier detect wait, direct login to /bin/sh)
+if [ -c /dev/ttyGS0 ]; then
+    log "Starting getty on /dev/ttyGS0 (115200 baud)..."
+else
+    log "WARNING: /dev/ttyGS0 not found yet, loop will wait for it..."
+fi
+
 (
     while true; do
         if [ -c /dev/ttyGS0 ]; then
-            setsid cttyhack sh </dev/ttyGS0 >/dev/ttyGS0 2>&1
+            getty -L -n -l /bin/sh 115200 ttyGS0 vt100
         fi
-        sleep 2
+        sleep 1
     done
 ) &
 
-# Foreground interactive shell on primary console
-log "Starting interactive root shell on /dev/console..."
+# Spawn getty on screen /dev/tty0
+if [ -c /dev/tty0 ]; then
+    log "Starting getty on /dev/tty0..."
+    (
+        while true; do
+            getty -n -l /bin/sh 0 tty0 linux
+            sleep 1
+        done
+    ) &
+fi
+
+log "=== Init complete, system ready for interactive shell access ==="
+
+# PID 1 wait loop: reaps zombie processes and sleeps
 while true; do
-    setsid cttyhack sh </dev/console >/dev/console 2>&1
+    wait
     sleep 1
 done
