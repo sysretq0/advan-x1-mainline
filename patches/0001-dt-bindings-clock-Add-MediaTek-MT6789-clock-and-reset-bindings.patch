@@ -1,9 +1,11 @@
-From 24f0526252c483ca90279585360d094f2e553556 Mon Sep 17 00:00:00 2001
+From 0647f9979e52ee5028480703c54ebe8e4b687ab7 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
-Date: Tue, 17 Nov 2026 12:03:45 +0000
+Date: Tue, 17 Nov 2026 15:18:53 +0000
 Subject: [PATCH 1/7] dt-bindings: clock: Add MediaTek MT6789 clock and reset
  bindings
 
+Change-Id: I4018e374779e1da25c441d45b1290df9ede29f70
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  include/dt-bindings/clock/mt6789-clk.h    | 444 ++++++++++++++++++++++
  include/dt-bindings/reset/mt6789-resets.h |  14 +

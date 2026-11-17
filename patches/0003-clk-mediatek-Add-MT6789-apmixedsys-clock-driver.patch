@@ -1,8 +1,10 @@
-From 59e14036b332c55b773ab7ccad74e6d0273e24ab Mon Sep 17 00:00:00 2001
+From 865a7b234db429dcd6f60e99637a5465e2c1ae17 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
-Date: Tue, 17 Nov 2026 12:03:46 +0000
+Date: Tue, 17 Nov 2026 15:18:56 +0000
 Subject: [PATCH 3/7] clk: mediatek: Add MT6789 apmixedsys clock driver
 
+Change-Id: If37bc47a5af864a98d57a386b7b17524845b2962
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  drivers/clk/mediatek/clk-mt6789-apmixedsys.c | 153 +++++++++++++++++++
  1 file changed, 153 insertions(+)
@@ -10,7 +12,7 @@ Subject: [PATCH 3/7] clk: mediatek: Add MT6789 apmixedsys clock driver
 
 diff --git a/drivers/clk/mediatek/clk-mt6789-apmixedsys.c b/drivers/clk/mediatek/clk-mt6789-apmixedsys.c
 new file mode 100644
-index 000000000..93cdebe07
+index 000000000..a223d1017
 --- /dev/null
 +++ b/drivers/clk/mediatek/clk-mt6789-apmixedsys.c
 @@ -0,0 +1,153 @@
@@ -163,7 +165,7 @@ index 000000000..93cdebe07
 +		.of_match_table = of_match_clk_mt6789_apmixed,
 +	},
 +};
-+module_platform_driver(clk_mt6789_apmixed_drv);
++builtin_platform_driver(clk_mt6789_apmixed_drv);
 +
 +MODULE_DESCRIPTION("MediaTek MT6789 apmixedsys clocks driver");
 +MODULE_LICENSE("GPL");

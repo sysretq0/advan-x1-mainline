@@ -1,8 +1,10 @@
-From 5ecf21fae65488f1303e733be07fe1d0d25a8a3c Mon Sep 17 00:00:00 2001
+From bde5d17acbc7f3f8bd5a0b811153b47cc25b9f54 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
-Date: Tue, 17 Nov 2026 12:03:47 +0000
+Date: Tue, 17 Nov 2026 15:18:58 +0000
 Subject: [PATCH 5/7] clk: mediatek: Add MT6789 clock driver build glue
 
+Change-Id: Ia5104e94f32fe7876471e9b070fd3ad9547c1c0c
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  drivers/clk/mediatek/Kconfig  | 9 +++++++++
  drivers/clk/mediatek/Makefile | 2 ++

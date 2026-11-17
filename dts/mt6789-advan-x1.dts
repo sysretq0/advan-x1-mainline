@@ -119,3 +119,7 @@
 &uart0 {
 	status = "okay";
 };
+
+&ufshci {
+	status = "okay";
+};

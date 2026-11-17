@@ -1,19 +1,21 @@
-From 02abbc669679a832162ff76fcbcf8e798958528b Mon Sep 17 00:00:00 2001
+From 76518316bd4bc4ad2d6af4fd90837b48b9140e7e Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
-Date: Tue, 17 Nov 2026 12:03:45 +0000
+Date: Tue, 17 Nov 2026 15:18:55 +0000
 Subject: [PATCH 2/7] clk: mediatek: Add MT6789 topckgen clock driver
 
+Change-Id: I8bcb9a0818771cbdd03fee4fdf037bd18bb4beed
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- drivers/clk/mediatek/clk-mt6789-topckgen.c | 714 +++++++++++++++++++++
- 1 file changed, 714 insertions(+)
+ drivers/clk/mediatek/clk-mt6789-topckgen.c | 772 +++++++++++++++++++++
+ 1 file changed, 772 insertions(+)
  create mode 100644 drivers/clk/mediatek/clk-mt6789-topckgen.c
 
 diff --git a/drivers/clk/mediatek/clk-mt6789-topckgen.c b/drivers/clk/mediatek/clk-mt6789-topckgen.c
 new file mode 100644
-index 000000000..e70a74f85
+index 000000000..cb5edc9bd
 --- /dev/null
 +++ b/drivers/clk/mediatek/clk-mt6789-topckgen.c
-@@ -0,0 +1,714 @@
+@@ -0,0 +1,772 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +//
 +// Copyright (c) 2022 MediaTek Inc.
@@ -704,31 +706,85 @@ index 000000000..e70a74f85
 +		0x0320, 10, 0x0338, 8, 16),
 +};
 +
-+static const struct mtk_clk_desc topck_desc = {
-+	.factor_clks = top_divs,
-+	.num_factor_clks = ARRAY_SIZE(top_divs),
-+	.mux_clks = top_muxes,
-+	.num_mux_clks = ARRAY_SIZE(top_muxes),
-+	.composite_clks = top_composites,
-+	.num_composite_clks = ARRAY_SIZE(top_composites),
-+	.clk_lock = &mt6789_clk_lock,
-+};
++static int clk_mt6789_topck_probe(struct platform_device *pdev)
++{
++	struct clk_hw_onecell_data *top_clk_data;
++	struct device_node *node = pdev->dev.of_node;
++	void __iomem *base;
++	int r;
++
++	top_clk_data = mtk_alloc_clk_data(CLK_TOP_NR_CLK);
++	if (!top_clk_data)
++		return -ENOMEM;
++
++	base = devm_platform_ioremap_resource(pdev, 0);
++	if (IS_ERR(base)) {
++		r = PTR_ERR(base);
++		goto free_top_data;
++	}
++
++	r = mtk_clk_register_factors(top_divs, ARRAY_SIZE(top_divs), top_clk_data);
++	if (r)
++		goto free_top_data;
++
++	r = mtk_clk_register_muxes(&pdev->dev, top_muxes,
++				   ARRAY_SIZE(top_muxes), node,
++				   &mt6789_clk_lock, top_clk_data);
++	if (r)
++		goto unregister_factors;
++
++	r = mtk_clk_register_composites(&pdev->dev, top_composites,
++					ARRAY_SIZE(top_composites), base,
++					&mt6789_clk_lock, top_clk_data);
++	if (r)
++		goto unregister_muxes;
++
++	r = of_clk_add_hw_provider(node, of_clk_hw_onecell_get, top_clk_data);
++	if (r)
++		goto unregister_composites;
++
++	platform_set_drvdata(pdev, top_clk_data);
++
++	return 0;
++
++unregister_composites:
++	mtk_clk_unregister_composites(top_composites, ARRAY_SIZE(top_composites), top_clk_data);
++unregister_muxes:
++	mtk_clk_unregister_muxes(top_muxes, ARRAY_SIZE(top_muxes), top_clk_data);
++unregister_factors:
++	mtk_clk_unregister_factors(top_divs, ARRAY_SIZE(top_divs), top_clk_data);
++free_top_data:
++	mtk_free_clk_data(top_clk_data);
++	return r;
++}
++
++static void clk_mt6789_topck_remove(struct platform_device *pdev)
++{
++	struct clk_hw_onecell_data *top_clk_data = platform_get_drvdata(pdev);
++	struct device_node *node = pdev->dev.of_node;
++
++	of_clk_del_provider(node);
++	mtk_clk_unregister_composites(top_composites, ARRAY_SIZE(top_composites), top_clk_data);
++	mtk_clk_unregister_muxes(top_muxes, ARRAY_SIZE(top_muxes), top_clk_data);
++	mtk_clk_unregister_factors(top_divs, ARRAY_SIZE(top_divs), top_clk_data);
++	mtk_free_clk_data(top_clk_data);
++}
 +
 +static const struct of_device_id of_match_clk_mt6789_topck[] = {
-+	{ .compatible = "mediatek,mt6789-topckgen", .data = &topck_desc },
++	{ .compatible = "mediatek,mt6789-topckgen" },
 +	{ /* sentinel */ }
 +};
 +MODULE_DEVICE_TABLE(of, of_match_clk_mt6789_topck);
 +
 +static struct platform_driver clk_mt6789_topck_drv = {
-+	.probe = mtk_clk_simple_probe,
-+	.remove = mtk_clk_simple_remove,
++	.probe = clk_mt6789_topck_probe,
++	.remove = clk_mt6789_topck_remove,
 +	.driver = {
 +		.name = "clk-mt6789-topck",
 +		.of_match_table = of_match_clk_mt6789_topck,
 +	},
 +};
-+module_platform_driver(clk_mt6789_topck_drv);
++builtin_platform_driver(clk_mt6789_topck_drv);
 +
 +MODULE_DESCRIPTION("MediaTek MT6789 top clock generators driver");
 +MODULE_LICENSE("GPL");

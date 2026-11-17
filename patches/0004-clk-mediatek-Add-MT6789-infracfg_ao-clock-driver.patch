@@ -1,19 +1,21 @@
-From fbb1e4179201b607286149e2e66ff6c108f0c7a9 Mon Sep 17 00:00:00 2001
+From 806ad03048c39d589c392be8430b99d99b6b3ca5 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
-Date: Tue, 17 Nov 2026 12:03:46 +0000
+Date: Tue, 17 Nov 2026 15:18:57 +0000
 Subject: [PATCH 4/7] clk: mediatek: Add MT6789 infracfg_ao clock driver
 
+Change-Id: Ic0d01328e88d50967b876e7aab1517c65bf9d41f
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- drivers/clk/mediatek/clk-mt6789-infra_ao.c | 216 +++++++++++++++++++++
- 1 file changed, 216 insertions(+)
+ drivers/clk/mediatek/clk-mt6789-infra_ao.c | 258 +++++++++++++++++++++
+ 1 file changed, 258 insertions(+)
  create mode 100644 drivers/clk/mediatek/clk-mt6789-infra_ao.c
 
 diff --git a/drivers/clk/mediatek/clk-mt6789-infra_ao.c b/drivers/clk/mediatek/clk-mt6789-infra_ao.c
 new file mode 100644
-index 000000000..78b293e78
+index 000000000..62e037ab5
 --- /dev/null
 +++ b/drivers/clk/mediatek/clk-mt6789-infra_ao.c
-@@ -0,0 +1,216 @@
+@@ -0,0 +1,258 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +//
 +// Copyright (c) 2022 MediaTek Inc.
@@ -210,27 +212,65 @@ index 000000000..78b293e78
 +	.rst_idx_map_nr = ARRAY_SIZE(infra_ao_idx_map),
 +};
 +
-+static const struct mtk_clk_desc ifrao_desc = {
-+	.clks = ifrao_clks,
-+	.num_clks = ARRAY_SIZE(ifrao_clks),
-+	.rst_desc = &infra_ao_rst_desc,
-+};
++static int clk_mt6789_infra_ao_probe(struct platform_device *pdev)
++{
++	struct clk_hw_onecell_data *clk_data;
++	struct device_node *node = pdev->dev.of_node;
++	int r;
++
++	clk_data = mtk_alloc_clk_data(CLK_IFRAO_NR_CLK);
++	if (!clk_data)
++		return -ENOMEM;
++
++	r = mtk_clk_register_gates(&pdev->dev, node, ifrao_clks,
++				   ARRAY_SIZE(ifrao_clks), clk_data);
++	if (r)
++		goto free_clk_data;
++
++	r = mtk_register_reset_controller_with_dev(&pdev->dev, &infra_ao_rst_desc);
++	if (r)
++		goto unregister_gates;
++
++	r = of_clk_add_hw_provider(node, of_clk_hw_onecell_get, clk_data);
++	if (r)
++		goto unregister_gates;
++
++	platform_set_drvdata(pdev, clk_data);
++
++	return 0;
++
++unregister_gates:
++	mtk_clk_unregister_gates(ifrao_clks, ARRAY_SIZE(ifrao_clks), clk_data);
++free_clk_data:
++	mtk_free_clk_data(clk_data);
++	return r;
++}
++
++static void clk_mt6789_infra_ao_remove(struct platform_device *pdev)
++{
++	struct clk_hw_onecell_data *clk_data = platform_get_drvdata(pdev);
++	struct device_node *node = pdev->dev.of_node;
++
++	of_clk_del_provider(node);
++	mtk_clk_unregister_gates(ifrao_clks, ARRAY_SIZE(ifrao_clks), clk_data);
++	mtk_free_clk_data(clk_data);
++}
 +
 +static const struct of_device_id of_match_clk_mt6789_infra_ao[] = {
-+	{ .compatible = "mediatek,mt6789-infracfg_ao", .data = &ifrao_desc },
++	{ .compatible = "mediatek,mt6789-infracfg_ao" },
 +	{ /* sentinel */ }
 +};
 +MODULE_DEVICE_TABLE(of, of_match_clk_mt6789_infra_ao);
 +
 +static struct platform_driver clk_mt6789_infra_ao_drv = {
-+	.probe = mtk_clk_simple_probe,
-+	.remove = mtk_clk_simple_remove,
++	.probe = clk_mt6789_infra_ao_probe,
++	.remove = clk_mt6789_infra_ao_remove,
 +	.driver = {
 +		.name = "clk-mt6789-infra-ao",
 +		.of_match_table = of_match_clk_mt6789_infra_ao,
 +	},
 +};
-+module_platform_driver(clk_mt6789_infra_ao_drv);
++builtin_platform_driver(clk_mt6789_infra_ao_drv);
 +
 +MODULE_DESCRIPTION("MediaTek MT6789 infracfg clocks driver");
 +MODULE_LICENSE("GPL");

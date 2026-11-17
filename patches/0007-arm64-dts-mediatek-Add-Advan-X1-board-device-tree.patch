@@ -1,19 +1,33 @@
-From 056477aa0c4beda1c0e3d551405f6949d8381761 Mon Sep 17 00:00:00 2001
+From d6b2819b0725f659c56d7e20ce6ad7c522b583b1 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
-Date: Tue, 17 Nov 2026 12:03:48 +0000
+Date: Tue, 17 Nov 2026 15:19:00 +0000
 Subject: [PATCH 7/7] arm64: dts: mediatek: Add Advan X1 board device tree
 
+Change-Id: I0d623ead8108e78abc3a153625ae6e616ce065df
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- .../boot/dts/mediatek/mt6789-advan-x1.dts     | 121 ++++++++++++++++++
- 1 file changed, 121 insertions(+)
+ arch/arm64/boot/dts/mediatek/Makefile         |   1 +
+ .../boot/dts/mediatek/mt6789-advan-x1.dts     | 125 ++++++++++++++++++
+ 2 files changed, 126 insertions(+)
  create mode 100644 arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
 
+diff --git a/arch/arm64/boot/dts/mediatek/Makefile b/arch/arm64/boot/dts/mediatek/Makefile
+index a86fb313b..3dfbb4bb4 100644
+--- a/arch/arm64/boot/dts/mediatek/Makefile
++++ b/arch/arm64/boot/dts/mediatek/Makefile
+@@ -1,5 +1,6 @@
+ # SPDX-License-Identifier: GPL-2.0
+ dtb-$(CONFIG_ARCH_MEDIATEK) += mt2712-evb.dtb
++dtb-$(CONFIG_ARCH_MEDIATEK) += mt6789-advan-x1.dtb
+ dtb-$(CONFIG_ARCH_MEDIATEK) += mt6755-evb.dtb
+ dtb-$(CONFIG_ARCH_MEDIATEK) += mt6779-evb.dtb
+ dtb-$(CONFIG_ARCH_MEDIATEK) += mt6795-evb.dtb
 diff --git a/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
 new file mode 100644
-index 000000000..df137386c
+index 000000000..843b637c7
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
-@@ -0,0 +1,121 @@
+@@ -0,0 +1,125 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Advan X1 (MT6789) board device tree — clean redo.
@@ -133,6 +147,10 @@ index 000000000..df137386c
 +};
 +
 +&uart0 {
++	status = "okay";
++};
++
++&ufshci {
 +	status = "okay";
 +};
 -- 
