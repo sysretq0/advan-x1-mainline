@@ -255,7 +255,7 @@ index 000000000..565710095
 +			compatible = "mediatek,generic-tphy-v2";
 +			#address-cells = <1>;
 +			#size-cells = <1>;
-+			ranges = <0 0x00 0x11f40000 0x1000>;
++			ranges = <0x0 0x0 0x11f40000 0x1000>;
 +			status = "disabled";
 +
 +			u2port0: usb-phy@0 {
@@ -274,7 +274,9 @@ index 000000000..565710095
 +			reg = <0x00 0x11200000 0x00 0x10000>;
 +			interrupts = <GIC_SPI 128 IRQ_TYPE_LEVEL_HIGH>;
 +			interrupt-names = "mc";
-+			clocks = <&clk26m>, <&clk26m>, <&clk26m>;
++			clocks = <&infracfg_ao CLK_IFRAO_SSUSB>,
++				 <&topckgen CLK_TOP_USB_TOP_SEL>,
++				 <&apmixedsys CLK_APMIXED_USBPLL>;
 +			clock-names = "main", "mcu", "univpll";
 +			phys = <&u2port0 PHY_TYPE_USB2>;
 +			dr_mode = "peripheral";
