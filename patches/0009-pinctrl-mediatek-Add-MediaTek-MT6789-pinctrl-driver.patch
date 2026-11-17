@@ -1295,10 +1295,10 @@ index 000000000..fbfcde32d
 +MODULE_DESCRIPTION("MediaTek MT6789 Pinctrl Driver");
 diff --git a/drivers/pinctrl/mediatek/pinctrl-mtk-mt6789.h b/drivers/pinctrl/mediatek/pinctrl-mtk-mt6789.h
 new file mode 100644
-index 000000000..a8c13be78
+index 000000000..7f0b22d59
 --- /dev/null
 +++ b/drivers/pinctrl/mediatek/pinctrl-mtk-mt6789.h
-@@ -0,0 +1,1750 @@
+@@ -0,0 +1,1773 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
 +/*
 + * Copyright (C) 2021 MediaTek Inc.
@@ -1319,6 +1319,29 @@ index 000000000..a8c13be78
 +		.drv_n = 0,				\
 +		.funcs = (struct mtk_func_desc[]){	\
 +			__VA_ARGS__, { } },		\
++	}
++#endif
++
++#ifndef EINT_NO_GPIO
++#define EINT_NO_GPIO 9999
++#endif
++
++#ifndef MTK_PIN_EINT
++#define MTK_PIN_EINT(_number, _eint) {			\
++		.number = _number,			\
++		.name = "GPIO"#_number,			\
++		.eint = {				\
++			.eint_m = 0,			\
++			.eint_n = _eint,		\
++		},					\
++		.drv_n = 0,				\
++		.funcs = (struct mtk_func_desc[]){	\
++			{				\
++				.muxval = 0,		\
++				.name = NULL,		\
++			},				\
++			{ }				\
++		},					\
 +	}
 +#endif
 +
