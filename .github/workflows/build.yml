@@ -146,7 +146,7 @@ jobs:
           make ARCH=arm64 olddefconfig LLVM=1 CC="${CC_LAUNCHER}clang" HOSTCC="${CC_LAUNCHER}clang"
 
       - name: Compile kernel Image
-        timeout-minutes: 60
+        timeout-minutes: 75
         env:
           KBUILD_BUILD_TIMESTAMP: ""
           KBUILD_BUILD_USER: "builder"
