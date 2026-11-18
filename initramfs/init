@@ -140,13 +140,24 @@ for l in 0 1 2 3 4 5 6 7; do
     [ -e /dev/loop$l ] || mknod /dev/loop$l b 7 $l 2>/dev/null || true
 done
 
-# Try /dev/sdc64 (48GB rootfs partition, nested GPT part 1 offset 256*4096 = 1048576)
-if [ -b /dev/sdc64 ]; then
-    log "Checking /dev/sdc64 nested GPT (offset 1048576)..."
-    losetup -o 1048576 /dev/loop0 /dev/sdc64 2>/dev/null || true
+# Nested GPT rootfs detection on /dev/sdc72 (xnu_data, offset 34560*4096 = 141557760)
+log "=== Nested GPT Rootfs Detection on /dev/sdc72 (xnu_data) ==="
+mkdir -p /sysroot
+ROOT_MOUNTED=0
+
+# Ensure loop control nodes exist
+[ -e /dev/loop-control ] || mknod /dev/loop-control c 10 237 2>/dev/null || true
+for l in 0 1 2 3 4 5 6 7; do
+    [ -e /dev/loop$l ] || mknod /dev/loop$l b 7 $l 2>/dev/null || true
+done
+
+# Mount /dev/sdc72 (xnu_data partition, nested GPT part 1 offset 34560*4096 = 141557760)
+if [ -b /dev/sdc72 ]; then
+    log "Checking /dev/sdc72 nested GPT (offset 141557760)..."
+    losetup -o 141557760 /dev/loop0 /dev/sdc72 2>/dev/null || true
     if mount -t ext4 -o rw /dev/loop0 /sysroot 2>/dev/null; then
         ROOT_MOUNTED=1
-        log "SUCCESS: Mounted /dev/sdc64 nested ext4 rootfs on /sysroot (rw)"
+        log "SUCCESS: Mounted /dev/sdc72 nested ext4 rootfs on /sysroot (rw)"
         if [ -f /sysroot/etc/os-release ]; then
             log "Rootfs OS: $(grep -E '^(NAME|VERSION)=' /sysroot/etc/os-release 2>/dev/null | tr '\n' '; ')"
         fi
@@ -163,41 +174,24 @@ if [ -b /dev/sdc64 ]; then
     fi
 fi
 
-# Try /dev/sdc72 (xnu_data partition, nested GPT part 1 offset 34560*4096 = 141557760)
-if [ "$ROOT_MOUNTED" -eq 0 ] && [ -b /dev/sdc72 ]; then
-    log "Checking /dev/sdc72 nested GPT (offset 141557760)..."
-    losetup -o 141557760 /dev/loop1 /dev/sdc72 2>/dev/null || true
-    if mount -t ext4 -o rw /dev/loop1 /sysroot 2>/dev/null; then
-        ROOT_MOUNTED=1
-        log "SUCCESS: Mounted /dev/sdc72 nested ext4 rootfs on /sysroot (rw)"
-        if [ -f /sysroot/etc/os-release ]; then
-            log "Rootfs OS: $(grep -E '^(NAME|VERSION)=' /sysroot/etc/os-release 2>/dev/null | tr '\n' '; ')"
-        fi
-        if [ -d /sysroot/etc/systemd/system/getty.target.wants ]; then
-            log "getty.target.wants: $(ls /sysroot/etc/systemd/system/getty.target.wants/ 2>/dev/null)"
-            if [ -L /sysroot/etc/systemd/system/getty.target.wants/serial-getty@ttyGS0.service ] || [ -e /sysroot/etc/systemd/system/getty.target.wants/serial-getty@ttyGS0.service ]; then
-                log "SUCCESS: serial-getty@ttyGS0.service is present in getty.target.wants"
-            else
-                log "WARNING: serial-getty@ttyGS0.service is MISSING from getty.target.wants"
-            fi
-        fi
-    else
-        losetup -d /dev/loop1 2>/dev/null || true
-    fi
-fi
-
 if [ "$ROOT_MOUNTED" -eq 1 ]; then
     log "Rootfs is ready at /sysroot."
     if grep -q "noswitch" /proc/cmdline 2>/dev/null; then
         log "noswitch detected on cmdline; staying in standalone initramfs rescue shell."
     elif [ -x /sysroot/sbin/init ] || [ -f /sysroot/lib/systemd/systemd ]; then
         if [ -f /sysroot/etc/fstab ]; then
+            sed -i -E 's|^PARTUUID=[^ ]+ +/ +ext4|UUID=e8f59895-03e3-4f1c-a25a-2d7a8cd3b050 / ext4|g' /sysroot/etc/fstab
+            sed -i 's|PARTUUID=1cd1f6a4-689e-4ce4-922c-749d9691cd48|UUID=e8f59895-03e3-4f1c-a25a-2d7a8cd3b050|g' /sysroot/etc/fstab
             sed -i 's|PARTUUID=39a7004f-9b43-4ba1-a46b-91cb78a4b1dd|UUID=e8f59895-03e3-4f1c-a25a-2d7a8cd3b050|g' /sysroot/etc/fstab
             sed -i 's|,x-systemd.growfs||g' /sysroot/etc/fstab
+            sed -i 's|.*[[:space:]]/boot/efi[[:space:]].*|# &|' /sysroot/etc/fstab
             log "Sanitized /sysroot/etc/fstab for loop rootfs"
         fi
         mkdir -p /sysroot/etc/systemd/journald.conf.d
         printf '[Journal]\nForwardToKMsg=yes\n' > /sysroot/etc/systemd/journald.conf.d/kmsg.conf
+        mkdir -p /sysroot/etc/systemd/system/getty.target.wants
+        [ -e /sysroot/usr/lib/systemd/system/serial-getty@.service ] && \
+            ln -sf /usr/lib/systemd/system/serial-getty@.service /sysroot/etc/systemd/system/getty.target.wants/serial-getty@ttyGS0.service 2>/dev/null || true
         log "Executing switch_root to /sysroot /sbin/init (USB gadget active on /dev/ttyGS0)..."
         mkdir -p /sysroot/proc /sysroot/sys /sysroot/dev /sysroot/sys/kernel/config
         mount --move /sys/kernel/config /sysroot/sys/kernel/config 2>/dev/null || true
