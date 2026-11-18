@@ -6,13 +6,9 @@ Subject: [PATCH 3/7] clk: mediatek: Add MT6789 apmixedsys clock driver
 Change-Id: If37bc47a5af864a98d57a386b7b17524845b2962
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- drivers/clk/mediatek/clk-mt6789-apmixedsys.c | 153 +++++++++++++++++++
- 1 file changed, 153 insertions(+)
- create mode 100644 drivers/clk/mediatek/clk-mt6789-apmixedsys.c
-
 diff --git a/drivers/clk/mediatek/clk-mt6789-apmixedsys.c b/drivers/clk/mediatek/clk-mt6789-apmixedsys.c
 new file mode 100644
-index 000000000..a223d1017
+index 000000000..369912eac
 --- /dev/null
 +++ b/drivers/clk/mediatek/clk-mt6789-apmixedsys.c
 @@ -0,0 +1,153 @@
@@ -81,15 +77,15 @@ index 000000000..a223d1017
 +	PLL(CLK_APMIXED_MMPLL, "mmpll", 0x0360, 0x036c, 0xff000000,
 +	    HAVE_RST_BAR | PLL_AO, BIT(23), 22, 0x0364, 24, 0, 0, 0, 0x0364),
 +	PLL(CLK_APMIXED_NPUPLL, "npupll", 0x03b4, 0x03c0, 0xff000000,
-+	    PLL_AO, BIT(0), 22, 0x03b8, 24, 0, 0, 0, 0x03b8),
++	    0, BIT(0), 22, 0x03b8, 24, 0, 0, 0, 0x03b8),
 +	PLL(CLK_APMIXED_MFGPLL, "mfgpll", 0x0268, 0x0274, 0,
-+	    PLL_AO, BIT(0), 22, 0x026c, 24, 0, 0, 0, 0x026c),
++	    0, BIT(0), 22, 0x026c, 24, 0, 0, 0, 0x026c),
 +	PLL(CLK_APMIXED_TVDPLL, "tvdpll", 0x0380, 0x038c, 0,
-+	    PLL_AO, BIT(0), 22, 0x0384, 24, 0, 0, 0, 0x0384),
++	    0, BIT(0), 22, 0x0384, 24, 0, 0, 0, 0x0384),
 +	PLL(CLK_APMIXED_APLL1, "apll1", 0x0318, 0x0328, 0,
-+	    PLL_AO, BIT(0), 32, 0x031c, 24, 0x0040, 0x000c, 0, 0x0320),
++	    0, BIT(0), 32, 0x031c, 24, 0x0040, 0x000c, 0, 0x0320),
 +	PLL(CLK_APMIXED_APLL2, "apll2", 0x032c, 0x033c, 0,
-+	    PLL_AO, BIT(0), 32, 0x0330, 24, 0x0044, 0x000c, 5, 0x0334),
++	    0, BIT(0), 32, 0x0330, 24, 0x0044, 0x000c, 5, 0x0334),
 +	/*
 +	 * usbpll is enabled through CON2 bit 2 instead of CON0 bit 0.
 +	 */
@@ -170,5 +166,4 @@ index 000000000..a223d1017
 +MODULE_DESCRIPTION("MediaTek MT6789 apmixedsys clocks driver");
 +MODULE_LICENSE("GPL");
 -- 
-2.55.0
-
+2.43.0
