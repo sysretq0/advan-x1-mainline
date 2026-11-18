@@ -14583,10 +14583,10 @@ index 000000000..ca5001ed9
 +
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_platform.c b/drivers/input/touchscreen/chipone_tddi/cts_platform.c
 new file mode 100644
-index 000000000..926d43119
+index 000000000..13d1898ae
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_platform.c
-@@ -0,0 +1,1341 @@
+@@ -0,0 +1,1353 @@
 +#define LOG_TAG         "Plat"
 +
 +#include "cts_config.h"
@@ -15133,6 +15133,8 @@ index 000000000..926d43119
 +
 +    cts_info("Parse device tree");
 +
++    pdata->int_gpio = -1;
++    pdata->rst_gpio = -1;
 +    pdata->irq = of_irq_get(dev_node, 0);
 +    if (pdata->irq <= 0 && pdata->spi_client)
 +        pdata->irq = pdata->spi_client->irq;
@@ -15374,27 +15376,33 @@ index 000000000..926d43119
 +
 +    cts_info("Request resource");
 +
-+    ret = gpio_request_one(pdata->int_gpio, GPIOF_IN,
-+            CFG_CTS_DEVICE_NAME "-int");
-+    if (ret) {
-+        cts_err("Request INT gpio (%d) failed %d", pdata->int_gpio, ret);
-+        goto err_out;
++    if (gpio_is_valid(pdata->int_gpio)) {
++        ret = gpio_request_one(pdata->int_gpio, GPIOF_IN,
++                CFG_CTS_DEVICE_NAME "-int");
++        if (ret) {
++            cts_err("Request INT gpio (%d) failed %d", pdata->int_gpio, ret);
++            goto err_out;
++        }
 +    }
 +#ifdef CFG_CTS_HAS_RESET_PIN
-+    ret = gpio_request_one(pdata->rst_gpio, GPIOF_OUT_INIT_HIGH,
-+            CFG_CTS_DEVICE_NAME "-rst");
-+    if (ret) {
-+        cts_err("Request RST gpio (%d) failed %d", pdata->rst_gpio, ret);
-+        goto err_free_int;
++    if (gpio_is_valid(pdata->rst_gpio)) {
++        ret = gpio_request_one(pdata->rst_gpio, GPIOF_OUT_INIT_HIGH,
++                CFG_CTS_DEVICE_NAME "-rst");
++        if (ret) {
++            cts_err("Request RST gpio (%d) failed %d", pdata->rst_gpio, ret);
++            goto err_free_int;
++        }
 +    }
 +#endif /* CFG_CTS_HAS_RESET_PIN */
 +
 +#ifdef CFG_CTS_MANUAL_CS
-+    ret = gpio_request_one(pdata->cs_gpio, GPIOF_OUT_INIT_HIGH,
-+            CFG_CTS_DEVICE_NAME "-cs");
-+    if (ret) {
-+        cts_err("Request CS gpio (%d) failed %d", pdata->cs_gpio, ret);
-+        goto err_request_cs_gpio;
++    if (gpio_is_valid(pdata->cs_gpio)) {
++        ret = gpio_request_one(pdata->cs_gpio, GPIOF_OUT_INIT_HIGH,
++                CFG_CTS_DEVICE_NAME "-cs");
++        if (ret) {
++            cts_err("Request CS gpio (%d) failed %d", pdata->cs_gpio, ret);
++            goto err_request_cs_gpio;
++        }
 +    }
 +#endif
 +
@@ -15408,10 +15416,12 @@ index 000000000..926d43119
 +err_free_rst:
 +#endif /* CONFIG_CTS_REGULATOR */
 +#ifdef CFG_CTS_HAS_RESET_PIN
-+    gpio_free(pdata->rst_gpio);
++    if (gpio_is_valid(pdata->rst_gpio))
++        gpio_free(pdata->rst_gpio);
 +err_free_int:
 +#endif /* CFG_CTS_HAS_RESET_PIN */
-+    gpio_free(pdata->int_gpio);
++    if (gpio_is_valid(pdata->int_gpio))
++        gpio_free(pdata->int_gpio);
 +err_out:
 +    return ret;
 +}
@@ -15534,7 +15544,9 @@ index 000000000..926d43119
 +
 +int cts_plat_get_int_pin(struct cts_platform_data *pdata)
 +{
-+    return gpio_get_value(pdata->int_gpio);
++    if (gpio_is_valid(pdata->int_gpio))
++        return gpio_get_value(pdata->int_gpio);
++    return 0;
 +}
 +
 +int cts_plat_power_up_device(struct cts_platform_data *pdata)
@@ -17526,7 +17538,7 @@ index 000000000..361c9db00
 +
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_sysfs.c b/drivers/input/touchscreen/chipone_tddi/cts_sysfs.c
 new file mode 100644
-index 000000000..5b83103d9
+index 000000000..1ce9fc6e3
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_sysfs.c
 @@ -0,0 +1,3488 @@
@@ -19904,7 +19916,7 @@ index 000000000..5b83103d9
 +    return snprintf(buf, PAGE_SIZE,
 +            "Reset pin: %d, status: %d\n",
 +            cts_data->pdata->rst_gpio,
-+            gpio_get_value(cts_data->pdata->rst_gpio));
++            gpio_is_valid(cts_data->pdata->rst_gpio) ? gpio_get_value(cts_data->pdata->rst_gpio) : -1);
 +}
 +
 +static ssize_t reset_pin_store(struct device *dev,
@@ -19934,7 +19946,7 @@ index 000000000..5b83103d9
 +    return snprintf(buf, PAGE_SIZE,
 +            "IRQ pin: %d, status: %d\n",
 +            cts_data->pdata->int_gpio,
-+            gpio_get_value(cts_data->pdata->int_gpio));
++            gpio_is_valid(cts_data->pdata->int_gpio) ? gpio_get_value(cts_data->pdata->int_gpio) : -1);
 +}
 +
 +static DEVICE_ATTR(irq_pin, S_IRUGO, irq_pin_show, NULL);

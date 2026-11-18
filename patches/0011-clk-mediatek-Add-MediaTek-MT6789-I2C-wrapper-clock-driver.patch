@@ -50,7 +50,7 @@ index 000000000..1369152f9
 +
 +#define GATE_IMP_IIC_WRAP(_id, _name, _parent, _shift)			\
 +	GATE_MTK_FLAGS(_id, _name, _parent, &imp_iic_wrap_cg_regs, _shift,	\
-+		&mtk_clk_gate_ops_setclr, CLK_OPS_PARENT_ENABLE)
++		&mtk_clk_gate_ops_setclr, CLK_IS_CRITICAL | CLK_OPS_PARENT_ENABLE)
 +
 +static const struct mtk_gate imp_iic_wrap_c_clks[] = {
 +	GATE_IMP_IIC_WRAP(CLK_IMPC_AP_CLOCK_I2C3, "imp_iic_wrap_c_i2c3", "ifrao_i2c_pseudo", 0),
