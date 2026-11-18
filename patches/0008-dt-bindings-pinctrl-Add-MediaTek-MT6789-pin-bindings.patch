@@ -1,12 +1,12 @@
 From 8888888888888888888888888888888888888888 Mon Sep 17 00:00:00 2001
-From: Diky Nugraha Djiu <diki.vinus54321@gmail.com>
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Tue, 17 Nov 2026 20:30:00 +0000
 Subject: [PATCH 08/10] dt-bindings: pinctrl: Add MediaTek MT6789 pin bindings
 
 Add the pinmux function definitions header for MediaTek MT6789
 (Helio G99) SoC.
 
-Signed-off-by: Diky Nugraha Djiu <diki.vinus54321@gmail.com>
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
 diff --git a/include/dt-bindings/pinctrl/mt6789-pinfunc.h b/include/dt-bindings/pinctrl/mt6789-pinfunc.h
 new file mode 100644

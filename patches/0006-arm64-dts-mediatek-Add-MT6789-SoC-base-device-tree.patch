@@ -1,19 +1,19 @@
 From 6666666666666666666666666666666666666666 Mon Sep 17 00:00:00 2001
-From: Diky Nugraha Djiu <diki.vinus54321@gmail.com>
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Tue, 17 Nov 2026 20:32:00 +0000
 Subject: [PATCH 06/10] arm64: dts: mediatek: Add MT6789 SoC base device tree
 
 Add the device tree for MediaTek MT6789 (Helio G99) SoC covering
-CPUs, GICv3, timer, clocks, UFS, MUSB, and pinctrl.
+CPUs, GICv3, timer, clocks, UFS, MUSB, pinctrl, and SPI controllers.
 
-Signed-off-by: Diky Nugraha Djiu <diki.vinus54321@gmail.com>
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
 diff --git a/arch/arm64/boot/dts/mediatek/mt6789.dtsi b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
 new file mode 100644
 index 000000000..0aa9e80f2
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
-@@ -0,0 +1,295 @@
+@@ -0,0 +1,445 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * MediaTek MT6789 (Helio G99) SoC base device tree — mainline shape.
@@ -42,6 +42,12 @@ index 000000000..0aa9e80f2
 +
 +	aliases {
 +		serial0 = &uart0;
++		spi0 = &spi0;
++		spi1 = &spi1;
++		spi2 = &spi2;
++		spi3 = &spi3;
++		spi4 = &spi4;
++		spi5 = &spi5;
 +	};
 +
 +	cpus {
@@ -230,7 +236,67 @@ index 000000000..0aa9e80f2
 +			gpio-ranges = <&pio 0 0 188>;
 +			interrupt-controller;
 +			#interrupt-cells = <2>;
-+			interrupts = <GIC_SPI 244 IRQ_TYPE_LEVEL_HIGH 0>;
++			interrupts = <GIC_SPI 244 IRQ_TYPE_LEVEL_HIGH>;
++
++			spi0_pins: spi0-default-pins {
++				pins-bus {
++					pinmux = <PINMUX_GPIO30__FUNC_SPI0_CLK>,
++						 <PINMUX_GPIO31__FUNC_SPI0_CSB>,
++						 <PINMUX_GPIO32__FUNC_SPI0_MO>,
++						 <PINMUX_GPIO33__FUNC_SPI0_MI>;
++					bias-disable;
++				};
++			};
++
++			spi1_pins: spi1-default-pins {
++				pins-bus {
++					pinmux = <PINMUX_GPIO34__FUNC_SPI1_CLK>,
++						 <PINMUX_GPIO35__FUNC_SPI1_CSB>,
++						 <PINMUX_GPIO36__FUNC_SPI1_MO>,
++						 <PINMUX_GPIO37__FUNC_SPI1_MI>;
++					bias-disable;
++				};
++			};
++
++			spi2_pins: spi2-default-pins {
++				pins-bus {
++					pinmux = <PINMUX_GPIO38__FUNC_SPI2_CLK>,
++						 <PINMUX_GPIO39__FUNC_SPI2_CSB>,
++						 <PINMUX_GPIO40__FUNC_SPI2_MO>,
++						 <PINMUX_GPIO41__FUNC_SPI2_MI>;
++					bias-disable;
++				};
++			};
++
++			spi3_pins: spi3-default-pins {
++				pins-bus {
++					pinmux = <PINMUX_GPIO42__FUNC_SPI3_CLK>,
++						 <PINMUX_GPIO43__FUNC_SPI3_CSB>,
++						 <PINMUX_GPIO44__FUNC_SPI3_MO>,
++						 <PINMUX_GPIO45__FUNC_SPI3_MI>;
++					bias-disable;
++				};
++			};
++
++			spi4_pins: spi4-default-pins {
++				pins-bus {
++					pinmux = <PINMUX_GPIO9__FUNC_SPI4_CLK>,
++						 <PINMUX_GPIO10__FUNC_SPI4_CSB>,
++						 <PINMUX_GPIO11__FUNC_SPI4_MO>,
++						 <PINMUX_GPIO12__FUNC_SPI4_MI>;
++					bias-disable;
++				};
++			};
++
++			spi5_pins: spi5-default-pins {
++				pins-bus {
++					pinmux = <PINMUX_GPIO46__FUNC_SPI5_CLK>,
++						 <PINMUX_GPIO47__FUNC_SPI5_CSB>,
++						 <PINMUX_GPIO48__FUNC_SPI5_MO>,
++						 <PINMUX_GPIO49__FUNC_SPI5_MI>;
++					bias-disable;
++				};
++			};
 +		};
 +
 +		watchdog: watchdog@10007000 {
@@ -249,6 +315,90 @@ index 000000000..0aa9e80f2
 +			interrupts = <GIC_SPI 141 IRQ_TYPE_LEVEL_HIGH>;
 +			clocks = <&clk26m>, <&infracfg_ao CLK_IFRAO_UART0>;
 +			clock-names = "baud", "bus";
++			status = "disabled";
++		};
++
++		spi0: spi@1100a000 {
++			compatible = "mediatek,mt6789-spi", "mediatek,mt6765-spi";
++			#address-cells = <1>;
++			#size-cells = <0>;
++			reg = <0x00 0x1100a000 0x00 0x1000>;
++			interrupts = <GIC_SPI 191 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&topckgen CLK_TOP_MSDCPLL_D2>,
++				 <&topckgen CLK_TOP_SPI_SEL>,
++				 <&infracfg_ao CLK_IFRAO_SPI0>;
++			clock-names = "parent-clk", "sel-clk", "spi-clk";
++			mediatek,pad-select = <0>;
++			status = "disabled";
++		};
++
++		spi1: spi@11010000 {
++			compatible = "mediatek,mt6789-spi", "mediatek,mt6765-spi";
++			#address-cells = <1>;
++			#size-cells = <0>;
++			reg = <0x00 0x11010000 0x00 0x1000>;
++			interrupts = <GIC_SPI 192 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&topckgen CLK_TOP_MSDCPLL_D2>,
++				 <&topckgen CLK_TOP_SPI_SEL>,
++				 <&infracfg_ao CLK_IFRAO_SPI1>;
++			clock-names = "parent-clk", "sel-clk", "spi-clk";
++			mediatek,pad-select = <0>;
++			status = "disabled";
++		};
++
++		spi2: spi@11012000 {
++			compatible = "mediatek,mt6789-spi", "mediatek,mt6765-spi";
++			#address-cells = <1>;
++			#size-cells = <0>;
++			reg = <0x00 0x11012000 0x00 0x1000>;
++			interrupts = <GIC_SPI 193 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&topckgen CLK_TOP_MSDCPLL_D2>,
++				 <&topckgen CLK_TOP_SPI_SEL>,
++				 <&infracfg_ao CLK_IFRAO_SPI2>;
++			clock-names = "parent-clk", "sel-clk", "spi-clk";
++			mediatek,pad-select = <0>;
++			status = "disabled";
++		};
++
++		spi3: spi@11013000 {
++			compatible = "mediatek,mt6789-spi", "mediatek,mt6765-spi";
++			#address-cells = <1>;
++			#size-cells = <0>;
++			reg = <0x00 0x11013000 0x00 0x1000>;
++			interrupts = <GIC_SPI 194 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&topckgen CLK_TOP_MSDCPLL_D2>,
++				 <&topckgen CLK_TOP_SPI_SEL>,
++				 <&infracfg_ao CLK_IFRAO_SPI3>;
++			clock-names = "parent-clk", "sel-clk", "spi-clk";
++			mediatek,pad-select = <0>;
++			status = "disabled";
++		};
++
++		spi4: spi@11018000 {
++			compatible = "mediatek,mt6789-spi", "mediatek,mt6765-spi";
++			#address-cells = <1>;
++			#size-cells = <0>;
++			reg = <0x00 0x11018000 0x00 0x1000>;
++			interrupts = <GIC_SPI 195 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&topckgen CLK_TOP_MSDCPLL_D2>,
++				 <&topckgen CLK_TOP_SPI_SEL>,
++				 <&infracfg_ao CLK_IFRAO_SPI4>;
++			clock-names = "parent-clk", "sel-clk", "spi-clk";
++			mediatek,pad-select = <0>;
++			status = "disabled";
++		};
++
++		spi5: spi@11019000 {
++			compatible = "mediatek,mt6789-spi", "mediatek,mt6765-spi";
++			#address-cells = <1>;
++			#size-cells = <0>;
++			reg = <0x00 0x11019000 0x00 0x1000>;
++			interrupts = <GIC_SPI 196 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&topckgen CLK_TOP_MSDCPLL_D2>,
++				 <&topckgen CLK_TOP_SPI_SEL>,
++				 <&infracfg_ao CLK_IFRAO_SPI5>;
++			clock-names = "parent-clk", "sel-clk", "spi-clk";
++			mediatek,pad-select = <0>;
 +			status = "disabled";
 +		};
 +

@@ -1,5 +1,5 @@
 From 9999999999999999999999999999999999999999 Mon Sep 17 00:00:00 2001
-From: Diky Nugraha Djiu <diki.vinus54321@gmail.com>
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Tue, 17 Nov 2026 20:31:00 +0000
 Subject: [PATCH 09/10] pinctrl: mediatek: Add MediaTek MT6789 pinctrl driver
 
@@ -8,7 +8,7 @@ The driver implements support for 188 GPIO pins across 7 IOCFG register
 bases (gpio, iocfg_rb, iocfg_bm, iocfg_br, iocfg_lm, iocfg_bl, iocfg_rt)
 using the pinctrl-paris framework.
 
-Signed-off-by: Diky Nugraha Djiu <diki.vinus54321@gmail.com>
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
 diff --git a/drivers/pinctrl/mediatek/Kconfig b/drivers/pinctrl/mediatek/Kconfig
 index 912d782fb..39bae1c2a 100644

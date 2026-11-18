@@ -73,6 +73,12 @@ CONFIG_COMMON_CLK_MT6789=y
 # MT6789 pinctrl and GPIO driver, built-in
 CONFIG_PINCTRL_MT6789=y
 
+# MediaTek SPI host controller and spidev
+CONFIG_SPI=y
+CONFIG_SPI_MASTER=y
+CONFIG_SPI_MT65XX=y
+CONFIG_SPI_SPIDEV=y
+
 # Console on simpledrm
 CONFIG_DRM=y
 CONFIG_DRM_SIMPLEDRM=y

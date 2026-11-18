@@ -95,6 +95,40 @@ if [ -f /sys/kernel/debug/gpio ]; then
     cat /sys/kernel/debug/gpio 2>/dev/null | while read -r line; do log "  GPIO: $line"; done
 fi
 
+log "=== SPI Controller Diagnostics ==="
+log "SPI masters: $(ls -d /sys/class/spi_master/* 2>/dev/null || echo 'None')"
+for sm in /sys/class/spi_master/*; do
+    if [ -d "$sm" ]; then
+        log "SPI master $(basename $sm): of_node=$(readlink $sm/device/of_node 2>/dev/null || echo 'N/A')"
+    fi
+done
+log "SPI devices: $(ls -d /sys/bus/spi/devices/* 2>/dev/null || echo 'None')"
+log "SPI devnodes: $(ls -l /dev/spidev* 2>/dev/null || echo 'None')"
+
+# Register peek utility via devmem (with /dev/mem fallback)
+peek() {
+    addr="$1"
+    val=""
+    if command -v devmem >/dev/null 2>&1; then
+        val=$(devmem "$addr" 32 2>/dev/null || devmem "$addr" 2>/dev/null)
+    fi
+    if [ -z "$val" ] && [ -r /dev/mem ]; then
+        val=$(dd if=/dev/mem bs=4 count=1 skip=$(( $addr / 4 )) 2>/dev/null | hexdump -e '1/4 "0x%08x\n"' 2>/dev/null)
+    fi
+    echo "${val:-N/A}"
+}
+
+log "=== MMIO Hardware Register Peeks (devmem) ==="
+log "  INFRACFG_AO CG1 (0x10001090, SPI0 bit19): $(peek 0x10001090)"
+log "  INFRACFG_AO CG2 (0x10001094, SPI1..5 bits): $(peek 0x10001094)"
+log "  TOPCKGEN SPI MUX (0x100000a0): $(peek 0x100000a0)"
+log "  SPI0 base (0x1100a000): $(peek 0x1100a000)"
+log "  SPI0 CMD  (0x1100a00c): $(peek 0x1100a00c)"
+log "  SPI5 base (0x11019000): $(peek 0x11019000)"
+log "  SPI5 CMD  (0x1101900c): $(peek 0x1101900c)"
+log "  MUSB DEVCTL (0x1120000c): $(peek 0x1120000c)"
+log "  TPHY DTM1 (0x11f4036c): $(peek 0x11f4036c)"
+
 # Issue banner for getty logins
 cat << 'EOF' > /etc/issue
 
@@ -109,7 +143,14 @@ EOF
 cat << 'EOF' > /etc/profile
 export PS1='advan-x1:\w# '
 export PATH='/bin:/sbin:/usr/bin:/usr/sbin'
+peek() {
+    devmem "$1" 32 2>/dev/null || devmem "$1" 2>/dev/null || echo "EFAULT"
+}
+poke() {
+    devmem "$1" 32 "$2"
+}
 echo "Welcome to ADVAN X1 Mainline Linux (Helio G99 / MT6789)!"
+echo "peek <addr> and poke <addr> <val> are available for devmem MMIO access."
 EOF
 
 # Ensure /dev/ttyGS0 is available before launching getty
