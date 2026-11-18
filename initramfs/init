@@ -113,6 +113,16 @@ for i2c in /sys/class/i2c-adapter/*; do
     fi
 done
 log "I2C devnodes: $(ls -l /dev/i2c-* 2>/dev/null || echo 'None')"
+log "=== Deferred Devices Diagnostics ==="
+if [ -f /sys/kernel/debug/devices_deferred ]; then
+    cat /sys/kernel/debug/devices_deferred 2>/dev/null | while read -r line; do log "  DEFERRED: $line"; done
+else
+    log "  /sys/kernel/debug/devices_deferred not available"
+fi
+log "clk-mt6789-imp_iic_wrap driver:"
+ls -la /sys/bus/platform/drivers/clk-mt6789-imp_iic_wrap/ 2>/dev/null | while read -r line; do log "  $line"; done
+log "i2c-mt65xx driver:"
+ls -la /sys/bus/platform/drivers/i2c-mt65xx/ 2>/dev/null | while read -r line; do log "  $line"; done
 
 # Register peek utility via devmem (with /dev/mem fallback)
 peek() {
@@ -154,12 +164,20 @@ done
 # Try /dev/sdc64 (48GB rootfs partition, nested GPT part 1 offset 256*4096 = 1048576)
 if [ -b /dev/sdc64 ]; then
     log "Checking /dev/sdc64 nested GPT (offset 1048576)..."
-    losetup -r -o 1048576 /dev/loop0 /dev/sdc64 2>/dev/null || true
-    if mount -t ext4 -o ro,noload /dev/loop0 /sysroot 2>/dev/null; then
+    losetup -o 1048576 /dev/loop0 /dev/sdc64 2>/dev/null || true
+    if mount -t ext4 -o ro /dev/loop0 /sysroot 2>/dev/null; then
         ROOT_MOUNTED=1
         log "SUCCESS: Mounted /dev/sdc64 nested ext4 rootfs on /sysroot"
         if [ -f /sysroot/etc/os-release ]; then
             log "Rootfs OS: $(grep -E '^(NAME|VERSION)=' /sysroot/etc/os-release 2>/dev/null | tr '\n' '; ')"
+        fi
+        if [ -d /sysroot/etc/systemd/system/getty.target.wants ]; then
+            log "getty.target.wants: $(ls /sysroot/etc/systemd/system/getty.target.wants/ 2>/dev/null)"
+            if [ -e /sysroot/etc/systemd/system/getty.target.wants/serial-getty@ttyGS0.service ]; then
+                log "SUCCESS: serial-getty@ttyGS0.service is present in getty.target.wants"
+            else
+                log "WARNING: serial-getty@ttyGS0.service is MISSING from getty.target.wants"
+            fi
         fi
     else
         losetup -d /dev/loop0 2>/dev/null || true
@@ -169,12 +187,20 @@ fi
 # Try /dev/sdc72 (xnu_data partition, nested GPT part 1 offset 34560*4096 = 141557760)
 if [ "$ROOT_MOUNTED" -eq 0 ] && [ -b /dev/sdc72 ]; then
     log "Checking /dev/sdc72 nested GPT (offset 141557760)..."
-    losetup -r -o 141557760 /dev/loop1 /dev/sdc72 2>/dev/null || true
-    if mount -t ext4 -o ro,noload /dev/loop1 /sysroot 2>/dev/null; then
+    losetup -o 141557760 /dev/loop1 /dev/sdc72 2>/dev/null || true
+    if mount -t ext4 -o ro /dev/loop1 /sysroot 2>/dev/null; then
         ROOT_MOUNTED=1
         log "SUCCESS: Mounted /dev/sdc72 nested ext4 rootfs on /sysroot"
         if [ -f /sysroot/etc/os-release ]; then
             log "Rootfs OS: $(grep -E '^(NAME|VERSION)=' /sysroot/etc/os-release 2>/dev/null | tr '\n' '; ')"
+        fi
+        if [ -d /sysroot/etc/systemd/system/getty.target.wants ]; then
+            log "getty.target.wants: $(ls /sysroot/etc/systemd/system/getty.target.wants/ 2>/dev/null)"
+            if [ -e /sysroot/etc/systemd/system/getty.target.wants/serial-getty@ttyGS0.service ]; then
+                log "SUCCESS: serial-getty@ttyGS0.service is present in getty.target.wants"
+            else
+                log "WARNING: serial-getty@ttyGS0.service is MISSING from getty.target.wants"
+            fi
         fi
     else
         losetup -d /dev/loop1 2>/dev/null || true
