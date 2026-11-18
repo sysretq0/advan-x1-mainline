@@ -56,7 +56,7 @@ index 000000000..b21d29300
 +		 * exact value bytes in place, so this string IS the published
 +		 * cmdline. Do not shrink below current capacity.
 +		 */
-+		bootargs = "earlycon=uart8250,mmio32,0x11002000 console=tty0 console=ttyGS0,115200 nokaslr loglevel=7 initcall_debug=1 rdinit=/init                  ";
++		bootargs = "earlycon=uart8250,mmio32,0x11002000 console=tty0 console=ttyGS0,115200 clk_ignore_unused nokaslr loglevel=7 initcall_debug=1 rdinit=/init                  ";
 +
 +		/*
 +		 * Loader publishes initrd coordinates ONLY when the DTB carries

@@ -139,7 +139,7 @@ log "  SPI5 CMD  (0x1101900c): $(peek 0x1101900c)"
 log "  I2C0 base (0x11e00000): $(peek 0x11e00000)"
 log "  I2C5 base (0x11017000): $(peek 0x11017000)"
 log "  I2C_WRAP_C (0x1101b000): $(peek 0x1101b000)"
-log "  MUSB DEVCTL (0x1120000c): $(peek 0x1120000c)"
+log "  MUSB DEVCTL (0x11200060): $(peek 0x11200060)"
 log "  TPHY DTM1 (0x11f4036c): $(peek 0x11f4036c)"
 
 # Nested GPT rootfs detection and loopback mounting
