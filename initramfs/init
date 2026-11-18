@@ -139,8 +139,6 @@ log "  SPI5 CMD  (0x1101900c): $(peek 0x1101900c)"
 log "  I2C0 base (0x11e00000): $(peek 0x11e00000)"
 log "  I2C5 base (0x11017000): $(peek 0x11017000)"
 log "  I2C_WRAP_C (0x1101b000): $(peek 0x1101b000)"
-log "  MUSB DEVCTL (0x11200060): $(peek 0x11200060)"
-log "  TPHY DTM1 (0x11f4036c): $(peek 0x11f4036c)"
 
 # Nested GPT rootfs detection and loopback mounting
 log "=== Nested GPT Rootfs Detection ==="
@@ -157,7 +155,7 @@ done
 if [ -b /dev/sdc64 ]; then
     log "Checking /dev/sdc64 nested GPT (offset 1048576)..."
     losetup -r -o 1048576 /dev/loop0 /dev/sdc64 2>/dev/null || true
-    if mount -t ext4 -o ro /dev/loop0 /sysroot 2>/dev/null; then
+    if mount -t ext4 -o ro,noload /dev/loop0 /sysroot 2>/dev/null; then
         ROOT_MOUNTED=1
         log "SUCCESS: Mounted /dev/sdc64 nested ext4 rootfs on /sysroot"
         if [ -f /sysroot/etc/os-release ]; then
@@ -172,7 +170,7 @@ fi
 if [ "$ROOT_MOUNTED" -eq 0 ] && [ -b /dev/sdc72 ]; then
     log "Checking /dev/sdc72 nested GPT (offset 141557760)..."
     losetup -r -o 141557760 /dev/loop1 /dev/sdc72 2>/dev/null || true
-    if mount -t ext4 -o ro /dev/loop1 /sysroot 2>/dev/null; then
+    if mount -t ext4 -o ro,noload /dev/loop1 /sysroot 2>/dev/null; then
         ROOT_MOUNTED=1
         log "SUCCESS: Mounted /dev/sdc72 nested ext4 rootfs on /sysroot"
         if [ -f /sysroot/etc/os-release ]; then

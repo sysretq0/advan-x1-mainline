@@ -50,28 +50,28 @@ index 000000000..1369152f9
 +
 +#define GATE_IMP_IIC_WRAP(_id, _name, _parent, _shift)			\
 +	GATE_MTK_FLAGS(_id, _name, _parent, &imp_iic_wrap_cg_regs, _shift,	\
-+		&mtk_clk_gate_ops_setclr, CLK_OPS_PARENT_ENABLE)
++		&mtk_clk_gate_ops_setclr, CLK_IS_CRITICAL | CLK_OPS_PARENT_ENABLE)
 +
 +static const struct mtk_gate imp_iic_wrap_c_clks[] = {
-+	GATE_IMP_IIC_WRAP(CLK_IMPC_AP_CLOCK_I2C3, "imp_iic_wrap_c_i2c3", "top_i2c", 0),
-+	GATE_IMP_IIC_WRAP(CLK_IMPC_AP_CLOCK_I2C5, "imp_iic_wrap_c_i2c5", "top_i2c", 1),
-+	GATE_IMP_IIC_WRAP(CLK_IMPC_AP_CLOCK_I2C6, "imp_iic_wrap_c_i2c6", "top_i2c", 2),
++	GATE_IMP_IIC_WRAP(CLK_IMPC_AP_CLOCK_I2C3, "imp_iic_wrap_c_i2c3", "ifrao_i2c_pseudo", 0),
++	GATE_IMP_IIC_WRAP(CLK_IMPC_AP_CLOCK_I2C5, "imp_iic_wrap_c_i2c5", "ifrao_i2c_pseudo", 1),
++	GATE_IMP_IIC_WRAP(CLK_IMPC_AP_CLOCK_I2C6, "imp_iic_wrap_c_i2c6", "ifrao_i2c_pseudo", 2),
 +};
 +
 +static const struct mtk_gate imp_iic_wrap_w_clks[] = {
-+	GATE_IMP_IIC_WRAP(CLK_IMPW_AP_CLOCK_I2C0, "imp_iic_wrap_w_i2c0", "top_i2c", 0),
-+	GATE_IMP_IIC_WRAP(CLK_IMPW_AP_CLOCK_I2C1, "imp_iic_wrap_w_i2c1", "top_i2c", 1),
++	GATE_IMP_IIC_WRAP(CLK_IMPW_AP_CLOCK_I2C0, "imp_iic_wrap_w_i2c0", "ifrao_i2c_pseudo", 0),
++	GATE_IMP_IIC_WRAP(CLK_IMPW_AP_CLOCK_I2C1, "imp_iic_wrap_w_i2c1", "ifrao_i2c_pseudo", 1),
 +};
 +
 +static const struct mtk_gate imp_iic_wrap_en_clks[] = {
-+	GATE_IMP_IIC_WRAP(CLK_IMPEN_AP_CLOCK_I2C2, "imp_iic_wrap_en_i2c2", "top_i2c", 0),
-+	GATE_IMP_IIC_WRAP(CLK_IMPEN_AP_CLOCK_I2C4, "imp_iic_wrap_en_i2c4", "top_i2c", 1),
-+	GATE_IMP_IIC_WRAP(CLK_IMPEN_AP_CLOCK_I2C8, "imp_iic_wrap_en_i2c8", "top_i2c", 2),
-+	GATE_IMP_IIC_WRAP(CLK_IMPEN_AP_CLOCK_I2C9, "imp_iic_wrap_en_i2c9", "top_i2c", 3),
++	GATE_IMP_IIC_WRAP(CLK_IMPEN_AP_CLOCK_I2C2, "imp_iic_wrap_en_i2c2", "ifrao_i2c_pseudo", 0),
++	GATE_IMP_IIC_WRAP(CLK_IMPEN_AP_CLOCK_I2C4, "imp_iic_wrap_en_i2c4", "ifrao_i2c_pseudo", 1),
++	GATE_IMP_IIC_WRAP(CLK_IMPEN_AP_CLOCK_I2C8, "imp_iic_wrap_en_i2c8", "ifrao_i2c_pseudo", 2),
++	GATE_IMP_IIC_WRAP(CLK_IMPEN_AP_CLOCK_I2C9, "imp_iic_wrap_en_i2c9", "ifrao_i2c_pseudo", 3),
 +};
 +
 +static const struct mtk_gate imp_iic_wrap_n_clks[] = {
-+	GATE_IMP_IIC_WRAP(CLK_IMPN_AP_CLOCK_I2C7, "imp_iic_wrap_n_i2c7", "top_i2c", 0),
++	GATE_IMP_IIC_WRAP(CLK_IMPN_AP_CLOCK_I2C7, "imp_iic_wrap_n_i2c7", "ifrao_i2c_pseudo", 0),
 +};
 +
 +static const struct mtk_clk_desc imp_iic_wrap_c_desc = {
