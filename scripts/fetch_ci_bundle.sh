@@ -6,6 +6,7 @@ OUT=${OUT:-$REPO/build}
 mkdir -p "$OUT"
 
 echo "== Fetching latest bundle from GitHub Actions (sysretq0/advan-x1-mainline) =="
+rm -f "$OUT/bundle.tar.xz"
 gh run download --repo sysretq0/advan-x1-mainline --name advan-x1-mainline-bundle --dir "$OUT"
 
 if [ -f "$OUT/bundle.tar.xz" ]; then

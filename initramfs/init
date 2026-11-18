@@ -10,8 +10,8 @@ mount -t devtmpfs none /dev
 mount -t configfs none /sys/kernel/config 2>/dev/null || true
 
 log() {
-    echo "$@" > /dev/console 2>/dev/null || true
     [ -w /dev/kmsg ] && echo "<6>[INIT] $@" > /dev/kmsg 2>/dev/null || true
+    [ -c /dev/tty0 ] && echo "$@" > /dev/tty0 2>/dev/null || true
 }
 
 # Display banner on screen and console
@@ -21,7 +21,7 @@ BANNER="
              Minimal Standalone BusyBox Initramfs            
 ============================================================="
 
-echo "$BANNER" > /dev/console 2>/dev/null || true
+[ -w /dev/kmsg ] && echo "$BANNER" > /dev/kmsg 2>/dev/null || true
 [ -c /dev/tty0 ] && echo "$BANNER" > /dev/tty0 2>/dev/null || true
 log "=== ADVAN X1 Mainline Linux BusyBox Initramfs ==="
 
