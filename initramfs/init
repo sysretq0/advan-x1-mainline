@@ -173,7 +173,7 @@ if [ -b /dev/sdc64 ]; then
         fi
         if [ -d /sysroot/etc/systemd/system/getty.target.wants ]; then
             log "getty.target.wants: $(ls /sysroot/etc/systemd/system/getty.target.wants/ 2>/dev/null)"
-            if [ -e /sysroot/etc/systemd/system/getty.target.wants/serial-getty@ttyGS0.service ]; then
+            if [ -L /sysroot/etc/systemd/system/getty.target.wants/serial-getty@ttyGS0.service ] || [ -e /sysroot/etc/systemd/system/getty.target.wants/serial-getty@ttyGS0.service ]; then
                 log "SUCCESS: serial-getty@ttyGS0.service is present in getty.target.wants"
             else
                 log "WARNING: serial-getty@ttyGS0.service is MISSING from getty.target.wants"
@@ -196,7 +196,7 @@ if [ "$ROOT_MOUNTED" -eq 0 ] && [ -b /dev/sdc72 ]; then
         fi
         if [ -d /sysroot/etc/systemd/system/getty.target.wants ]; then
             log "getty.target.wants: $(ls /sysroot/etc/systemd/system/getty.target.wants/ 2>/dev/null)"
-            if [ -e /sysroot/etc/systemd/system/getty.target.wants/serial-getty@ttyGS0.service ]; then
+            if [ -L /sysroot/etc/systemd/system/getty.target.wants/serial-getty@ttyGS0.service ] || [ -e /sysroot/etc/systemd/system/getty.target.wants/serial-getty@ttyGS0.service ]; then
                 log "SUCCESS: serial-getty@ttyGS0.service is present in getty.target.wants"
             else
                 log "WARNING: serial-getty@ttyGS0.service is MISSING from getty.target.wants"
@@ -209,15 +209,18 @@ fi
 
 if [ "$ROOT_MOUNTED" -eq 1 ]; then
     log "Rootfs is ready at /sysroot."
-    log "To boot into systemd/distribution: switch_root /sysroot /sbin/init"
-    # Auto-switch if switch_root requested on cmdline
-    if grep -q "switch_root" /proc/cmdline 2>/dev/null; then
-        log "Executing switch_root to /sysroot /sbin/init..."
-        mkdir -p /sysroot/proc /sysroot/sys /sysroot/dev
-        mount --move /proc /sysroot/proc
-        mount --move /sys /sysroot/sys
+    if grep -q "noswitch" /proc/cmdline 2>/dev/null; then
+        log "noswitch detected on cmdline; staying in standalone initramfs rescue shell."
+    elif [ -x /sysroot/sbin/init ] || [ -f /sysroot/lib/systemd/systemd ]; then
+        log "Executing switch_root to /sysroot /sbin/init (USB gadget active on /dev/ttyGS0)..."
+        mkdir -p /sysroot/proc /sysroot/sys /sysroot/dev /sysroot/sys/kernel/config
+        mount --move /sys/kernel/config /sysroot/sys/kernel/config 2>/dev/null || true
         mount --move /dev /sysroot/dev
+        mount --move /sys /sysroot/sys
+        mount --move /proc /sysroot/proc
         exec switch_root /sysroot /sbin/init
+    else
+        log "WARNING: /sysroot mounted but /sbin/init not found; falling back to rescue shell."
     fi
 else
     log "No nested ext4 rootfs automatically mounted; continuing in standalone initramfs."

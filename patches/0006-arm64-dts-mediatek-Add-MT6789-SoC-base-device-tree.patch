@@ -385,6 +385,17 @@ index 000000000..cf523f400
 +			#reset-cells = <1>;
 +		};
 +
++		pwrap: pwrap@10026000 {
++			compatible = "mediatek,mt6789-pwrap", "mediatek,mt8186-pwrap", "syscon";
++			reg = <0x00 0x10026000 0x00 0x1000>;
++			reg-names = "pwrap";
++			interrupts = <GIC_SPI 252 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&infracfg_ao CLK_IFRAO_PMIC_AP>,
++				 <&infracfg_ao CLK_IFRAO_PMIC_TMR>;
++			clock-names = "spi", "wrap";
++			status = "disabled";
++		};
++
 +		/* UART0: 0x11002000 / SPI 141 (stock 0x8d), MT6577-compatible.
 +		 * Baud clock = topckgen uart mux output; bus clock = infra_ao
 +		 * gate bit 22 (IFRAO0). The 921600 bring-up console used

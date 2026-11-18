@@ -15,6 +15,7 @@
 #include <dt-bindings/interrupt-controller/irq.h>
 
 #include "mt6789.dtsi"
+#include "mediatek/mt6358.dtsi"
 
 / {
 	model = "Advan X1";
@@ -138,10 +139,17 @@
 	mediatek,pad-select = <0>;
 	status = "okay";
 
-	spidev0: spidev@0 {
-		compatible = "rohm,dh2228fv";
+	touchscreen@0 {
+		compatible = "chipone-tddi";
 		reg = <0>;
-		spi-max-frequency = <10000000>;
+		spi-max-frequency = <3000000>;
+		spi-cpha;
+		spi-cpol;
+		interrupt-parent = <&pio>;
+		interrupts = <9 IRQ_TYPE_EDGE_FALLING>;
+		chipone,x-res = <1080>;
+		chipone,y-res = <2460>;
+		status = "okay";
 	};
 };
 
@@ -197,5 +205,18 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&i2c7_pins>;
 	clock-frequency = <400000>;
+	status = "okay";
+};
+
+&pwrap {
+	status = "okay";
+};
+
+&pmic {
+	interrupt-parent = <&pio>;
+	interrupts = <137 IRQ_TYPE_LEVEL_HIGH>;
+};
+
+&mt6358keys {
 	status = "okay";
 };
