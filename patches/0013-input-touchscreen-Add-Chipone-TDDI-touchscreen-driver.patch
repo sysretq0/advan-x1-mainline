@@ -5629,7 +5629,7 @@ index 000000000..9beff28f5
 +/* #define CFG_CTS_FIRMWARE_FORCE_UPDATE */
 +
 +/** Use build in firmware or firmware file in fs*/
-+// #define CFG_CTS_DRIVER_BUILTIN_FIRMWARE
++#define CFG_CTS_DRIVER_BUILTIN_FIRMWARE
 +#define CFG_CTS_FIRMWARE_IN_FS
 +#ifdef CFG_CTS_FIRMWARE_IN_FS
 +/* Add FW custom process. */
@@ -5822,7 +5822,7 @@ new file mode 100644
 index 000000000..02aa96a0e
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_core.c
-@@ -0,0 +1,2922 @@
+@@ -0,0 +1,2941 @@
 +#define LOG_TAG         "Core"
 +
 +#include "cts_config.h"
@@ -8047,16 +8047,35 @@ index 000000000..02aa96a0e
 +    }
 +
 +    if (cts_is_device_program_mode(cts_dev)) {
-+        ret = cts_enter_normal_mode(cts_dev);
-+        if (ret) {
-+            cts_err("Enter normal mode failed %d", ret);
-+            return ret;
-+        }
-+        ret = cts_tcs_get_fw_id(cts_dev, &fwid);
-+        if (ret) {
-+            cts_err("Get firmware id failed %d", ret);
++        const struct cts_firmware *firmware;
++
++        cts_info("Device in program mode, load firmware into volatile SRAM");
++        firmware = cts_request_firmware(cts_dev, hwid, CTS_DEV_FWID_ANY, 0);
++        if (firmware) {
++            ret = cts_update_firmware(cts_dev, firmware, false);
++            cts_release_firmware(firmware);
++            if (ret) {
++                cts_err("Load firmware to SRAM failed %d", ret);
++                return ret;
++            }
++            ret = cts_tcs_get_fw_id(cts_dev, &fwid);
++            if (ret) {
++                cts_err("Get firmware id failed %d", ret);
++            } else {
++                cts_info("Firmware id: 0x%04x", fwid);
++                ret = cts_tcs_get_fw_ver(cts_dev, &cts_dev->fwdata.version);
++                if (ret)
++                    cts_dev->fwdata.version = 0;
++                else
++                    cts_info("Firmware version: 0x%04x", cts_dev->fwdata.version);
++            }
 +        } else {
-+            cts_info("Firmware id: 0x%04x", fwid);
++            cts_warn("No firmware available for hwid %06x, try enter normal mode", hwid);
++            ret = cts_enter_normal_mode(cts_dev);
++            if (ret) {
++                cts_err("Enter normal mode failed %d", ret);
++                return ret;
++            }
 +        }
 +    }
 +
