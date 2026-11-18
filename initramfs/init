@@ -124,31 +124,10 @@ ls -la /sys/bus/platform/drivers/clk-mt6789-imp_iic_wrap/ 2>/dev/null | while re
 log "i2c-mt65xx driver:"
 ls -la /sys/bus/platform/drivers/i2c-mt65xx/ 2>/dev/null | while read -r line; do log "  $line"; done
 
-# Register peek utility via devmem (with /dev/mem fallback)
-peek() {
-    addr="$1"
-    val=""
-    if command -v devmem >/dev/null 2>&1; then
-        val=$(devmem "$addr" 32 2>/dev/null || devmem "$addr" 2>/dev/null)
-    fi
-    if [ -z "$val" ] && [ -r /dev/mem ]; then
-        val=$(dd if=/dev/mem bs=4 count=1 skip=$(( $addr / 4 )) 2>/dev/null | hexdump -e '1/4 "0x%08x\n"' 2>/dev/null)
-    fi
-    echo "${val:-N/A}"
-}
-
-log "=== MMIO Hardware Register Peeks (devmem) ==="
-log "  INFRACFG_AO CG1 (0x10001090, SPI0 bit19): $(peek 0x10001090)"
-log "  INFRACFG_AO CG2 (0x10001094, SPI1..5 bits): $(peek 0x10001094)"
-log "  TOPCKGEN SPI MUX (0x100000a0): $(peek 0x100000a0)"
-log "  TOPCKGEN I2C MUX (0x100000b0): $(peek 0x100000b0)"
-log "  SPI0 base (0x1100a000): $(peek 0x1100a000)"
-log "  SPI0 CMD  (0x1100a00c): $(peek 0x1100a00c)"
-log "  SPI5 base (0x11019000): $(peek 0x11019000)"
-log "  SPI5 CMD  (0x1101900c): $(peek 0x1101900c)"
-log "  I2C0 base (0x11e00000): $(peek 0x11e00000)"
-log "  I2C5 base (0x11017000): $(peek 0x11017000)"
-log "  I2C_WRAP_C (0x1101b000): $(peek 0x1101b000)"
+# Keep UFS host controller active during early boot
+for ufs_pwr in /sys/bus/platform/devices/*.ufshci/power/control; do
+    [ -e "$ufs_pwr" ] && echo on > "$ufs_pwr" 2>/dev/null || true
+done
 
 # Nested GPT rootfs detection and loopback mounting
 log "=== Nested GPT Rootfs Detection ==="

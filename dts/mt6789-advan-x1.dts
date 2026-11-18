@@ -70,20 +70,17 @@
 			no-map;
 		};
 
-		/* Stock ramoops carveout (live /proc/iomem 2026-11-11): 1 MiB
-		 * window inside the stock hole keeps the page allocator off it
-		 * in both directions. PSTORE_CONSOLE records console output
-		 * continuously, so a silent hang still leaves the exact last
-		 * lines readable from Android /sys/fs/pstore after the WDT
-		 * reset. Declared as memory + reserved (no no-map) so it is
-		 * System RAM for memremap (boots 4-5: zero content written
-		 * otherwise). */
+		/* Stock ramoops carveout (matching Android cmdline geometry):
+		 * 896 KiB (0xe0000) window at 0x48090000 with 256 KiB (0x40000)
+		 * console buffer and 64 KiB (0x10000) pmsg buffer.
+		 * Matching Android's exact layout ensures console-ramoops-0
+		 * aligns without interleaving or partial buffer overlaps. */
 		ramoops@48090000 {
 			compatible = "ramoops";
-			reg = <0x00 0x48090000 0x00 0x100000>;
+			reg = <0x00 0x48090000 0x00 0x000e0000>;
 			record-size = <0x20000>;
-			console-size = <0x20000>;
-			pmsg-size = <0x20000>;
+			console-size = <0x40000>;
+			pmsg-size = <0x10000>;
 			ecc-size = <0>;
 		};
 	};
@@ -96,7 +93,7 @@
 	 * above. */
 	memory@48090000 {
 		device_type = "memory";
-		reg = <0x00 0x48090000 0x00 0x100000>; /* 1 MiB stock ramoops hole */
+		reg = <0x00 0x48090000 0x00 0x000e0000>; /* 896 KiB stock ramoops hole */
 	};
 
 	/* Kernel staging region: loader drops the Image at 0x61000000 (2 MiB
