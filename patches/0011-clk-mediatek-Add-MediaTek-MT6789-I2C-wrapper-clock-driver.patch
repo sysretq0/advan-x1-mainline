@@ -1,0 +1,129 @@
+From 1111111111111111111111111111111111111111 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Wed, 18 Nov 2026 07:30:00 +0000
+Subject: [PATCH 11/12] clk: mediatek: Add MediaTek MT6789 I2C wrapper clock driver
+
+Add clock driver for MediaTek MT6789 I2C wrappers (imp_iic_wrap_c,
+imp_iic_wrap_w, imp_iic_wrap_en, imp_iic_wrap_n). These wrappers control
+the peripheral clock gates for all 10 I2C bus controllers on the SoC.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+diff --git a/drivers/clk/mediatek/Makefile b/drivers/clk/mediatek/Makefile
+index d0af93d81..df385be13 100644
+--- a/drivers/clk/mediatek/Makefile
++++ b/drivers/clk/mediatek/Makefile
+@@ -24,7 +24,7 @@ obj-$(CONFIG_COMMON_CLK_MT6779_VENCSYS) += clk-mt6779-venc.o
+ obj-$(CONFIG_COMMON_CLK_MT6779_MFGCFG) += clk-mt6779-mfg.o
+ obj-$(CONFIG_COMMON_CLK_MT6779_AUDSYS) += clk-mt6779-aud.o
+ obj-$(CONFIG_COMMON_CLK_MT6789) += clk-mt6789-apmixedsys.o clk-mt6789-topckgen.o \
+-				   clk-mt6789-infra_ao.o
++				   clk-mt6789-infra_ao.o clk-mt6789-imp_iic_wrap.o
+ obj-$(CONFIG_COMMON_CLK_MT6795) += clk-mt6795-apmixedsys.o clk-mt6795-infracfg.o \
+ 				   clk-mt6795-pericfg.o clk-mt6795-topckgen.o
+ obj-$(CONFIG_COMMON_CLK_MT6795_MFGCFG) += clk-mt6795-mfg.o
+diff --git a/drivers/clk/mediatek/clk-mt6789-imp_iic_wrap.c b/drivers/clk/mediatek/clk-mt6789-imp_iic_wrap.c
+new file mode 100644
+index 000000000..1369152f9
+--- /dev/null
++++ b/drivers/clk/mediatek/clk-mt6789-imp_iic_wrap.c
+@@ -0,0 +1,97 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Copyright (c) 2026 sysretq0 <324514544+sysretq0@users.noreply.github.com>
++ * Author: sysretq0
++ */
++
++#include <linux/clk-provider.h>
++#include <linux/platform_device.h>
++
++#include "clk-mtk.h"
++#include "clk-gate.h"
++
++#include <dt-bindings/clock/mt6789-clk.h>
++
++static const struct mtk_gate_regs imp_iic_wrap_cg_regs = {
++	.set_ofs = 0xe08,
++	.clr_ofs = 0xe04,
++	.sta_ofs = 0xe00,
++};
++
++#define GATE_IMP_IIC_WRAP(_id, _name, _parent, _shift)			\
++	GATE_MTK_FLAGS(_id, _name, _parent, &imp_iic_wrap_cg_regs, _shift,	\
++		&mtk_clk_gate_ops_setclr, CLK_OPS_PARENT_ENABLE)
++
++static const struct mtk_gate imp_iic_wrap_c_clks[] = {
++	GATE_IMP_IIC_WRAP(CLK_IMPC_AP_CLOCK_I2C3, "imp_iic_wrap_c_i2c3", "top_i2c", 0),
++	GATE_IMP_IIC_WRAP(CLK_IMPC_AP_CLOCK_I2C5, "imp_iic_wrap_c_i2c5", "top_i2c", 1),
++	GATE_IMP_IIC_WRAP(CLK_IMPC_AP_CLOCK_I2C6, "imp_iic_wrap_c_i2c6", "top_i2c", 2),
++};
++
++static const struct mtk_gate imp_iic_wrap_w_clks[] = {
++	GATE_IMP_IIC_WRAP(CLK_IMPW_AP_CLOCK_I2C0, "imp_iic_wrap_w_i2c0", "top_i2c", 0),
++	GATE_IMP_IIC_WRAP(CLK_IMPW_AP_CLOCK_I2C1, "imp_iic_wrap_w_i2c1", "top_i2c", 1),
++};
++
++static const struct mtk_gate imp_iic_wrap_en_clks[] = {
++	GATE_IMP_IIC_WRAP(CLK_IMPEN_AP_CLOCK_I2C2, "imp_iic_wrap_en_i2c2", "top_i2c", 0),
++	GATE_IMP_IIC_WRAP(CLK_IMPEN_AP_CLOCK_I2C4, "imp_iic_wrap_en_i2c4", "top_i2c", 1),
++	GATE_IMP_IIC_WRAP(CLK_IMPEN_AP_CLOCK_I2C8, "imp_iic_wrap_en_i2c8", "top_i2c", 2),
++	GATE_IMP_IIC_WRAP(CLK_IMPEN_AP_CLOCK_I2C9, "imp_iic_wrap_en_i2c9", "top_i2c", 3),
++};
++
++static const struct mtk_gate imp_iic_wrap_n_clks[] = {
++	GATE_IMP_IIC_WRAP(CLK_IMPN_AP_CLOCK_I2C7, "imp_iic_wrap_n_i2c7", "top_i2c", 0),
++};
++
++static const struct mtk_clk_desc imp_iic_wrap_c_desc = {
++	.clks = imp_iic_wrap_c_clks,
++	.num_clks = ARRAY_SIZE(imp_iic_wrap_c_clks),
++};
++
++static const struct mtk_clk_desc imp_iic_wrap_w_desc = {
++	.clks = imp_iic_wrap_w_clks,
++	.num_clks = ARRAY_SIZE(imp_iic_wrap_w_clks),
++};
++
++static const struct mtk_clk_desc imp_iic_wrap_en_desc = {
++	.clks = imp_iic_wrap_en_clks,
++	.num_clks = ARRAY_SIZE(imp_iic_wrap_en_clks),
++};
++
++static const struct mtk_clk_desc imp_iic_wrap_n_desc = {
++	.clks = imp_iic_wrap_n_clks,
++	.num_clks = ARRAY_SIZE(imp_iic_wrap_n_clks),
++};
++
++static const struct of_device_id of_match_clk_mt6789_imp_iic_wrap[] = {
++	{
++		.compatible = "mediatek,mt6789-imp_iic_wrap_c",
++		.data = &imp_iic_wrap_c_desc,
++	}, {
++		.compatible = "mediatek,mt6789-imp_iic_wrap_w",
++		.data = &imp_iic_wrap_w_desc,
++	}, {
++		.compatible = "mediatek,mt6789-imp_iic_wrap_en",
++		.data = &imp_iic_wrap_en_desc,
++	}, {
++		.compatible = "mediatek,mt6789-imp_iic_wrap_n",
++		.data = &imp_iic_wrap_n_desc,
++	}, {
++		/* sentinel */
++	}
++};
++MODULE_DEVICE_TABLE(of, of_match_clk_mt6789_imp_iic_wrap);
++
++static struct platform_driver clk_mt6789_imp_iic_wrap_drv = {
++	.probe = mtk_clk_simple_probe,
++	.remove = mtk_clk_simple_remove,
++	.driver = {
++		.name = "clk-mt6789-imp_iic_wrap",
++		.of_match_table = of_match_clk_mt6789_imp_iic_wrap,
++	},
++};
++builtin_platform_driver(clk_mt6789_imp_iic_wrap_drv);
++
++MODULE_DESCRIPTION("MediaTek MT6789 I2C Wrapper clocks driver");
++MODULE_LICENSE("GPL");
+-- 
+2.43.0

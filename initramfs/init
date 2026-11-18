@@ -105,6 +105,15 @@ done
 log "SPI devices: $(ls -d /sys/bus/spi/devices/* 2>/dev/null || echo 'None')"
 log "SPI devnodes: $(ls -l /dev/spidev* 2>/dev/null || echo 'None')"
 
+log "=== I2C Controller Diagnostics ==="
+log "I2C adapters: $(ls -d /sys/class/i2c-adapter/* 2>/dev/null || echo 'None')"
+for i2c in /sys/class/i2c-adapter/*; do
+    if [ -d "$i2c" ]; then
+        log "I2C adapter $(basename $i2c): name=$(cat $i2c/name 2>/dev/null || echo 'N/A')"
+    fi
+done
+log "I2C devnodes: $(ls -l /dev/i2c-* 2>/dev/null || echo 'None')"
+
 # Register peek utility via devmem (with /dev/mem fallback)
 peek() {
     addr="$1"
@@ -122,12 +131,73 @@ log "=== MMIO Hardware Register Peeks (devmem) ==="
 log "  INFRACFG_AO CG1 (0x10001090, SPI0 bit19): $(peek 0x10001090)"
 log "  INFRACFG_AO CG2 (0x10001094, SPI1..5 bits): $(peek 0x10001094)"
 log "  TOPCKGEN SPI MUX (0x100000a0): $(peek 0x100000a0)"
+log "  TOPCKGEN I2C MUX (0x100000b0): $(peek 0x100000b0)"
 log "  SPI0 base (0x1100a000): $(peek 0x1100a000)"
 log "  SPI0 CMD  (0x1100a00c): $(peek 0x1100a00c)"
 log "  SPI5 base (0x11019000): $(peek 0x11019000)"
 log "  SPI5 CMD  (0x1101900c): $(peek 0x1101900c)"
+log "  I2C0 base (0x11e00000): $(peek 0x11e00000)"
+log "  I2C5 base (0x11017000): $(peek 0x11017000)"
+log "  I2C_WRAP_C (0x1101b000): $(peek 0x1101b000)"
 log "  MUSB DEVCTL (0x1120000c): $(peek 0x1120000c)"
 log "  TPHY DTM1 (0x11f4036c): $(peek 0x11f4036c)"
+
+# Nested GPT rootfs detection and loopback mounting
+log "=== Nested GPT Rootfs Detection ==="
+mkdir -p /sysroot
+ROOT_MOUNTED=0
+
+# Ensure loop control nodes exist
+[ -e /dev/loop-control ] || mknod /dev/loop-control c 10 237 2>/dev/null || true
+for l in 0 1 2 3 4 5 6 7; do
+    [ -e /dev/loop$l ] || mknod /dev/loop$l b 7 $l 2>/dev/null || true
+done
+
+# Try /dev/sdc64 (48GB rootfs partition, nested GPT part 1 offset 256*4096 = 1048576)
+if [ -b /dev/sdc64 ]; then
+    log "Checking /dev/sdc64 nested GPT (offset 1048576)..."
+    losetup -r -o 1048576 /dev/loop0 /dev/sdc64 2>/dev/null || true
+    if mount -t ext4 -o ro /dev/loop0 /sysroot 2>/dev/null; then
+        ROOT_MOUNTED=1
+        log "SUCCESS: Mounted /dev/sdc64 nested ext4 rootfs on /sysroot"
+        if [ -f /sysroot/etc/os-release ]; then
+            log "Rootfs OS: $(grep -E '^(NAME|VERSION)=' /sysroot/etc/os-release 2>/dev/null | tr '\n' '; ')"
+        fi
+    else
+        losetup -d /dev/loop0 2>/dev/null || true
+    fi
+fi
+
+# Try /dev/sdc72 (xnu_data partition, nested GPT part 1 offset 34560*4096 = 141557760)
+if [ "$ROOT_MOUNTED" -eq 0 ] && [ -b /dev/sdc72 ]; then
+    log "Checking /dev/sdc72 nested GPT (offset 141557760)..."
+    losetup -r -o 141557760 /dev/loop1 /dev/sdc72 2>/dev/null || true
+    if mount -t ext4 -o ro /dev/loop1 /sysroot 2>/dev/null; then
+        ROOT_MOUNTED=1
+        log "SUCCESS: Mounted /dev/sdc72 nested ext4 rootfs on /sysroot"
+        if [ -f /sysroot/etc/os-release ]; then
+            log "Rootfs OS: $(grep -E '^(NAME|VERSION)=' /sysroot/etc/os-release 2>/dev/null | tr '\n' '; ')"
+        fi
+    else
+        losetup -d /dev/loop1 2>/dev/null || true
+    fi
+fi
+
+if [ "$ROOT_MOUNTED" -eq 1 ]; then
+    log "Rootfs is ready at /sysroot."
+    log "To boot into systemd/distribution: switch_root /sysroot /sbin/init"
+    # Auto-switch if switch_root requested on cmdline
+    if grep -q "switch_root" /proc/cmdline 2>/dev/null; then
+        log "Executing switch_root to /sysroot /sbin/init..."
+        mkdir -p /sysroot/proc /sysroot/sys /sysroot/dev
+        mount --move /proc /sysroot/proc
+        mount --move /sys /sysroot/sys
+        mount --move /dev /sysroot/dev
+        exec switch_root /sysroot /sbin/init
+    fi
+else
+    log "No nested ext4 rootfs automatically mounted; continuing in standalone initramfs."
+fi
 
 # Issue banner for getty logins
 cat << 'EOF' > /etc/issue
@@ -149,8 +219,20 @@ peek() {
 poke() {
     devmem "$1" 32 "$2"
 }
+boot_systemd() {
+    if [ -f /sysroot/sbin/init ] || [ -f /sysroot/lib/systemd/systemd ]; then
+        echo "Switching root to /sysroot..."
+        mkdir -p /sysroot/proc /sysroot/sys /sysroot/dev
+        mount --move /proc /sysroot/proc
+        mount --move /sys /sysroot/sys
+        mount --move /dev /sysroot/dev
+        exec switch_root /sysroot /sbin/init
+    else
+        echo "Error: /sysroot is not mounted or has no /sbin/init"
+    fi
+}
 echo "Welcome to ADVAN X1 Mainline Linux (Helio G99 / MT6789)!"
-echo "peek <addr> and poke <addr> <val> are available for devmem MMIO access."
+echo "Commands available: peek <addr>, poke <addr> <val>, boot_systemd"
 EOF
 
 # Ensure /dev/ttyGS0 is available before launching getty

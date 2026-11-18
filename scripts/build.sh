@@ -32,7 +32,7 @@ mkdir -p "$OUT"
 
 cd "$K"
 echo "== patch series on $BRANCH =="
-if [ ! -d "$WORK/.git" ]; then
+if [ ! -e "$WORK/.git" ]; then
     git worktree remove --force "$WORK" 2>/dev/null || true
     rm -rf "$WORK"
     git worktree add --detach "$WORK" "$BASE"

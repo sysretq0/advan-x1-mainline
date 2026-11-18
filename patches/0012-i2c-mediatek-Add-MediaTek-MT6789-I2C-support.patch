@@ -1,0 +1,37 @@
+From 1212121212121212121212121212121212121212 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Wed, 18 Nov 2026 07:35:00 +0000
+Subject: [PATCH 12/12] i2c: mediatek: Add MediaTek MT6789 I2C support
+
+Add compatible string for the MediaTek MT6789 SoC I2C controller.
+The hardware features match the MT8192 IP configuration (v2 registers,
+auto restart, 36-bit DMA).
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+diff --git a/Documentation/devicetree/bindings/i2c/i2c-mt65xx.yaml b/Documentation/devicetree/bindings/i2c/i2c-mt65xx.yaml
+index ecd5783f0..04228d7ef 100644
+--- a/Documentation/devicetree/bindings/i2c/i2c-mt65xx.yaml
++++ b/Documentation/devicetree/bindings/i2c/i2c-mt65xx.yaml
+@@ -59,6 +59,7 @@ properties:
+           - const: mediatek,mt8188-i2c
+       - items:
+           - enum:
++              - mediatek,mt6789-i2c
+               - mediatek,mt6893-i2c
+               - mediatek,mt8195-i2c
+           - const: mediatek,mt8192-i2c
+diff --git a/drivers/i2c/busses/i2c-mt65xx.c b/drivers/i2c/busses/i2c-mt65xx.c
+index 45d0d7156..ea6f20cc8 100644
+--- a/drivers/i2c/busses/i2c-mt65xx.c
++++ b/drivers/i2c/busses/i2c-mt65xx.c
+@@ -535,6 +535,7 @@ static const struct of_device_id mtk_i2c_of_match[] = {
+ 	{ .compatible = "mediatek,mt8183-i2c", .data = &mt8183_compat },
+ 	{ .compatible = "mediatek,mt8186-i2c", .data = &mt8186_compat },
+ 	{ .compatible = "mediatek,mt8188-i2c", .data = &mt8188_compat },
++	{ .compatible = "mediatek,mt6789-i2c", .data = &mt8192_compat },
+ 	{ .compatible = "mediatek,mt8192-i2c", .data = &mt8192_compat },
+ 	{}
+ };
+-- 
+2.43.0
