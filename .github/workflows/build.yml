@@ -36,14 +36,19 @@ jobs:
           echo 'Acquire::ForceIPv4 "true";' | sudo tee /etc/apt/apt.conf.d/99force-ipv4
           echo 'Acquire::http::Pipeline-Depth "0";' | sudo tee -a /etc/apt/apt.conf.d/99force-ipv4
 
-          # 2. Redirect any throttled AWS EC2 HTTP mirrors to fast HTTPS official archive mirrors
-          sudo sed -i 's|http://.*ec2.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || true
-          sudo sed -i 's|http://|https://|g' /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || true
+          # 2. Overwrite /etc/apt/apt-mirrors.txt which APT uses via mirror+file: in ubuntu.sources
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            printf 'http://azure.archive.ubuntu.com/ubuntu\tpriority:1\nhttps://archive.ubuntu.com/ubuntu\tpriority:2\n' | sudo tee /etc/apt/apt-mirrors.txt
+          fi
 
-          # 3. Clean unneeded third-party PPAs while safely keeping ubuntu.sources
+          # 3. Direct ubuntu.sources away from mirror+file or any throttled ec2 mirrors directly to fast CDN mirrors
+          sudo sed -i 's|mirror+file:/etc/apt/apt-mirrors.txt|http://azure.archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || true
+          sudo sed -i 's|http://.*ec2.archive.ubuntu.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/* /etc/apt/sources.list /etc/apt/apt-mirrors.txt 2>/dev/null || true
+
+          # 4. Clean unneeded third-party PPAs while safely keeping ubuntu.sources
           sudo find /etc/apt/sources.list.d/ -type f ! -name "*ubuntu*" -delete 2>/dev/null || true
 
-          # 4. Update index and install ONLY genuinely missing packages
+          # 5. Update index and install ONLY genuinely missing packages
           # (bc, bison, flex, libssl-dev, xz-utils, python3, cpio, curl, bzip2 are already pre-installed)
           sudo apt-get -o Acquire::Retries="3" update -qq
           sudo apt-get -o Acquire::Retries="3" install -y --no-install-recommends \
