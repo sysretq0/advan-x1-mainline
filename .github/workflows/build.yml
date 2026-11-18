@@ -28,14 +28,14 @@ jobs:
 
       - name: Setup compiler cache mode
         run: |
-          if [ "${{ inputs.use_ccache != false }}" = "true" ]; then
+          if [ "${{ github.event_name != 'workflow_dispatch' || inputs.use_ccache == true }}" = "true" ]; then
             echo "USE_CCACHE=true" >> $GITHUB_ENV
             echo "CC_LAUNCHER=ccache " >> $GITHUB_ENV
             echo "Ccache enabled: using cached compiler artifacts"
           else
             echo "USE_CCACHE=false" >> $GITHUB_ENV
             echo "CC_LAUNCHER=" >> $GITHUB_ENV
-            echo "Ccache disabled: performing 100% clean build"
+            echo "Ccache disabled: performing clean build"
           fi
 
       - name: Configure runner swap
@@ -74,7 +74,7 @@ jobs:
             ccache
 
       - name: Restore ccache cache
-        if: ${{ inputs.use_ccache != false }}
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.use_ccache == true }}
         uses: actions/cache@v6
         with:
           path: ~/.cache/ccache
@@ -85,7 +85,7 @@ jobs:
             ccache-linux-arm64-${{ runner.os }}-
 
       - name: Configure ccache
-        if: ${{ inputs.use_ccache != false }}
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.use_ccache == true }}
         run: |
           mkdir -p ~/.cache/ccache
           ccache --set-config=max_size=1.5G
@@ -158,7 +158,7 @@ jobs:
           make -j$(nproc) ARCH=arm64 LLVM=1 CC="${CC_LAUNCHER}clang" HOSTCC="${CC_LAUNCHER}clang" Image
 
       - name: Ccache statistics
-        if: ${{ always() && inputs.use_ccache != false }}
+        if: ${{ always() && (github.event_name != 'workflow_dispatch' || inputs.use_ccache == true) }}
         run: |
           echo "### Ccache Statistics" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
