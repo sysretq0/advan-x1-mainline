@@ -11,6 +11,11 @@ on:
         description: 'Upstream Linux Git Ref (tag, branch, commit)'
         required: true
         default: 'master'
+      use_ccache:
+        description: 'Enable ccache compiler cache (uncheck for completely clean build)'
+        required: true
+        type: boolean
+        default: true
 
 jobs:
   build:
@@ -20,6 +25,18 @@ jobs:
     steps:
       - name: Checkout port repository
         uses: actions/checkout@v6
+
+      - name: Setup compiler cache mode
+        run: |
+          if [ "${{ inputs.use_ccache != false }}" = "true" ]; then
+            echo "USE_CCACHE=true" >> $GITHUB_ENV
+            echo "CC_LAUNCHER=ccache " >> $GITHUB_ENV
+            echo "Ccache enabled: using cached compiler artifacts"
+          else
+            echo "USE_CCACHE=false" >> $GITHUB_ENV
+            echo "CC_LAUNCHER=" >> $GITHUB_ENV
+            echo "Ccache disabled: performing 100% clean build"
+          fi
 
       - name: Configure runner swap
         run: |
@@ -57,6 +74,7 @@ jobs:
             ccache
 
       - name: Restore ccache cache
+        if: ${{ inputs.use_ccache != false }}
         uses: actions/cache@v6
         with:
           path: ~/.cache/ccache
@@ -67,6 +85,7 @@ jobs:
             ccache-linux-arm64-${{ runner.os }}-
 
       - name: Configure ccache
+        if: ${{ inputs.use_ccache != false }}
         run: |
           mkdir -p ~/.cache/ccache
           ccache --set-config=max_size=1.5G
@@ -89,7 +108,7 @@ jobs:
           sed -i 's/^# CONFIG_STATIC is not set/CONFIG_STATIC=y/' .config
           sed -i 's/CONFIG_TC=y/# CONFIG_TC is not set/' .config
           yes "" | make oldconfig
-          make -j$(nproc) CROSS_COMPILE="ccache aarch64-linux-gnu-" install CONFIG_PREFIX="$GITHUB_WORKSPACE/initramfs_root"
+          make -j$(nproc) CROSS_COMPILE="${CC_LAUNCHER}aarch64-linux-gnu-" install CONFIG_PREFIX="$GITHUB_WORKSPACE/initramfs_root"
           
           # Setup directories and copy /init
           cd "$GITHUB_WORKSPACE/initramfs_root"
@@ -124,7 +143,7 @@ jobs:
           cd "$GITHUB_WORKSPACE/linux"
           make ARCH=arm64 defconfig
           scripts/kconfig/merge_config.sh -m -O . .config "$GITHUB_WORKSPACE"/config/*.configfrag
-          make ARCH=arm64 olddefconfig LLVM=1 CC="ccache clang" HOSTCC="ccache clang"
+          make ARCH=arm64 olddefconfig LLVM=1 CC="${CC_LAUNCHER}clang" HOSTCC="${CC_LAUNCHER}clang"
 
       - name: Compile kernel Image
         timeout-minutes: 60
@@ -136,10 +155,10 @@ jobs:
           CCACHE_NOHASHDIR: "true"
         run: |
           cd "$GITHUB_WORKSPACE/linux"
-          make -j$(nproc) ARCH=arm64 LLVM=1 CC="ccache clang" HOSTCC="ccache clang" Image
+          make -j$(nproc) ARCH=arm64 LLVM=1 CC="${CC_LAUNCHER}clang" HOSTCC="${CC_LAUNCHER}clang" Image
 
       - name: Ccache statistics
-        if: always()
+        if: ${{ always() && inputs.use_ccache != false }}
         run: |
           echo "### Ccache Statistics" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
