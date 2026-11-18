@@ -13,7 +13,7 @@ new file mode 100644
 index 000000000..cf523f400
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
-@@ -0,0 +1,689 @@
+@@ -0,0 +1,970 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * MediaTek MT6789 (Helio G99) SoC base device tree — mainline shape.
@@ -33,6 +33,8 @@ index 000000000..cf523f400
 +#include <dt-bindings/reset/mt6789-resets.h>
 +#include <dt-bindings/phy/phy.h>
 +#include <dt-bindings/pinctrl/mt6789-pinfunc.h>
++#include <dt-bindings/thermal/thermal.h>
++#include <dt-bindings/thermal/mediatek,lvts-thermal.h>
 +
 +/ {
 +	compatible = "mediatek,mt6789";
@@ -423,6 +425,17 @@ index 000000000..cf523f400
 +			status = "disabled";
 +		};
 +
++		lvts: thermal-sensor@1100b000 {
++			compatible = "mediatek,mt6789-lvts";
++			reg = <0x00 0x1100b000 0x00 0x1000>;
++			interrupts = <GIC_SPI 201 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&infracfg_ao CLK_IFRAO_THERM>;
++			resets = <&infracfg_ao MT6789_INFRA_RST0_THERM_CTRL_SWRST>;
++			nvmem-cells = <&lvts_e_data1>, <&lvts_e_data2>;
++			nvmem-cell-names = "e_data1", "e_data2";
++			#thermal-sensor-cells = <1>;
++		};
++
 +		spi1: spi@11010000 {
 +			compatible = "mediatek,mt6789-spi", "mediatek,mt6765-spi";
 +			#address-cells = <1>;
@@ -515,6 +528,21 @@ index 000000000..cf523f400
 +			reset-names = "hci_rst", "unipro_rst", "crypto_rst";
 +			mediatek,ufs-disable-mcq;
 +			status = "disabled";
++		};
++
++		efuse: efuse@11c10000 {
++			compatible = "mediatek,mt6789-efuse", "mediatek,efuse";
++			reg = <0x00 0x11c10000 0x00 0x1000>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++
++			lvts_e_data1: data1@1b4 {
++				reg = <0x1b4 0x2c>;
++			};
++
++			lvts_e_data2: data2@2f8 {
++				reg = <0x2f8 0x08>;
++			};
 +		};
 +
 +		u2phy0: t-phy@11f40000 {
@@ -713,6 +741,249 @@ index 000000000..cf523f400
 +			status = "disabled";
 +		};
 +	};
++
++	thermal-zones {
++		cpu0-thermal {
++			polling-delay = <1000>;
++			polling-delay-passive = <150>;
++			thermal-sensors = <&lvts MT6789_LITTLE_CPU0>;
++
++			trips {
++				cpu0_alert: trip-alert {
++					temperature = <85000>;
++					hysteresis = <2000>;
++					type = "passive";
++				};
++
++				cpu0_crit: trip-crit {
++					temperature = <100000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++		};
++
++		cpu1-thermal {
++			polling-delay = <1000>;
++			polling-delay-passive = <150>;
++			thermal-sensors = <&lvts MT6789_LITTLE_CPU1>;
++
++			trips {
++				cpu1_alert: trip-alert {
++					temperature = <85000>;
++					hysteresis = <2000>;
++					type = "passive";
++				};
++
++				cpu1_crit: trip-crit {
++					temperature = <100000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++		};
++
++		cpu2-thermal {
++			polling-delay = <1000>;
++			polling-delay-passive = <150>;
++			thermal-sensors = <&lvts MT6789_LITTLE_CPU2>;
++
++			trips {
++				cpu2_alert: trip-alert {
++					temperature = <85000>;
++					hysteresis = <2000>;
++					type = "passive";
++				};
++
++				cpu2_crit: trip-crit {
++					temperature = <100000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++		};
++
++		cpu3-thermal {
++			polling-delay = <1000>;
++			polling-delay-passive = <150>;
++			thermal-sensors = <&lvts MT6789_LITTLE_CPU3>;
++
++			trips {
++				cpu3_alert: trip-alert {
++					temperature = <85000>;
++					hysteresis = <2000>;
++					type = "passive";
++				};
++
++				cpu3_crit: trip-crit {
++					temperature = <100000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++		};
++
++		cpu4-thermal {
++			polling-delay = <1000>;
++			polling-delay-passive = <150>;
++			thermal-sensors = <&lvts MT6789_BIG_CPU0>;
++
++			trips {
++				cpu4_alert: trip-alert {
++					temperature = <85000>;
++					hysteresis = <2000>;
++					type = "passive";
++				};
++
++				cpu4_crit: trip-crit {
++					temperature = <100000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++		};
++
++		cpu5-thermal {
++			polling-delay = <1000>;
++			polling-delay-passive = <150>;
++			thermal-sensors = <&lvts MT6789_BIG_CPU1>;
++
++			trips {
++				cpu5_alert: trip-alert {
++					temperature = <85000>;
++					hysteresis = <2000>;
++					type = "passive";
++				};
++
++				cpu5_crit: trip-crit {
++					temperature = <100000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++		};
++
++		cpu6-thermal {
++			polling-delay = <1000>;
++			polling-delay-passive = <150>;
++			thermal-sensors = <&lvts MT6789_BIG_CPU2>;
++
++			trips {
++				cpu6_alert: trip-alert {
++					temperature = <85000>;
++					hysteresis = <2000>;
++					type = "passive";
++				};
++
++				cpu6_crit: trip-crit {
++					temperature = <100000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++		};
++
++		cpu7-thermal {
++			polling-delay = <1000>;
++			polling-delay-passive = <150>;
++			thermal-sensors = <&lvts MT6789_BIG_CPU3>;
++
++			trips {
++				cpu7_alert: trip-alert {
++					temperature = <85000>;
++					hysteresis = <2000>;
++					type = "passive";
++				};
++
++				cpu7_crit: trip-crit {
++					temperature = <100000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++		};
++
++		gpu1-thermal {
++			polling-delay = <1000>;
++			polling-delay-passive = <150>;
++			thermal-sensors = <&lvts MT6789_GPU0>;
++
++			trips {
++				gpu1_alert: trip-alert {
++					temperature = <85000>;
++					hysteresis = <2000>;
++					type = "passive";
++				};
++
++				gpu1_crit: trip-crit {
++					temperature = <100000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++		};
++
++		gpu2-thermal {
++			polling-delay = <1000>;
++			polling-delay-passive = <150>;
++			thermal-sensors = <&lvts MT6789_GPU1>;
++
++			trips {
++				gpu2_alert: trip-alert {
++					temperature = <85000>;
++					hysteresis = <2000>;
++					type = "passive";
++				};
++
++				gpu2_crit: trip-crit {
++					temperature = <100000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++		};
++
++		soc1-thermal {
++			polling-delay = <1000>;
++			polling-delay-passive = <150>;
++			thermal-sensors = <&lvts MT6789_SOC0>;
++
++			trips {
++				soc1_alert: trip-alert {
++					temperature = <85000>;
++					hysteresis = <2000>;
++					type = "passive";
++				};
++
++				soc1_crit: trip-crit {
++					temperature = <100000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++		};
++
++		soc2-thermal {
++			polling-delay = <1000>;
++			polling-delay-passive = <150>;
++			thermal-sensors = <&lvts MT6789_SOC1>;
++
++			trips {
++				soc2_alert: trip-alert {
++					temperature = <85000>;
++					hysteresis = <2000>;
++					type = "passive";
++				};
++
++				soc2_crit: trip-crit {
++					temperature = <100000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++		};
++	};
 +};
+
 -- 
-2.43.0
+2.55.0
