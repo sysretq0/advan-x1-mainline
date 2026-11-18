@@ -53,7 +53,29 @@ jobs:
           sudo apt-get -o Acquire::Retries="3" update -qq
           sudo apt-get -o Acquire::Retries="3" install -y --no-install-recommends \
             clang lld llvm device-tree-compiler libelf-dev \
-            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu libc6-dev-arm64-cross
+            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu libc6-dev-arm64-cross \
+            ccache
+
+      - name: Restore ccache cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ccache
+          key: ccache-linux-arm64-${{ runner.os }}-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            ccache-linux-arm64-${{ runner.os }}-${{ github.ref_name }}-
+            ccache-linux-arm64-${{ runner.os }}-main-
+            ccache-linux-arm64-${{ runner.os }}-
+
+      - name: Configure ccache
+        run: |
+          mkdir -p ~/.cache/ccache
+          ccache --set-config=max_size=1.5G
+          ccache --set-config=compression=true
+          ccache --set-config=compression_level=3
+          ccache --set-config=base_dir="$GITHUB_WORKSPACE"
+          ccache --set-config=sloppiness=time_macros,include_file_mtime,file_macro
+          ccache -z
+          ccache -s
 
       - name: Build static BusyBox & package initramfs
         timeout-minutes: 10
@@ -67,7 +89,7 @@ jobs:
           sed -i 's/^# CONFIG_STATIC is not set/CONFIG_STATIC=y/' .config
           sed -i 's/CONFIG_TC=y/# CONFIG_TC is not set/' .config
           yes "" | make oldconfig
-          make -j$(nproc) CROSS_COMPILE=aarch64-linux-gnu- install CONFIG_PREFIX="$GITHUB_WORKSPACE/initramfs_root"
+          make -j$(nproc) CROSS_COMPILE="ccache aarch64-linux-gnu-" install CONFIG_PREFIX="$GITHUB_WORKSPACE/initramfs_root"
           
           # Setup directories and copy /init
           cd "$GITHUB_WORKSPACE/initramfs_root"
@@ -102,13 +124,27 @@ jobs:
           cd "$GITHUB_WORKSPACE/linux"
           make ARCH=arm64 defconfig
           scripts/kconfig/merge_config.sh -m -O . .config "$GITHUB_WORKSPACE"/config/*.configfrag
-          make ARCH=arm64 olddefconfig LLVM=1
+          make ARCH=arm64 olddefconfig LLVM=1 CC="ccache clang" HOSTCC="ccache clang"
 
       - name: Compile kernel Image
         timeout-minutes: 60
+        env:
+          KBUILD_BUILD_TIMESTAMP: ""
+          KBUILD_BUILD_USER: "builder"
+          KBUILD_BUILD_HOST: "github-actions"
+          CCACHE_BASEDIR: ${{ github.workspace }}
+          CCACHE_NOHASHDIR: "true"
         run: |
           cd "$GITHUB_WORKSPACE/linux"
-          make -j$(nproc) ARCH=arm64 LLVM=1 Image
+          make -j$(nproc) ARCH=arm64 LLVM=1 CC="ccache clang" HOSTCC="ccache clang" Image
+
+      - name: Ccache statistics
+        if: always()
+        run: |
+          echo "### Ccache Statistics" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          ccache -s >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Compile Advan X1 device tree blob
         timeout-minutes: 5
