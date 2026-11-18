@@ -15,9 +15,11 @@ on:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - name: Checkout port repository
         uses: actions/checkout@v4
+        timeout-minutes: 5
 
       - name: Configure runner swap and disk
         run: |
@@ -28,19 +30,21 @@ jobs:
           free -h
 
       - name: Install build toolchain & dependencies
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          sudo apt-get -o Acquire::http::Timeout="30" -o Acquire::Retries="3" update
+          sudo apt-get -o Acquire::http::Timeout="30" -o Acquire::Retries="3" install -y --no-install-recommends \
             clang lld llvm gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu libc6-dev-arm64-cross \
             bc bison flex libssl-dev libelf-dev device-tree-compiler xz-utils python3 \
             cpio curl bzip2
 
       - name: Build static BusyBox & package initramfs
+        timeout-minutes: 10
         run: |
           mkdir -p "$GITHUB_WORKSPACE/build"
           mkdir -p "$GITHUB_WORKSPACE/busybox-build"
           cd "$GITHUB_WORKSPACE/busybox-build"
-          curl -sSL https://busybox.net/downloads/busybox-1.38.0.tar.bz2 | tar -xj
+          curl -fsSL --connect-timeout 20 --max-time 180 --retry 3 https://busybox.net/downloads/busybox-1.38.0.tar.bz2 | tar -xj
           cd busybox-1.38.0
           make defconfig
           sed -i 's/^# CONFIG_STATIC is not set/CONFIG_STATIC=y/' .config
@@ -59,9 +63,10 @@ jobs:
           ls -lh "$GITHUB_WORKSPACE/build/initramfs.cpio.gz"
 
       - name: Checkout upstream Linux kernel
+        timeout-minutes: 10
         run: |
           mkdir -p "$GITHUB_WORKSPACE/linux"
-          git clone --depth 1 --branch ${{ inputs.linux_ref || 'master' }} https://github.com/torvalds/linux.git "$GITHUB_WORKSPACE/linux"
+          git clone --depth 1 --single-branch --config net.gitFetchDefaultTimeout=120 --branch ${{ inputs.linux_ref || 'master' }} https://github.com/torvalds/linux.git "$GITHUB_WORKSPACE/linux"
 
       - name: Apply MT6789 patch series
         run: |
@@ -81,11 +86,13 @@ jobs:
           make ARCH=arm64 olddefconfig LLVM=1
 
       - name: Compile kernel Image
+        timeout-minutes: 35
         run: |
           cd "$GITHUB_WORKSPACE/linux"
           make -j$(nproc) ARCH=arm64 LLVM=1 Image
 
       - name: Compile Advan X1 device tree blob
+        timeout-minutes: 5
         run: |
           mkdir -p "$GITHUB_WORKSPACE/build"
           cp "$GITHUB_WORKSPACE/linux/arch/arm64/boot/Image" "$GITHUB_WORKSPACE/build/Image"
@@ -100,6 +107,7 @@ jobs:
           rm -f "$PDTB"
 
       - name: Pack LNXB bundle
+        timeout-minutes: 5
         run: |
           python3 "$GITHUB_WORKSPACE/tools/pack_linux_bundle.py" \
             --kernel "$GITHUB_WORKSPACE/build/Image" \
@@ -112,12 +120,14 @@ jobs:
           cat sha256sums.txt
 
       - name: Compress artifacts into tar.xz
+        timeout-minutes: 5
         run: |
           cd "$GITHUB_WORKSPACE/build"
           XZ_OPT="-9e -T0" tar -cJf "$GITHUB_WORKSPACE/bundle.tar.xz" bundle.img Image mt6789-advan-x1.dtb initramfs.cpio.gz sha256sums.txt
           ls -lh "$GITHUB_WORKSPACE/bundle.tar.xz"
 
       - name: Upload bundle.tar.xz artifact
+        timeout-minutes: 10
         uses: actions/upload-artifact@v4
         with:
           name: advan-x1-mainline-bundle
