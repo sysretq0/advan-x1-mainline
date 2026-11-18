@@ -27,7 +27,7 @@ new file mode 100644
 index 000000000..b21d29300
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
-@@ -0,0 +1,219 @@
+@@ -0,0 +1,220 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Advan X1 (MT6789) board device tree — clean redo.
@@ -57,7 +57,7 @@ index 000000000..b21d29300
 +		 * exact value bytes in place, so this string IS the published
 +		 * cmdline. Do not shrink below current capacity.
 +		 */
-+		bootargs = "earlycon=uart8250,mmio32,0x11002000 console=tty0 console=ttyGS0,115200 nokaslr loglevel=7 initcall_debug=1 rdinit=/init                  ";
++		bootargs = "earlycon=uart8250,mmio32,0x11002000 console=ttyGS0,115200 console=tty0 nokaslr loglevel=7 initcall_debug=1 rdinit=/init                  ";
 +
 +		/*
 +		 * Loader publishes initrd coordinates ONLY when the DTB carries
@@ -112,6 +112,7 @@ index 000000000..b21d29300
 +			console-size = <0x40000>;
 +			pmsg-size = <0x10000>;
 +			ecc-size = <0>;
++			no-map;
 +		};
 +	};
 +

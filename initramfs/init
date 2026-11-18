@@ -144,9 +144,9 @@ done
 if [ -b /dev/sdc64 ]; then
     log "Checking /dev/sdc64 nested GPT (offset 1048576)..."
     losetup -o 1048576 /dev/loop0 /dev/sdc64 2>/dev/null || true
-    if mount -t ext4 -o ro /dev/loop0 /sysroot 2>/dev/null; then
+    if mount -t ext4 -o rw /dev/loop0 /sysroot 2>/dev/null; then
         ROOT_MOUNTED=1
-        log "SUCCESS: Mounted /dev/sdc64 nested ext4 rootfs on /sysroot"
+        log "SUCCESS: Mounted /dev/sdc64 nested ext4 rootfs on /sysroot (rw)"
         if [ -f /sysroot/etc/os-release ]; then
             log "Rootfs OS: $(grep -E '^(NAME|VERSION)=' /sysroot/etc/os-release 2>/dev/null | tr '\n' '; ')"
         fi
@@ -167,9 +167,9 @@ fi
 if [ "$ROOT_MOUNTED" -eq 0 ] && [ -b /dev/sdc72 ]; then
     log "Checking /dev/sdc72 nested GPT (offset 141557760)..."
     losetup -o 141557760 /dev/loop1 /dev/sdc72 2>/dev/null || true
-    if mount -t ext4 -o ro /dev/loop1 /sysroot 2>/dev/null; then
+    if mount -t ext4 -o rw /dev/loop1 /sysroot 2>/dev/null; then
         ROOT_MOUNTED=1
-        log "SUCCESS: Mounted /dev/sdc72 nested ext4 rootfs on /sysroot"
+        log "SUCCESS: Mounted /dev/sdc72 nested ext4 rootfs on /sysroot (rw)"
         if [ -f /sysroot/etc/os-release ]; then
             log "Rootfs OS: $(grep -E '^(NAME|VERSION)=' /sysroot/etc/os-release 2>/dev/null | tr '\n' '; ')"
         fi
@@ -191,13 +191,20 @@ if [ "$ROOT_MOUNTED" -eq 1 ]; then
     if grep -q "noswitch" /proc/cmdline 2>/dev/null; then
         log "noswitch detected on cmdline; staying in standalone initramfs rescue shell."
     elif [ -x /sysroot/sbin/init ] || [ -f /sysroot/lib/systemd/systemd ]; then
+        if [ -f /sysroot/etc/fstab ]; then
+            sed -i 's|PARTUUID=39a7004f-9b43-4ba1-a46b-91cb78a4b1dd|UUID=e8f59895-03e3-4f1c-a25a-2d7a8cd3b050|g' /sysroot/etc/fstab
+            sed -i 's|,x-systemd.growfs||g' /sysroot/etc/fstab
+            log "Sanitized /sysroot/etc/fstab for loop rootfs"
+        fi
+        mkdir -p /sysroot/etc/systemd/journald.conf.d
+        printf '[Journal]\nForwardToKMsg=yes\n' > /sysroot/etc/systemd/journald.conf.d/kmsg.conf
         log "Executing switch_root to /sysroot /sbin/init (USB gadget active on /dev/ttyGS0)..."
         mkdir -p /sysroot/proc /sysroot/sys /sysroot/dev /sysroot/sys/kernel/config
         mount --move /sys/kernel/config /sysroot/sys/kernel/config 2>/dev/null || true
         mount --move /dev /sysroot/dev
         mount --move /sys /sysroot/sys
         mount --move /proc /sysroot/proc
-        exec switch_root /sysroot /sbin/init
+        exec switch_root /sysroot /sbin/init --log-target=kmsg --show-status=1
     else
         log "WARNING: /sysroot mounted but /sbin/init not found; falling back to rescue shell."
     fi
@@ -232,7 +239,7 @@ boot_systemd() {
         mount --move /proc /sysroot/proc
         mount --move /sys /sysroot/sys
         mount --move /dev /sysroot/dev
-        exec switch_root /sysroot /sbin/init
+        exec switch_root /sysroot /sbin/init --log-target=kmsg --show-status=1
     else
         echo "Error: /sysroot is not mounted or has no /sbin/init"
     fi
