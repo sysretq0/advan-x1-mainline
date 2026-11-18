@@ -11,7 +11,7 @@ the reset line skips panel reset pulses and preserves simpledrm.
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
 diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
-index 9b9ae8a..03431c0 100644
+index 9b9ae8ac3..03431c0fc 100644
 --- a/drivers/input/touchscreen/Kconfig
 +++ b/drivers/input/touchscreen/Kconfig
 @@ -1414,4 +1414,13 @@ config TOUCHSCREEN_HIMAX_HX83112B
@@ -29,7 +29,7 @@ index 9b9ae8a..03431c0 100644
 +
  endif
 diff --git a/drivers/input/touchscreen/Makefile b/drivers/input/touchscreen/Makefile
-index bfd9de8..16cb6d4 100644
+index bfd9de833..16cb6d4d7 100644
 --- a/drivers/input/touchscreen/Makefile
 +++ b/drivers/input/touchscreen/Makefile
 @@ -119,3 +119,4 @@ obj-$(CONFIG_TOUCHSCREEN_IQS5XX)	+= iqs5xx.o
@@ -39,7 +39,7 @@ index bfd9de8..16cb6d4 100644
 +obj-$(CONFIG_TOUCHSCREEN_CHIPONE_TDDI) += chipone_tddi/
 diff --git a/drivers/input/touchscreen/chipone_tddi/Makefile b/drivers/input/touchscreen/chipone_tddi/Makefile
 new file mode 100644
-index 0000000..3c27cdb
+index 000000000..3c27cdb02
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/Makefile
 @@ -0,0 +1,7 @@
@@ -52,7 +52,7 @@ index 0000000..3c27cdb
 +chipone_tddi-objs := cts_driver.o 		     cts_core.o 		     cts_sfctrlv2.o 		     cts_spi_flash.o 		     cts_firmware.o 		     cts_test.o 		     cts_tcs.o 		     cts_platform.o 		     cts_tool.o 		     cts_sysfs.o 		     cts_strerror.o 		     cts_oem.o
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_builtin_firmware.h b/drivers/input/touchscreen/chipone_tddi/cts_builtin_firmware.h
 new file mode 100644
-index 0000000..8da06a1
+index 000000000..8da06a1e6
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_builtin_firmware.h
 @@ -0,0 +1,4433 @@
@@ -4491,7 +4491,7 @@ index 0000000..8da06a1
 +};
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_charger_detect.c b/drivers/input/touchscreen/chipone_tddi/cts_charger_detect.c
 new file mode 100644
-index 0000000..d5542a8
+index 000000000..d5542a80a
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_charger_detect.c
 @@ -0,0 +1,1025 @@
@@ -5522,7 +5522,7 @@ index 0000000..d5542a8
 +#endif /* CONFIG_CTS_CHARGER_DETECT */
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_charger_detect.h b/drivers/input/touchscreen/chipone_tddi/cts_charger_detect.h
 new file mode 100644
-index 0000000..3496097
+index 000000000..34960970a
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_charger_detect.h
 @@ -0,0 +1,43 @@
@@ -5571,7 +5571,7 @@ index 0000000..3496097
 +#endif /* CTS_CHARGER_DETECT_H */
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_config.h b/drivers/input/touchscreen/chipone_tddi/cts_config.h
 new file mode 100644
-index 0000000..23e1de3
+index 000000000..9beff28f5
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_config.h
 @@ -0,0 +1,242 @@
@@ -5630,7 +5630,7 @@ index 0000000..23e1de3
 +
 +/** Use build in firmware or firmware file in fs*/
 +// #define CFG_CTS_DRIVER_BUILTIN_FIRMWARE
-+/* #define CFG_CTS_FIRMWARE_IN_FS */
++#define CFG_CTS_FIRMWARE_IN_FS
 +#ifdef CFG_CTS_FIRMWARE_IN_FS
 +/* Add FW custom process. */
 +/* #define CFG_CTS_FW_UPDATE_SYS */
@@ -5819,7 +5819,7 @@ index 0000000..23e1de3
 +#endif /* CTS_CONFIG_H */
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_core.c b/drivers/input/touchscreen/chipone_tddi/cts_core.c
 new file mode 100644
-index 0000000..02aa96a
+index 000000000..02aa96a0e
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_core.c
 @@ -0,0 +1,2908 @@
@@ -8733,7 +8733,7 @@ index 0000000..02aa96a
 +#endif
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_core.h b/drivers/input/touchscreen/chipone_tddi/cts_core.h
 new file mode 100644
-index 0000000..e6fe88e
+index 000000000..e6fe88e06
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_core.h
 @@ -0,0 +1,894 @@
@@ -9633,7 +9633,7 @@ index 0000000..e6fe88e
 +#endif /* CTS_CORE_H */
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_driver.c b/drivers/input/touchscreen/chipone_tddi/cts_driver.c
 new file mode 100644
-index 0000000..3c65ea3
+index 000000000..3c65ea34b
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_driver.c
 @@ -0,0 +1,1342 @@
@@ -10981,7 +10981,7 @@ index 0000000..3c65ea3
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_earjack_detect.c b/drivers/input/touchscreen/chipone_tddi/cts_earjack_detect.c
 new file mode 100644
-index 0000000..4741e17
+index 000000000..4741e174d
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_earjack_detect.c
 @@ -0,0 +1,650 @@
@@ -11637,7 +11637,7 @@ index 0000000..4741e17
 +
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_earjack_detect.h b/drivers/input/touchscreen/chipone_tddi/cts_earjack_detect.h
 new file mode 100644
-index 0000000..1a0368d
+index 000000000..1a0368df6
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_earjack_detect.h
 @@ -0,0 +1,40 @@
@@ -11683,7 +11683,7 @@ index 0000000..1a0368d
 +
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_firmware.c b/drivers/input/touchscreen/chipone_tddi/cts_firmware.c
 new file mode 100644
-index 0000000..0f8fde5
+index 000000000..0f8fde5b2
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_firmware.c
 @@ -0,0 +1,1104 @@
@@ -12793,7 +12793,7 @@ index 0000000..0f8fde5
 +}
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_firmware.h b/drivers/input/touchscreen/chipone_tddi/cts_firmware.h
 new file mode 100644
-index 0000000..35fe5a6
+index 000000000..35fe5a693
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_firmware.h
 @@ -0,0 +1,68 @@
@@ -12867,7 +12867,7 @@ index 0000000..35fe5a6
 +#endif /* CTS_FIRMWARE_H */
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_oem.c b/drivers/input/touchscreen/chipone_tddi/cts_oem.c
 new file mode 100644
-index 0000000..20fe400
+index 000000000..20fe40051
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_oem.c
 @@ -0,0 +1,1694 @@
@@ -14567,7 +14567,7 @@ index 0000000..20fe400
 +
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_oem.h b/drivers/input/touchscreen/chipone_tddi/cts_oem.h
 new file mode 100644
-index 0000000..ca5001e
+index 000000000..ca5001ed9
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_oem.h
 @@ -0,0 +1,10 @@
@@ -14583,7 +14583,7 @@ index 0000000..ca5001e
 +
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_platform.c b/drivers/input/touchscreen/chipone_tddi/cts_platform.c
 new file mode 100644
-index 0000000..926d431
+index 000000000..926d43119
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_platform.c
 @@ -0,0 +1,1341 @@
@@ -15930,7 +15930,7 @@ index 0000000..926d431
 +#endif /* CFG_CTS_GESTURE */
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_platform.h b/drivers/input/touchscreen/chipone_tddi/cts_platform.h
 new file mode 100644
-index 0000000..3fdc44a
+index 000000000..3fdc44aa7
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_platform.h
 @@ -0,0 +1,287 @@
@@ -16223,7 +16223,7 @@ index 0000000..3fdc44a
 +#endif /* CTS_PLATFORM_H */
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_sfctrl.h b/drivers/input/touchscreen/chipone_tddi/cts_sfctrl.h
 new file mode 100644
-index 0000000..c074447
+index 000000000..c0744477f
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_sfctrl.h
 @@ -0,0 +1,36 @@
@@ -16265,7 +16265,7 @@ index 0000000..c074447
 +#endif /* CTS_SFCTRL_H */
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_sfctrlv2.c b/drivers/input/touchscreen/chipone_tddi/cts_sfctrlv2.c
 new file mode 100644
-index 0000000..5244ac2
+index 000000000..5244ac222
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_sfctrlv2.c
 @@ -0,0 +1,339 @@
@@ -16610,7 +16610,7 @@ index 0000000..5244ac2
 +};
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_spi_flash.c b/drivers/input/touchscreen/chipone_tddi/cts_spi_flash.c
 new file mode 100644
-index 0000000..654dc80
+index 000000000..654dc8066
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_spi_flash.c
 @@ -0,0 +1,650 @@
@@ -17266,7 +17266,7 @@ index 0000000..654dc80
 +
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_spi_flash.h b/drivers/input/touchscreen/chipone_tddi/cts_spi_flash.h
 new file mode 100644
-index 0000000..e7d18df
+index 000000000..e7d18df53
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_spi_flash.h
 @@ -0,0 +1,61 @@
@@ -17333,7 +17333,7 @@ index 0000000..e7d18df
 +#endif /* CTS_SPI_FLASH_H */
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_strerror.c b/drivers/input/touchscreen/chipone_tddi/cts_strerror.c
 new file mode 100644
-index 0000000..a4de04a
+index 000000000..a4de04a90
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_strerror.c
 @@ -0,0 +1,172 @@
@@ -17511,7 +17511,7 @@ index 0000000..a4de04a
 +}
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_strerror.h b/drivers/input/touchscreen/chipone_tddi/cts_strerror.h
 new file mode 100644
-index 0000000..361c9db
+index 000000000..361c9db00
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_strerror.h
 @@ -0,0 +1,9 @@
@@ -17526,7 +17526,7 @@ index 0000000..361c9db
 +
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_sysfs.c b/drivers/input/touchscreen/chipone_tddi/cts_sysfs.c
 new file mode 100644
-index 0000000..5b83103
+index 000000000..5b83103d9
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_sysfs.c
 @@ -0,0 +1,3488 @@
@@ -21020,7 +21020,7 @@ index 0000000..5b83103
 +#endif /* CONFIG_CTS_SYSFS */
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_sysfs.h b/drivers/input/touchscreen/chipone_tddi/cts_sysfs.h
 new file mode 100644
-index 0000000..c59959c
+index 000000000..c59959cfa
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_sysfs.h
 @@ -0,0 +1,24 @@
@@ -21050,7 +21050,7 @@ index 0000000..c59959c
 +#endif /* CTS_SYSFS_H */
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_tcs.c b/drivers/input/touchscreen/chipone_tddi/cts_tcs.c
 new file mode 100644
-index 0000000..646c705
+index 000000000..646c70587
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_tcs.c
 @@ -0,0 +1,1591 @@
@@ -22647,7 +22647,7 @@ index 0000000..646c705
 +}
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_tcs.h b/drivers/input/touchscreen/chipone_tddi/cts_tcs.h
 new file mode 100644
-index 0000000..2b2ed93
+index 000000000..2b2ed93b6
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_tcs.h
 @@ -0,0 +1,109 @@
@@ -22762,7 +22762,7 @@ index 0000000..2b2ed93
 +#endif /* _CTS_TCS_H_ */
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_test.c b/drivers/input/touchscreen/chipone_tddi/cts_test.c
 new file mode 100644
-index 0000000..ba32982
+index 000000000..ba3298201
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_test.c
 @@ -0,0 +1,2176 @@
@@ -24944,7 +24944,7 @@ index 0000000..ba32982
 +}
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_test.h b/drivers/input/touchscreen/chipone_tddi/cts_test.h
 new file mode 100644
-index 0000000..0367589
+index 000000000..0367589aa
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_test.h
 @@ -0,0 +1,104 @@
@@ -25054,10 +25054,10 @@ index 0000000..0367589
 +#endif /* CTS_TEST_H */
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_tool.c b/drivers/input/touchscreen/chipone_tddi/cts_tool.c
 new file mode 100644
-index 0000000..430c01f
+index 000000000..8c2c0db98
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_tool.c
-@@ -0,0 +1,1214 @@
+@@ -0,0 +1,1219 @@
 +#define LOG_TAG         "Tool"
 +
 +#include "cts_config.h"
@@ -25494,10 +25494,15 @@ index 0000000..430c01f
 + *TODO:  Use async mode such as thread, otherwise,
 + *host can not get update status.
 + */
++#ifdef CFG_CTS_FIRMWARE_IN_FS
 +        ret = cts_update_firmware_from_file(cts_dev,
 +                cts_tool_firmware_filepath, true);
 +        if (ret)
 +            cts_err("Updata firmware failed %d", ret);
++#else
++        cts_err("Firmware update from file not supported");
++        ret = -ENOTSUPP;
++#endif
 +
 +        ret = cts_start_device(cts_dev);
 +        if (ret) {
@@ -26272,6 +26277,5 @@ index 0000000..430c01f
 +        remove_proc_entry(CFG_CTS_TOOL_PROC_FILENAME, NULL);
 +}
 +#endif /* CONFIG_CTS_LEGACY_TOOL */
-
 -- 
 2.43.0
