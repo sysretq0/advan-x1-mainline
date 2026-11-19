@@ -8,7 +8,8 @@ the Chipone ICNL9922C TDDI panel/touch controller on the Advan X1.
 Make reset-gpios optional via devm_gpiod_get_optional so omitting
 the reset line skips panel reset pulses and preserves simpledrm.
 Embed stock 71,792-byte ver: 0104 ICNL9922C firmware in volatile
-SRAM for reliable SRAM-BOOT initialization.
+SRAM for reliable SRAM-BOOT initialization. Transition to normal
+mode in probe without firmware flash to protect panel runtime.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
@@ -5887,10 +5888,10 @@ index 000000000..df64efaa7
 +#endif /* CTS_CONFIG_H */
 diff --git a/drivers/input/touchscreen/chipone_tddi/cts_core.c b/drivers/input/touchscreen/chipone_tddi/cts_core.c
 new file mode 100644
-index 000000000..6b233b23d
+index 000000000..7d4258ade
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_tddi/cts_core.c
-@@ -0,0 +1,2941 @@
+@@ -0,0 +1,2926 @@
 +#define LOG_TAG         "Core"
 +
 +#include "cts_config.h"
@@ -7764,6 +7765,7 @@ index 000000000..6b233b23d
 +    for (retries = 5; retries >= 0; retries--) {
 +        if (first_boot == 1 || auto_boot == 0) {
 +            cts_set_program_addr(cts_dev);
++            cts_dev->rtdata.program_mode = true;
 +            ret = cts_set_dev_boot_mode(cts_dev, CTS_DEV_BOOT_MODE_SRAM);
 +            if (ret) {
 +                cts_err("Set BOOT_MODE to SRAM failed %d,"
@@ -7775,6 +7777,7 @@ index 000000000..6b233b23d
 +        first_boot = 0;
 +
 +        cts_set_normal_addr(cts_dev);
++        cts_dev->rtdata.program_mode = false;
 +
 +        ret = cts_get_dev_boot_mode(cts_dev, &boot_mode);
 +        if (ret)
@@ -7795,14 +7798,15 @@ index 000000000..6b233b23d
 +        cts_reset_device(cts_dev);
 +    }
 +    if (retries >= 0) {
++        cts_dev->rtdata.program_mode = false;
 +        ret = cts_init_fwdata(cts_dev);
 +        if (ret) {
-+            cts_err("Device init firmware data failed %d", ret);
-+            return ret;
++            cts_warn("Device init firmware data returned %d (continuing in normal mode)", ret);
 +        }
 +        return 0;
 +    }
 +    cts_set_program_addr(cts_dev);
++    cts_dev->rtdata.program_mode = true;
 +    return ret;
 +}
 +
@@ -8115,41 +8119,23 @@ index 000000000..6b233b23d
 +    }
 +
 +    if (cts_is_device_program_mode(cts_dev)) {
-+        const struct cts_firmware *firmware;
-+
-+        cts_info("Device in program mode, load firmware into volatile SRAM");
-+        firmware = cts_request_firmware(cts_dev, hwid, CTS_DEV_FWID_ANY, 0);
-+        if (firmware) {
-+            ret = cts_update_firmware(cts_dev, firmware, false);
-+            cts_release_firmware(firmware);
-+            if (ret) {
-+                cts_err("Load firmware to SRAM failed %d", ret);
-+                return ret;
-+            }
-+            ret = cts_tcs_get_fw_id(cts_dev, &fwid);
-+            if (ret) {
-+                cts_err("Get firmware id failed %d", ret);
-+            } else {
-+                cts_info("Firmware id: 0x%04x", fwid);
-+                ret = cts_tcs_get_fw_ver(cts_dev, &cts_dev->fwdata.version);
-+                if (ret)
-+                    cts_dev->fwdata.version = 0;
-+                else
-+                    cts_info("Firmware version: 0x%04x", cts_dev->fwdata.version);
-+            }
++        cts_info("Device in program mode, transition to normal mode");
++        ret = cts_enter_normal_mode(cts_dev);
++        if (ret) {
++            cts_warn("Enter normal mode failed %d, forcing normal mode rtdata", ret);
++            cts_init_rtdata_with_normal_mode(cts_dev);
++        }
++        ret = cts_tcs_get_fw_id(cts_dev, &fwid);
++        if (ret) {
++            cts_warn("Re-read fwid in normal mode failed %d", ret);
 +        } else {
-+            cts_warn("No firmware available for hwid %06x, try enter normal mode", hwid);
-+            ret = cts_enter_normal_mode(cts_dev);
-+            if (ret) {
-+                cts_err("Enter normal mode failed %d", ret);
-+                return ret;
-+            }
++            cts_info("Normal mode fwid: 0x%04x", fwid);
 +        }
 +    }
 +
 +    cts_info("Touch info size:%zu", sizeof(struct cts_device_touch_info));
 +
-+    return ret;
++    return 0;
 +}
 +
 +#ifdef CFG_CTS_GESTURE
@@ -26396,5 +26382,6 @@ index 000000000..8c2c0db98
 +        remove_proc_entry(CFG_CTS_TOOL_PROC_FILENAME, NULL);
 +}
 +#endif /* CONFIG_CTS_LEGACY_TOOL */
+
 -- 
 2.55.0

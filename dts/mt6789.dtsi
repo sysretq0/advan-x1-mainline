@@ -739,7 +739,7 @@
 				};
 
 				cpu0_crit: trip-crit {
-					temperature = <100000>;
+					temperature = <115000>;
 					hysteresis = <0>;
 					type = "critical";
 				};
@@ -759,7 +759,7 @@
 				};
 
 				cpu1_crit: trip-crit {
-					temperature = <100000>;
+					temperature = <115000>;
 					hysteresis = <0>;
 					type = "critical";
 				};
@@ -779,7 +779,7 @@
 				};
 
 				cpu2_crit: trip-crit {
-					temperature = <100000>;
+					temperature = <115000>;
 					hysteresis = <0>;
 					type = "critical";
 				};
@@ -799,7 +799,7 @@
 				};
 
 				cpu3_crit: trip-crit {
-					temperature = <100000>;
+					temperature = <115000>;
 					hysteresis = <0>;
 					type = "critical";
 				};
@@ -819,7 +819,7 @@
 				};
 
 				cpu4_crit: trip-crit {
-					temperature = <100000>;
+					temperature = <115000>;
 					hysteresis = <0>;
 					type = "critical";
 				};
@@ -839,7 +839,7 @@
 				};
 
 				cpu5_crit: trip-crit {
-					temperature = <100000>;
+					temperature = <115000>;
 					hysteresis = <0>;
 					type = "critical";
 				};
@@ -859,7 +859,7 @@
 				};
 
 				cpu6_crit: trip-crit {
-					temperature = <100000>;
+					temperature = <115000>;
 					hysteresis = <0>;
 					type = "critical";
 				};
@@ -879,7 +879,7 @@
 				};
 
 				cpu7_crit: trip-crit {
-					temperature = <100000>;
+					temperature = <115000>;
 					hysteresis = <0>;
 					type = "critical";
 				};
@@ -899,7 +899,7 @@
 				};
 
 				gpu1_crit: trip-crit {
-					temperature = <100000>;
+					temperature = <115000>;
 					hysteresis = <0>;
 					type = "critical";
 				};
@@ -919,7 +919,7 @@
 				};
 
 				gpu2_crit: trip-crit {
-					temperature = <100000>;
+					temperature = <115000>;
 					hysteresis = <0>;
 					type = "critical";
 				};
@@ -939,7 +939,7 @@
 				};
 
 				soc1_crit: trip-crit {
-					temperature = <100000>;
+					temperature = <115000>;
 					hysteresis = <0>;
 					type = "critical";
 				};
@@ -959,7 +959,7 @@
 				};
 
 				soc2_crit: trip-crit {
-					temperature = <100000>;
+					temperature = <115000>;
 					hysteresis = <0>;
 					type = "critical";
 				};

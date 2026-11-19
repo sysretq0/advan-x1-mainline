@@ -9,15 +9,92 @@ controllers covering 13 sensors (Little CPU cores 0-3, Big CPU
 cores 0-3 / cluster, GPU 0-1, SOC 0-1, and Modem).
 
 Use LVTS_MSR_FILTERED_MODE across all controllers so continuous
-filtered hardware sampling is active on LVTS_MSR0..3.
+filtered hardware sampling is active on LVTS_MSR0..3. Enable
+MONCTL0 before zone registration and guard against raw zero readings.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
 diff --git a/drivers/thermal/mediatek/lvts_thermal.c b/drivers/thermal/mediatek/lvts_thermal.c
-index 350fffd3e..934b80467 100644
+index 350fffd3e..81d1f2355 100644
 --- a/drivers/thermal/mediatek/lvts_thermal.c
 +++ b/drivers/thermal/mediatek/lvts_thermal.c
-@@ -1644,6 +1644,63 @@ static const u32 mt7988_init_cmds[] = {
+@@ -376,6 +376,9 @@ static int lvts_get_temp(struct thermal_zone_device *tz, int *temp)
+ 	if (rc)
+ 		return -EAGAIN;
+ 
++	if (!(value & 0xFFFF))
++		return -EAGAIN;
++
+ 	*temp = lvts_raw_to_temp(value, lvts_data);
+ 
+ 	return 0;
+@@ -1298,6 +1301,20 @@ static int lvts_ctrl_start(struct device *dev, struct lvts_ctrl *lvts_ctrl)
+ 	u32 *sensor_bitmap = lvts_ctrl->mode == LVTS_MSR_IMMEDIATE_MODE ?
+ 			     sensor_imm_bitmap : sensor_filt_bitmap;
+ 
++	lvts_for_each_valid_sensor(i, lvts_ctrl)
++		sensor_map |= sensor_bitmap[i];
++
++	/*
++	 * Enable temperature monitoring in the hardware controller BEFORE
++	 * registering the thermal zones so valid measurements are actively
++	 * acquired and available when the thermal framework performs the
++	 * initial reading during zone registration.
++	 */
++	if (lvts_ctrl->mode == LVTS_MSR_IMMEDIATE_MODE)
++		writel(sensor_map, LVTS_MSRCTL1(lvts_ctrl->base));
++	else
++		writel(sensor_map | BIT(9), LVTS_MONCTL0(lvts_ctrl->base));
++
+ 	lvts_for_each_valid_sensor(i, lvts_ctrl) {
+ 
+ 		int dt_id = lvts_sensors[i].dt_id;
+@@ -1327,44 +1344,6 @@ static int lvts_ctrl_start(struct device *dev, struct lvts_ctrl *lvts_ctrl)
+ 		 * belonging to the thermal domain.
+ 		 */
+ 		lvts_sensors[i].tz = tz;
+-
+-		/*
+-		 * This sensor was correctly associated with a thermal
+-		 * zone, let's set the corresponding bit in the sensor
+-		 * map, so we can enable the temperature monitoring in
+-		 * the hardware thermal controller.
+-		 */
+-		sensor_map |= sensor_bitmap[i];
+-	}
+-
+-	/*
+-	 * The initialization of the thermal zones give us
+-	 * which sensor point to enable. If any thermal zone
+-	 * was not described in the device tree, it won't be
+-	 * enabled here in the sensor map.
+-	 */
+-	if (lvts_ctrl->mode == LVTS_MSR_IMMEDIATE_MODE) {
+-		/*
+-		 * LVTS_MSRCTL1 : Measurement control
+-		 *
+-		 * Bits:
+-		 *
+-		 * 9: Ignore MSRCTL0 config and do immediate measurement on sensor3
+-		 * 6: Ignore MSRCTL0 config and do immediate measurement on sensor2
+-		 * 5: Ignore MSRCTL0 config and do immediate measurement on sensor1
+-		 * 4: Ignore MSRCTL0 config and do immediate measurement on sensor0
+-		 *
+-		 * That configuration will ignore the filtering and the delays
+-		 * introduced in MONCTL1 and MONCTL2
+-		 */
+-		writel(sensor_map, LVTS_MSRCTL1(lvts_ctrl->base));
+-	} else {
+-		/*
+-		 * Bits:
+-		 *      9: Single point access flow
+-		 *    0-3: Enable sensing point 0-3
+-		 */
+-		writel(sensor_map | BIT(9), LVTS_MONCTL0(lvts_ctrl->base));
+ 	}
+ 
+ 	return 0;
+@@ -1644,6 +1623,63 @@ static const u32 mt7988_init_cmds[] = {
   *
   * Hence the rather confusing offsets provided below.
   */
@@ -81,7 +158,7 @@ index 350fffd3e..934b80467 100644
  static const struct lvts_ctrl_data mt8186_lvts_data_ctrl[] = {
  	{
  		.lvts_sensor = {
-@@ -2055,6 +2112,21 @@ static const struct lvts_data mt7988_lvts_ap_data = {
+@@ -2055,6 +2091,21 @@ static const struct lvts_data mt7988_lvts_ap_data = {
  	.ops = &lvts_platform_ops_mt7988,
  };
  
@@ -103,7 +180,7 @@ index 350fffd3e..934b80467 100644
  static const struct lvts_data mt8186_lvts_data = {
  	.lvts_ctrl	= mt8186_lvts_data_ctrl,
  	.conn_cmd	= default_conn_cmds,
-@@ -2185,6 +2257,7 @@ static const struct lvts_data mt8196_lvts_ap_data = {
+@@ -2185,6 +2236,7 @@ static const struct lvts_data mt8196_lvts_ap_data = {
  };
  
  static const struct of_device_id lvts_of_match[] = {
@@ -134,5 +211,6 @@ index 350f98178..ff24d679e 100644
 +#define MT6789_MD		12
 +
  #endif /* __MEDIATEK_LVTS_DT_H */
+
 -- 
 2.55.0
