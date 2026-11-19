@@ -192,6 +192,14 @@ if [ "$ROOT_MOUNTED" -eq 1 ]; then
         mkdir -p /sysroot/etc/systemd/system/getty.target.wants
         [ -e /sysroot/usr/lib/systemd/system/serial-getty@.service ] && \
             ln -sf /usr/lib/systemd/system/serial-getty@.service /sysroot/etc/systemd/system/getty.target.wants/serial-getty@ttyGS0.service 2>/dev/null || true
+        log "=== Thermal Zones in Initramfs ==="
+        for tz in /sys/class/thermal/thermal_zone*; do
+            [ -e "$tz/type" ] && log "  $(cat $tz/type 2>/dev/null): $(cat $tz/temp 2>/dev/null) mC"
+        done
+        log "=== Input Devices in Initramfs ==="
+        for dev in /sys/class/input/input*; do
+            [ -e "$dev/name" ] && log "  $(cat $dev/name 2>/dev/null): $dev"
+        done
         log "Executing switch_root to /sysroot /sbin/init (USB gadget active on /dev/ttyGS0)..."
         mkdir -p /sysroot/proc /sysroot/sys /sysroot/dev /sysroot/sys/kernel/config
         mount --move /sys/kernel/config /sysroot/sys/kernel/config 2>/dev/null || true

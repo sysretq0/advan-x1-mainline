@@ -755,7 +755,7 @@ index 000000000..cf523f400
 +				};
 +
 +				cpu0_crit: trip-crit {
-+					temperature = <115000>;
++					temperature = <125000>;
 +					hysteresis = <0>;
 +					type = "critical";
 +				};
@@ -775,7 +775,7 @@ index 000000000..cf523f400
 +				};
 +
 +				cpu1_crit: trip-crit {
-+					temperature = <115000>;
++					temperature = <125000>;
 +					hysteresis = <0>;
 +					type = "critical";
 +				};
@@ -795,7 +795,7 @@ index 000000000..cf523f400
 +				};
 +
 +				cpu2_crit: trip-crit {
-+					temperature = <115000>;
++					temperature = <125000>;
 +					hysteresis = <0>;
 +					type = "critical";
 +				};
@@ -815,7 +815,7 @@ index 000000000..cf523f400
 +				};
 +
 +				cpu3_crit: trip-crit {
-+					temperature = <115000>;
++					temperature = <125000>;
 +					hysteresis = <0>;
 +					type = "critical";
 +				};
@@ -835,7 +835,7 @@ index 000000000..cf523f400
 +				};
 +
 +				cpu4_crit: trip-crit {
-+					temperature = <115000>;
++					temperature = <125000>;
 +					hysteresis = <0>;
 +					type = "critical";
 +				};
@@ -855,7 +855,7 @@ index 000000000..cf523f400
 +				};
 +
 +				cpu5_crit: trip-crit {
-+					temperature = <115000>;
++					temperature = <125000>;
 +					hysteresis = <0>;
 +					type = "critical";
 +				};
@@ -875,7 +875,7 @@ index 000000000..cf523f400
 +				};
 +
 +				cpu6_crit: trip-crit {
-+					temperature = <115000>;
++					temperature = <125000>;
 +					hysteresis = <0>;
 +					type = "critical";
 +				};
@@ -895,7 +895,7 @@ index 000000000..cf523f400
 +				};
 +
 +				cpu7_crit: trip-crit {
-+					temperature = <115000>;
++					temperature = <125000>;
 +					hysteresis = <0>;
 +					type = "critical";
 +				};
@@ -915,7 +915,7 @@ index 000000000..cf523f400
 +				};
 +
 +				gpu1_crit: trip-crit {
-+					temperature = <115000>;
++					temperature = <125000>;
 +					hysteresis = <0>;
 +					type = "critical";
 +				};
@@ -935,7 +935,7 @@ index 000000000..cf523f400
 +				};
 +
 +				gpu2_crit: trip-crit {
-+					temperature = <115000>;
++					temperature = <125000>;
 +					hysteresis = <0>;
 +					type = "critical";
 +				};
@@ -955,7 +955,7 @@ index 000000000..cf523f400
 +				};
 +
 +				soc1_crit: trip-crit {
-+					temperature = <115000>;
++					temperature = <125000>;
 +					hysteresis = <0>;
 +					type = "critical";
 +				};
@@ -975,7 +975,7 @@ index 000000000..cf523f400
 +				};
 +
 +				soc2_crit: trip-crit {
-+					temperature = <115000>;
++					temperature = <125000>;
 +					hysteresis = <0>;
 +					type = "critical";
 +				};
