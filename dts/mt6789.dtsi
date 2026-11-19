@@ -414,7 +414,6 @@
 			reg = <0x00 0x1100b000 0x00 0x1000>;
 			interrupts = <GIC_SPI 201 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&infracfg_ao CLK_IFRAO_THERM>;
-			resets = <&infracfg_ao MT6789_INFRA_RST0_THERM_CTRL_SWRST>;
 			nvmem-cells = <&lvts_e_data1>, <&lvts_e_data2>;
 			nvmem-cell-names = "e_data1", "e_data2";
 			#thermal-sensor-cells = <1>;

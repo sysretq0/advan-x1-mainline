@@ -110,10 +110,10 @@ jobs:
           yes "" | make oldconfig
           make -j$(nproc) CROSS_COMPILE="${CC_LAUNCHER}aarch64-linux-gnu-" install CONFIG_PREFIX="$GITHUB_WORKSPACE/initramfs_root"
           
-          # Setup directories and copy /init
+          # Setup directories and copy initramfs contents
           cd "$GITHUB_WORKSPACE/initramfs_root"
-          mkdir -p dev proc sys mnt run tmp etc root
-          cp "$GITHUB_WORKSPACE/initramfs/init" init
+          mkdir -p dev proc sys mnt run tmp etc root lib/firmware
+          cp -r "$GITHUB_WORKSPACE/initramfs/"* .
           chmod +x init
           
           # Package into initramfs.cpio.gz
