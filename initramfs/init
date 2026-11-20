@@ -71,73 +71,15 @@ log "Detected block devices: $(cat /proc/partitions 2>/dev/null | tr '\n' '; ')"
 # Mount debugfs for hardware introspection
 mount -t debugfs none /sys/kernel/debug 2>/dev/null || true
 
-log "=== Pinctrl & GPIO Diagnostics ==="
-log "GPIO chips: $(ls -d /sys/class/gpio/gpiochip* 2>/dev/null || echo 'None')"
-for chip in /sys/class/gpio/gpiochip*; do
-    if [ -d "$chip" ]; then
-        log "$chip: label=$(cat $chip/label 2>/dev/null), base=$(cat $chip/base 2>/dev/null), ngpio=$(cat $chip/ngpio 2>/dev/null)"
-    fi
-done
-
-if [ -d /sys/kernel/debug/pinctrl ]; then
-    log "Registered pinctrl devices: $(ls /sys/kernel/debug/pinctrl 2>/dev/null)"
-    for pctrl in /sys/kernel/debug/pinctrl/*; do
-        if [ -d "$pctrl" ]; then
-            log "Pinctrl $pctrl pin count: $(wc -l < $pctrl/pins 2>/dev/null || echo 'N/A') lines"
-            head -n 25 "$pctrl/pins" 2>/dev/null | while read -r line; do log "  PIN: $line"; done
-            tail -n 40 "$pctrl/pins" 2>/dev/null | while read -r line; do log "  PIN: $line"; done
-        fi
-    done
-fi
-
-if [ -f /sys/kernel/debug/gpio ]; then
-    log "=== /sys/kernel/debug/gpio ==="
-    cat /sys/kernel/debug/gpio 2>/dev/null | while read -r line; do log "  GPIO: $line"; done
-fi
-
-log "=== SPI Controller Diagnostics ==="
-log "SPI masters: $(ls -d /sys/class/spi_master/* 2>/dev/null || echo 'None')"
-for sm in /sys/class/spi_master/*; do
-    if [ -d "$sm" ]; then
-        log "SPI master $(basename $sm): of_node=$(readlink $sm/device/of_node 2>/dev/null || echo 'N/A')"
-    fi
-done
-log "SPI devices: $(ls -d /sys/bus/spi/devices/* 2>/dev/null || echo 'None')"
-log "SPI devnodes: $(ls -l /dev/spidev* 2>/dev/null || echo 'None')"
-
-log "=== I2C Controller Diagnostics ==="
-log "I2C adapters: $(ls -d /sys/class/i2c-adapter/* 2>/dev/null || echo 'None')"
-for i2c in /sys/class/i2c-adapter/*; do
-    if [ -d "$i2c" ]; then
-        log "I2C adapter $(basename $i2c): name=$(cat $i2c/name 2>/dev/null || echo 'N/A')"
-    fi
-done
-log "I2C devnodes: $(ls -l /dev/i2c-* 2>/dev/null || echo 'None')"
-log "=== Deferred Devices Diagnostics ==="
-if [ -f /sys/kernel/debug/devices_deferred ]; then
-    cat /sys/kernel/debug/devices_deferred 2>/dev/null | while read -r line; do log "  DEFERRED: $line"; done
-else
-    log "  /sys/kernel/debug/devices_deferred not available"
-fi
-log "clk-mt6789-imp_iic_wrap driver:"
-ls -la /sys/bus/platform/drivers/clk-mt6789-imp_iic_wrap/ 2>/dev/null | while read -r line; do log "  $line"; done
-log "i2c-mt65xx driver:"
-ls -la /sys/bus/platform/drivers/i2c-mt65xx/ 2>/dev/null | while read -r line; do log "  $line"; done
+# Summary of probed hardware
+[ -d /sys/class/gpio ] && log "GPIO chips: $(ls -d /sys/class/gpio/gpiochip* 2>/dev/null | tr '\n' ' ')"
+[ -d /sys/class/i2c-adapter ] && log "I2C adapters: $(ls -d /sys/class/i2c-adapter/* 2>/dev/null | tr '\n' ' ')"
+[ -d /sys/class/spi_master ] && log "SPI masters: $(ls -d /sys/class/spi_master/* 2>/dev/null | tr '\n' ' ')"
+[ -d /sys/bus/platform/drivers/panfrost ] && log "GPU driver: Panfrost active"
 
 # Keep UFS host controller active during early boot
 for ufs_pwr in /sys/bus/platform/devices/*.ufshci/power/control; do
     [ -e "$ufs_pwr" ] && echo on > "$ufs_pwr" 2>/dev/null || true
-done
-
-# Nested GPT rootfs detection and loopback mounting
-log "=== Nested GPT Rootfs Detection ==="
-mkdir -p /sysroot
-ROOT_MOUNTED=0
-
-# Ensure loop control nodes exist
-[ -e /dev/loop-control ] || mknod /dev/loop-control c 10 237 2>/dev/null || true
-for l in 0 1 2 3 4 5 6 7; do
-    [ -e /dev/loop$l ] || mknod /dev/loop$l b 7 $l 2>/dev/null || true
 done
 
 # Nested GPT rootfs detection on /dev/sdc72 (xnu_data, offset 34560*4096 = 141557760)
@@ -179,7 +121,7 @@ if [ "$ROOT_MOUNTED" -eq 1 ]; then
     if grep -q "noswitch" /proc/cmdline 2>/dev/null; then
         log "noswitch detected on cmdline; staying in standalone initramfs rescue shell."
     elif [ -x /sysroot/sbin/init ] || [ -f /sysroot/lib/systemd/systemd ]; then
-        if [ -f /sysroot/etc/fstab ]; then
+        if [ -f /sysroot/etc/fstab ] && ! grep -q "UUID=e8f59895-03e3-4f1c-a25a-2d7a8cd3b050" /sysroot/etc/fstab 2>/dev/null; then
             sed -i -E 's|^PARTUUID=[^ ]+ +/ +ext4|UUID=e8f59895-03e3-4f1c-a25a-2d7a8cd3b050 / ext4|g' /sysroot/etc/fstab
             sed -i 's|PARTUUID=1cd1f6a4-689e-4ce4-922c-749d9691cd48|UUID=e8f59895-03e3-4f1c-a25a-2d7a8cd3b050|g' /sysroot/etc/fstab
             sed -i 's|PARTUUID=39a7004f-9b43-4ba1-a46b-91cb78a4b1dd|UUID=e8f59895-03e3-4f1c-a25a-2d7a8cd3b050|g' /sysroot/etc/fstab
@@ -194,20 +136,6 @@ if [ "$ROOT_MOUNTED" -eq 1 ]; then
         mkdir -p /sysroot/etc/systemd/system/getty.target.wants
         [ -e /sysroot/usr/lib/systemd/system/serial-getty@.service ] && \
             ln -sf /usr/lib/systemd/system/serial-getty@.service /sysroot/etc/systemd/system/getty.target.wants/serial-getty@ttyGS0.service 2>/dev/null || true
-        log "=== Thermal Zones in Initramfs ==="
-        for tz in /sys/class/thermal/thermal_zone*; do
-            [ -e "$tz/type" ] && log "  $(cat $tz/type 2>/dev/null): $(cat $tz/temp 2>/dev/null) mC"
-        done
-        log "=== Input Devices in Initramfs ==="
-        for dev in /sys/class/input/input*; do
-            [ -e "$dev/name" ] && log "  $(cat $dev/name 2>/dev/null): $dev"
-        done
-        log "=== DRM & GPU Diagnostics ==="
-        for drm in /sys/class/drm/*; do
-            [ -e "$drm" ] && log "  DRM: $(basename $drm)"
-        done
-        log "panfrost driver:"
-        ls -la /sys/bus/platform/drivers/panfrost/ 2>/dev/null | while read -r line; do log "  $line"; done
         log "Executing switch_root to /sysroot /sbin/init (USB gadget active on /dev/ttyGS0)..."
         mkdir -p /sysroot/proc /sysroot/sys /sysroot/dev /sysroot/sys/kernel/config
         mount --move /sys/kernel/config /sysroot/sys/kernel/config 2>/dev/null || true

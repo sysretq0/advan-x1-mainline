@@ -6,8 +6,8 @@ Subject: [PATCH 2/7] clk: mediatek: Add MT6789 topckgen clock driver
 Change-Id: I8bcb9a0818771cbdd03fee4fdf037bd18bb4beed
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- drivers/clk/mediatek/clk-mt6789-topckgen.c | 772 +++++++++++++++++++++
- 1 file changed, 775 insertions(+)
+ drivers/clk/mediatek/clk-mt6789-topckgen.c | 773 +++++++++++++++++++++
+ 1 file changed, 773 insertions(+)
  create mode 100644 drivers/clk/mediatek/clk-mt6789-topckgen.c
 
 diff --git a/drivers/clk/mediatek/clk-mt6789-topckgen.c b/drivers/clk/mediatek/clk-mt6789-topckgen.c
@@ -15,7 +15,7 @@ new file mode 100644
 index 000000000..cb5edc9bd
 --- /dev/null
 +++ b/drivers/clk/mediatek/clk-mt6789-topckgen.c
-@@ -0,0 +1,775 @@
+@@ -0,0 +1,773 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +//
 +// Copyright (c) 2022 MediaTek Inc.
@@ -597,9 +597,8 @@ index 000000000..cb5edc9bd
 +	MUX_GATE_CLR_SET_UPD_FLAGS(CLK_TOP_DISP_PWM_SEL, "disp_pwm_sel",
 +		disp_pwm_parents, 0x00a0, 0x00a4, 0x00a8, 16, 3, 23, 0x0008, 7,
 +		CLK_IS_CRITICAL | CLK_SET_RATE_PARENT),
-+	MUX_GATE_CLR_SET_UPD_FLAGS(CLK_TOP_USB_TOP_SEL, "usb_sel",
-+		usb_parents, 0x00a0, 0x00a4, 0x00a8, 24, 2, 31, 0x0008, 8,
-+		CLK_IS_CRITICAL | CLK_SET_RATE_PARENT),
++	MUX_GATE_CLR_SET_UPD(CLK_TOP_USB_TOP_SEL, "usb_sel",
++		usb_parents, 0x00a0, 0x00a4, 0x00a8, 24, 2, 31, 0x0008, 8),
 +	/* CLK_CFG_10 */
 +	MUX_GATE_CLR_SET_UPD(CLK_TOP_I2C_SEL, "i2c_sel",
 +		i2c_parents, 0x00b0, 0x00b4, 0x00b8, 8, 2, 15, 0x0008, 10),
@@ -630,9 +629,8 @@ index 000000000..cb5edc9bd
 +		aud_1_parents, 0x00e0, 0x00e4, 0x00e8, 0, 1, 7, 0x0008, 21),
 +	MUX_GATE_CLR_SET_UPD(CLK_TOP_AUD_2_SEL, "aud_2_sel",
 +		aud_2_parents, 0x00e0, 0x00e4, 0x00e8, 8, 1, 15, 0x0008, 22),
-+	MUX_GATE_CLR_SET_UPD_FLAGS(CLK_TOP_DPMAIF_MAIN_SEL, "dpmaif_main_sel",
-+		dpmaif_main_parents, 0x00e0, 0x00e4, 0x00e8, 24, 3, 31, 0x0008, 24,
-+		CLK_IS_CRITICAL | CLK_SET_RATE_PARENT),
++	MUX_GATE_CLR_SET_UPD(CLK_TOP_DPMAIF_MAIN_SEL, "dpmaif_main_sel",
++		dpmaif_main_parents, 0x00e0, 0x00e4, 0x00e8, 24, 3, 31, 0x0008, 24),
 +	/* CLK_CFG_14 */
 +	MUX_GATE_CLR_SET_UPD(CLK_TOP_VENC_SEL, "venc_sel",
 +		venc_parents, 0x00f0, 0x00f4, 0x00f8, 0, 4, 7, 0x0008, 25),
