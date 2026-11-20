@@ -1,0 +1,96 @@
+From 1616161616161616161616161616161616161616 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Fri, 20 Nov 2026 07:30:00 +0000
+Subject: [PATCH 16/16] soc: mediatek: pwrap: Add MT6789 PMIC wrapper support
+
+Add support for MediaTek MT6789 (Helio G99) PMIC wrapper to mtk-pmic-wrap.
+
+On MT6789, the PMIC wrapper uses the arbiter generation architecture
+(PWRAP_CAP_ARB) with INIT_DONE2 at 0x0 and SWINF_2 (WACS2) registers
+at offset 0x880-0x8A8, exactly matching mt8195_regs:
+- WACS2_CMD: 0x880
+- SWINF_2_WDATA: 0x884
+- SWINF_2_RDATA: 0x894
+- WACS2_VLDCLR: 0x8A4
+- WACS2_RDATA: 0x8A8
+- TIMER_EN: 0x3E4
+
+Define pwrap_mt6789 reusing mt8195_regs with PWRAP_CAP_ARB and bind
+mediatek,mt6789-pwrap in DT bindings and driver match table.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ Documentation/devicetree/bindings/soc/mediatek/mediatek,pwrap.yaml | 2 ++
+ drivers/soc/mediatek/mtk-pmic-wrap.c                               | 16 ++++++++++++++++
+ 2 files changed, 18 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/soc/mediatek/mediatek,pwrap.yaml b/Documentation/devicetree/bindings/soc/mediatek/mediatek,pwrap.yaml
+index 79b755858..530b617ff 100644
+--- a/Documentation/devicetree/bindings/soc/mediatek/mediatek,pwrap.yaml
++++ b/Documentation/devicetree/bindings/soc/mediatek/mediatek,pwrap.yaml
+@@ -33,6 +33,7 @@ properties:
+               - mediatek,mt2701-pwrap
+               - mediatek,mt6765-pwrap
+               - mediatek,mt6779-pwrap
++              - mediatek,mt6789-pwrap
+               - mediatek,mt6795-pwrap
+               - mediatek,mt6797-pwrap
+               - mediatek,mt6873-pwrap
+@@ -46,6 +47,7 @@ properties:
+               - mediatek,mt8516-pwrap
+       - items:
+           - enum:
++              - mediatek,mt6789-pwrap
+               - mediatek,mt8186-pwrap
+               - mediatek,mt8195-pwrap
+           - const: syscon
+diff --git a/drivers/soc/mediatek/mtk-pmic-wrap.c b/drivers/soc/mediatek/mtk-pmic-wrap.c
+index 90677187c..23c913cbd 100644
+--- a/drivers/soc/mediatek/mtk-pmic-wrap.c
++++ b/drivers/soc/mediatek/mtk-pmic-wrap.c
+@@ -1316,6 +1316,7 @@ enum pwrap_type {
+ 	PWRAP_MT2701,
+ 	PWRAP_MT6765,
+ 	PWRAP_MT6779,
++	PWRAP_MT6789,
+ 	PWRAP_MT6795,
+ 	PWRAP_MT6797,
+ 	PWRAP_MT6873,
+@@ -1852,6 +1853,7 @@ static int pwrap_init_cipher(struct pmic_wrapper *wrp)
+ 	case PWRAP_MT7622:
+ 		pwrap_writel(wrp, 0, PWRAP_CIPHER_EN);
+ 		break;
++	case PWRAP_MT6789:
+ 	case PWRAP_MT6873:
+ 	case PWRAP_MT8183:
+ 	case PWRAP_MT8195:
+@@ -2302,6 +2304,19 @@ static const struct pmic_wrapper_type pwrap_mt6779 = {
+ 	.init_soc_specific = NULL,
+ };
+ 
++static const struct pmic_wrapper_type pwrap_mt6789 = {
++	.regs = mt8195_regs,
++	.type = PWRAP_MT6789,
++	.arb_en_all = 0x777f,
++	.int_en_all = 0x180000,
++	.int1_en_all = 0,
++	.spi_w = PWRAP_MAN_CMD_SPI_WRITE,
++	.wdt_src = PWRAP_WDT_SRC_MASK_ALL,
++	.caps = PWRAP_CAP_ARB,
++	.init_reg_clock = pwrap_common_init_reg_clock,
++	.init_soc_specific = NULL,
++};
++
+ static const struct pmic_wrapper_type pwrap_mt6795 = {
+ 	.regs = mt6795_regs,
+ 	.type = PWRAP_MT6795,
+@@ -2448,6 +2463,7 @@ static const struct of_device_id of_pwrap_match_tbl[] = {
+ 	{ .compatible = "mediatek,mt2701-pwrap", .data = &pwrap_mt2701 },
+ 	{ .compatible = "mediatek,mt6765-pwrap", .data = &pwrap_mt6765 },
+ 	{ .compatible = "mediatek,mt6779-pwrap", .data = &pwrap_mt6779 },
++	{ .compatible = "mediatek,mt6789-pwrap", .data = &pwrap_mt6789 },
+ 	{ .compatible = "mediatek,mt6795-pwrap", .data = &pwrap_mt6795 },
+ 	{ .compatible = "mediatek,mt6797-pwrap", .data = &pwrap_mt6797 },
+ 	{ .compatible = "mediatek,mt6873-pwrap", .data = &pwrap_mt6873 },
+-- 
+2.43.0
