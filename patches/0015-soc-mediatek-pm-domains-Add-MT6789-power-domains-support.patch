@@ -21,10 +21,10 @@ Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
  Documentation/devicetree/bindings/gpu/arm,mali-bifrost.yaml          | 2 ++
  Documentation/devicetree/bindings/power/mediatek,power-controller.yaml| 1 +
  drivers/gpu/drm/panfrost/panfrost_drv.c                              | 1 +
- drivers/pmdomain/mediatek/mt6789-pm-domains.h                        | 92 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ drivers/pmdomain/mediatek/mt6789-pm-domains.h                        | 117 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
  drivers/pmdomain/mediatek/mtk-pm-domains.c                           | 5 +++++
  include/dt-bindings/power/mt6789-power.h                             | 26 ++++++++++++++++++
- 6 files changed, 127 insertions(+)
+ 6 files changed, 152 insertions(+)
  create mode 100644 drivers/pmdomain/mediatek/mt6789-pm-domains.h
  create mode 100644 include/dt-bindings/power/mt6789-power.h
 
@@ -74,10 +74,10 @@ index eeda11303..3f1d566a7 100644
  	{ .compatible = "mediatek,mt8186-mali", .data = &mediatek_mt8186_data },
 diff --git a/drivers/pmdomain/mediatek/mt6789-pm-domains.h b/drivers/pmdomain/mediatek/mt6789-pm-domains.h
 new file mode 100644
-index 000000000..783c5884f
+index 000000000..f35d259e8
 --- /dev/null
 +++ b/drivers/pmdomain/mediatek/mt6789-pm-domains.h
-@@ -0,0 +1,92 @@
+@@ -0,0 +1,117 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +/*
 + * Copyright (c) 2022 MediaTek Inc.
@@ -89,6 +89,9 @@ index 000000000..783c5884f
 +
 +#include "mtk-pm-domains.h"
 +#include <dt-bindings/power/mt6789-power.h>
++
++#define MT6789_TOP_AXI_PROT_EN_MM_DISP		(BIT(10) | BIT(12))
++#define MT6789_TOP_AXI_PROT_EN_DISP		(BIT(6) | BIT(23))
 +
 +/*
 + * MT6789 power domain support
@@ -159,6 +162,28 @@ index 000000000..783c5884f
 +		.sram_pdn_bits = BIT(8),
 +		.sram_pdn_ack_bits = BIT(12),
 +		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
++	},
++	[MT6789_POWER_DOMAIN_DISP] = {
++		.name = "disp",
++		.sta_mask = BIT(21),
++		.ctl_offs = 0x354,
++		.pwr_sta_offs = 0x16C,
++		.pwr_sta2nd_offs = 0x170,
++		.sram_pdn_bits = BIT(8),
++		.sram_pdn_ack_bits = BIT(12),
++		.bp_cfg = {
++			BUS_PROT_WR_IGN(INFRA,
++					MT6789_TOP_AXI_PROT_EN_MM_DISP,
++					MT8192_TOP_AXI_PROT_EN_MM_SET,
++					MT8192_TOP_AXI_PROT_EN_MM_CLR,
++					MT8192_TOP_AXI_PROT_EN_MM_STA1),
++			BUS_PROT_WR_IGN(INFRA,
++					MT6789_TOP_AXI_PROT_EN_DISP,
++					MT8192_TOP_AXI_PROT_EN_SET,
++					MT8192_TOP_AXI_PROT_EN_CLR,
++					MT8192_TOP_AXI_PROT_EN_STA1),
++		},
++		.caps = MTK_SCPD_ALWAYS_ON,
 +	},
 +};
 +
