@@ -72,15 +72,17 @@
 		};
 
 		/* Stock ramoops carveout (matching Android cmdline geometry):
-		 * 896 KiB (0xe0000) window at 0x48090000 with 256 KiB (0x40000)
-		 * console buffer and 64 KiB (0x10000) pmsg buffer.
+		 * 896 KiB (0xe0000) window at 0x48090000:
+		 * dmesg: 143 * 4 KiB (0x8f000), console: 256 KiB (0x40000),
+		 * ftrace: 4 KiB (0x1000), pmsg: 64 KiB (0x10000).
 		 * Matching Android's exact layout ensures console-ramoops-0
-		 * aligns without interleaving or partial buffer overlaps. */
+		 * aligns at 0x4811f000 without 4 KiB offset or interleaving. */
 		ramoops@48090000 {
 			compatible = "ramoops";
 			reg = <0x00 0x48090000 0x00 0x000e0000>;
-			record-size = <0x20000>;
+			record-size = <0x1000>;
 			console-size = <0x40000>;
+			ftrace-size = <0x1000>;
 			pmsg-size = <0x10000>;
 			ecc-size = <0>;
 			no-map;

@@ -7,8 +7,8 @@ Change-Id: I0d623ead8108e78abc3a153625ae6e616ce065df
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  arch/arm64/boot/dts/mediatek/Makefile         |   1 +
- .../boot/dts/mediatek/mt6789-advan-x1.dts     | 550 ++++++++++++++++++
- 2 files changed, 551 insertions(+)
+ .../boot/dts/mediatek/mt6789-advan-x1.dts     | 552 ++++++++++++++++++
+ 2 files changed, 553 insertions(+)
  create mode 100644 arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
 
 diff --git a/arch/arm64/boot/dts/mediatek/Makefile b/arch/arm64/boot/dts/mediatek/Makefile
@@ -27,7 +27,7 @@ new file mode 100644
 index 000000000..b21d29300
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
-@@ -0,0 +1,550 @@
+@@ -0,0 +1,552 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Advan X1 (MT6789) board device tree — clean redo.
@@ -102,15 +102,17 @@ index 000000000..b21d29300
 +		};
 +
 +		/* Stock ramoops carveout (matching Android cmdline geometry):
-+		 * 896 KiB (0xe0000) window at 0x48090000 with 256 KiB (0x40000)
-+		 * console buffer and 64 KiB (0x10000) pmsg buffer.
++		 * 896 KiB (0xe0000) window at 0x48090000:
++		 * dmesg: 143 * 4 KiB (0x8f000), console: 256 KiB (0x40000),
++		 * ftrace: 4 KiB (0x1000), pmsg: 64 KiB (0x10000).
 +		 * Matching Android's exact layout ensures console-ramoops-0
-+		 * aligns without interleaving or partial buffer overlaps. */
++		 * aligns at 0x4811f000 without 4 KiB offset or interleaving. */
 +		ramoops@48090000 {
 +			compatible = "ramoops";
 +			reg = <0x00 0x48090000 0x00 0x000e0000>;
-+			record-size = <0x20000>;
++			record-size = <0x1000>;
 +			console-size = <0x40000>;
++			ftrace-size = <0x1000>;
 +			pmsg-size = <0x10000>;
 +			ecc-size = <0>;
 +			no-map;

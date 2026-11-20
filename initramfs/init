@@ -189,6 +189,8 @@ if [ "$ROOT_MOUNTED" -eq 1 ]; then
         fi
         mkdir -p /sysroot/etc/systemd/journald.conf.d
         printf '[Journal]\nForwardToKMsg=yes\n' > /sysroot/etc/systemd/journald.conf.d/kmsg.conf
+        mkdir -p /sysroot/etc/systemd/logind.conf.d
+        printf '[Login]\nHandlePowerKey=reboot\nHandlePowerKeyLongPress=reboot\n' > /sysroot/etc/systemd/logind.conf.d/powerkey.conf
         mkdir -p /sysroot/etc/systemd/system/getty.target.wants
         [ -e /sysroot/usr/lib/systemd/system/serial-getty@.service ] && \
             ln -sf /usr/lib/systemd/system/serial-getty@.service /sysroot/etc/systemd/system/getty.target.wants/serial-getty@ttyGS0.service 2>/dev/null || true
