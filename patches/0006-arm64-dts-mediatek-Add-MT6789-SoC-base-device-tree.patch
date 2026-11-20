@@ -13,7 +13,7 @@ new file mode 100644
 index 000000000..cf523f400
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
-@@ -0,0 +1,969 @@
+@@ -0,0 +1,1073 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * MediaTek MT6789 (Helio G99) SoC base device tree — mainline shape.
@@ -33,6 +33,7 @@ index 000000000..cf523f400
 +#include <dt-bindings/reset/mt6789-resets.h>
 +#include <dt-bindings/phy/phy.h>
 +#include <dt-bindings/pinctrl/mt6789-pinfunc.h>
++#include <dt-bindings/power/mt6789-power.h>
 +#include <dt-bindings/thermal/thermal.h>
 +#include <dt-bindings/thermal/mediatek,lvts-thermal.h>
 +
@@ -179,6 +180,50 @@ index 000000000..cf523f400
 +		clock-output-names = "clk32k";
 +	};
 +
++	gpu_opp_table: opp-table-gpu {
++		compatible = "operating-points-v2";
++
++		opp-390000000 {
++			opp-hz = /bits/ 64 <390000000>;
++			opp-microvolt = <675000>;
++		};
++
++		opp-493000000 {
++			opp-hz = /bits/ 64 <493000000>;
++			opp-microvolt = <687500>;
++		};
++
++		opp-596000000 {
++			opp-hz = /bits/ 64 <596000000>;
++			opp-microvolt = <693750>;
++		};
++
++		opp-700000000 {
++			opp-hz = /bits/ 64 <700000000>;
++			opp-microvolt = <700000>;
++		};
++
++		opp-801000000 {
++			opp-hz = /bits/ 64 <801000000>;
++			opp-microvolt = <756250>;
++		};
++
++		opp-907000000 {
++			opp-hz = /bits/ 64 <907000000>;
++			opp-microvolt = <806250>;
++		};
++
++		opp-1003000000 {
++			opp-hz = /bits/ 64 <1003000000>;
++			opp-microvolt = <856250>;
++		};
++
++		opp-1100000000 {
++			opp-hz = /bits/ 64 <1100000000>;
++			opp-microvolt = <900000>;
++		};
++	};
++
 +	soc: soc {
 +		compatible = "simple-bus";
 +		#address-cells = <2>;
@@ -207,6 +252,47 @@ index 000000000..cf523f400
 +			reg = <0x00 0x10001000 0x00 0x1000>;
 +			#clock-cells = <1>;
 +			#reset-cells = <1>;
++		};
++
++		scpsys: syscon@10006000 {
++			compatible = "mediatek,mt6789-scpsys", "syscon", "simple-mfd";
++			reg = <0x00 0x10006000 0x00 0x1000>;
++
++			/* System Power Manager */
++			spm: power-controller {
++				compatible = "mediatek,mt6789-power-controller";
++				#address-cells = <1>;
++				#size-cells = <0>;
++				#power-domain-cells = <1>;
++
++				/* power domain of the SoC */
++				mfg0: power-domain@2 {
++					reg = <MT6789_POWER_DOMAIN_MFG0>;
++					clocks = <&topckgen CLK_TOP_MFG_PLL_SEL>;
++					clock-names = "mfg00";
++					#address-cells = <1>;
++					#size-cells = <0>;
++					#power-domain-cells = <1>;
++
++					mfg1: power-domain@3 {
++						reg = <MT6789_POWER_DOMAIN_MFG1>;
++						mediatek,infracfg = <&infracfg_ao>;
++						#address-cells = <1>;
++						#size-cells = <0>;
++						#power-domain-cells = <1>;
++
++						mfg2: power-domain@4 {
++							reg = <MT6789_POWER_DOMAIN_MFG2>;
++							#power-domain-cells = <0>;
++						};
++
++						mfg3: power-domain@5 {
++							reg = <MT6789_POWER_DOMAIN_MFG3>;
++							#power-domain-cells = <0>;
++						};
++					};
++				};
++			};
 +		};
 +
 +		apmixedsys: clock-controller@1000c000 {
@@ -433,6 +519,24 @@ index 000000000..cf523f400
 +			nvmem-cells = <&lvts_e_data1>, <&lvts_e_data2>;
 +			nvmem-cell-names = "e_data1", "e_data2";
 +			#thermal-sensor-cells = <1>;
++		};
++
++		gpu: gpu@13000000 {
++			compatible = "mediatek,mt6789-mali",
++				     "mediatek,mt8186-mali",
++				     "arm,mali-valhall-jm";
++			reg = <0x00 0x13000000 0x00 0x4000>;
++			interrupts = <GIC_SPI 398 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 397 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 396 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-names = "job", "mmu", "gpu";
++			clocks = <&topckgen CLK_TOP_MFG_PLL_SEL>;
++			power-domains = <&spm MT6789_POWER_DOMAIN_MFG2>,
++					<&spm MT6789_POWER_DOMAIN_MFG3>;
++			power-domain-names = "core0", "core1";
++			operating-points-v2 = <&gpu_opp_table>;
++			#cooling-cells = <2>;
++			status = "disabled";
 +		};
 +
 +		spi1: spi@11010000 {
@@ -983,6 +1087,5 @@ index 000000000..cf523f400
 +		};
 +	};
 +};
-
 -- 
-2.55.0
+2.43.0

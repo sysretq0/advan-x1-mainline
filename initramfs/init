@@ -200,6 +200,12 @@ if [ "$ROOT_MOUNTED" -eq 1 ]; then
         for dev in /sys/class/input/input*; do
             [ -e "$dev/name" ] && log "  $(cat $dev/name 2>/dev/null): $dev"
         done
+        log "=== DRM & GPU Diagnostics ==="
+        for drm in /sys/class/drm/*; do
+            [ -e "$drm" ] && log "  DRM: $(basename $drm)"
+        done
+        log "panfrost driver:"
+        ls -la /sys/bus/platform/drivers/panfrost/ 2>/dev/null | while read -r line; do log "  $line"; done
         log "Executing switch_root to /sysroot /sbin/init (USB gadget active on /dev/ttyGS0)..."
         mkdir -p /sysroot/proc /sysroot/sys /sysroot/dev /sysroot/sys/kernel/config
         mount --move /sys/kernel/config /sysroot/sys/kernel/config 2>/dev/null || true

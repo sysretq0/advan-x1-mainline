@@ -218,3 +218,8 @@
 &mt6358keys {
 	status = "okay";
 };
+
+&gpu {
+	mali-supply = <&mt6358_vgpu_reg>;
+	status = "okay";
+};

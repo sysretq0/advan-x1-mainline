@@ -7,8 +7,8 @@ Change-Id: I0d623ead8108e78abc3a153625ae6e616ce065df
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  arch/arm64/boot/dts/mediatek/Makefile         |   1 +
- .../boot/dts/mediatek/mt6789-advan-x1.dts     | 219 ++++++++++++++++++
- 2 files changed, 220 insertions(+)
+ .../boot/dts/mediatek/mt6789-advan-x1.dts     | 225 ++++++++++++++++++
+ 2 files changed, 226 insertions(+)
  create mode 100644 arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
 
 diff --git a/arch/arm64/boot/dts/mediatek/Makefile b/arch/arm64/boot/dts/mediatek/Makefile
@@ -27,7 +27,7 @@ new file mode 100644
 index 000000000..b21d29300
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
-@@ -0,0 +1,220 @@
+@@ -0,0 +1,225 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Advan X1 (MT6789) board device tree — clean redo.
@@ -246,6 +246,11 @@ index 000000000..b21d29300
 +};
 +
 +&mt6358keys {
++	status = "okay";
++};
++
++&gpu {
++	mali-supply = <&mt6358_vgpu_reg>;
 +	status = "okay";
 +};
 -- 
