@@ -1,0 +1,30 @@
+From 1717171717171717171717171717171717171717 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Fri, 20 Nov 2026 09:40:00 +0000
+Subject: [PATCH 17/17] soc: mediatek: regulator-coupler: Add MT6789 support
+
+Enable the MediaTek regulator coupler on MT6789 platforms so that
+coupled GPU<->SRAM regulators can balance voltages without falling
+back to the generic coupler (which rejects non-always-on regulators).
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/soc/mediatek/mtk-regulator-coupler.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/soc/mediatek/mtk-regulator-coupler.c b/drivers/soc/mediatek/mtk-regulator-coupler.c
+index 1109e3d9a..7dee80baf 100644
+--- a/drivers/soc/mediatek/mtk-regulator-coupler.c
++++ b/drivers/soc/mediatek/mtk-regulator-coupler.c
+@@ -145,7 +145,8 @@ static struct mediatek_regulator_coupler mediatek_coupler = {
+ 
+ static int mediatek_regulator_coupler_init(void)
+ {
+-	if (!of_machine_is_compatible("mediatek,mt8183") &&
++	if (!of_machine_is_compatible("mediatek,mt6789") &&
++	    !of_machine_is_compatible("mediatek,mt8183") &&
+ 	    !of_machine_is_compatible("mediatek,mt8186") &&
+ 	    !of_machine_is_compatible("mediatek,mt8188") &&
+ 	    !of_machine_is_compatible("mediatek,mt8189") &&
+-- 
+2.43.0
