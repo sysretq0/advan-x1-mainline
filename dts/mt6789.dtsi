@@ -16,6 +16,7 @@
 #include <dt-bindings/clock/mt6789-clk.h>
 #include <dt-bindings/reset/mt6789-resets.h>
 #include <dt-bindings/phy/phy.h>
+#include <dt-bindings/pinctrl/mt65xx.h>
 #include <dt-bindings/pinctrl/mt6789-pinfunc.h>
 #include <dt-bindings/power/mt6789-power.h>
 #include <dt-bindings/thermal/thermal.h>
@@ -390,7 +391,8 @@
 				pins-bus {
 					pinmux = <PINMUX_GPIO130__FUNC_SCL0>,
 						 <PINMUX_GPIO131__FUNC_SDA0>;
-					bias-disable;
+					bias-pull-up = <MTK_PULL_SET_RSEL_011>;
+					input-enable;
 				};
 			};
 
@@ -398,7 +400,8 @@
 				pins-bus {
 					pinmux = <PINMUX_GPIO132__FUNC_SCL1>,
 						 <PINMUX_GPIO133__FUNC_SDA1>;
-					bias-disable;
+					bias-pull-up = <MTK_PULL_SET_RSEL_011>;
+					input-enable;
 				};
 			};
 
@@ -406,7 +409,8 @@
 				pins-bus {
 					pinmux = <PINMUX_GPIO134__FUNC_SCL2>,
 						 <PINMUX_GPIO135__FUNC_SDA2>;
-					bias-disable;
+					bias-pull-up = <MTK_PULL_SET_RSEL_011>;
+					input-enable;
 				};
 			};
 
@@ -414,7 +418,8 @@
 				pins-bus {
 					pinmux = <PINMUX_GPIO136__FUNC_SCL3>,
 						 <PINMUX_GPIO137__FUNC_SDA3>;
-					bias-disable;
+					bias-pull-up = <MTK_PULL_SET_RSEL_011>;
+					input-enable;
 				};
 			};
 
@@ -422,7 +427,8 @@
 				pins-bus {
 					pinmux = <PINMUX_GPIO138__FUNC_SCL4>,
 						 <PINMUX_GPIO139__FUNC_SDA4>;
-					bias-disable;
+					bias-pull-up = <MTK_PULL_SET_RSEL_011>;
+					input-enable;
 				};
 			};
 
@@ -430,7 +436,8 @@
 				pins-bus {
 					pinmux = <PINMUX_GPIO140__FUNC_SCL5>,
 						 <PINMUX_GPIO141__FUNC_SDA5>;
-					bias-disable;
+					bias-pull-up = <MTK_PULL_SET_RSEL_011>;
+					input-enable;
 				};
 			};
 
@@ -438,7 +445,8 @@
 				pins-bus {
 					pinmux = <PINMUX_GPIO142__FUNC_SCL6>,
 						 <PINMUX_GPIO143__FUNC_SDA6>;
-					bias-disable;
+					bias-pull-up = <MTK_PULL_SET_RSEL_011>;
+					input-enable;
 				};
 			};
 
@@ -446,7 +454,8 @@
 				pins-bus {
 					pinmux = <PINMUX_GPIO144__FUNC_SCL7>,
 						 <PINMUX_GPIO145__FUNC_SDA7>;
-					bias-disable;
+					bias-pull-up = <MTK_PULL_SET_RSEL_011>;
+					input-enable;
 				};
 			};
 
@@ -454,7 +463,8 @@
 				pins-bus {
 					pinmux = <PINMUX_GPIO146__FUNC_SCL8>,
 						 <PINMUX_GPIO147__FUNC_SDA8>;
-					bias-disable;
+					bias-pull-up = <MTK_PULL_SET_RSEL_011>;
+					input-enable;
 				};
 			};
 
@@ -462,7 +472,8 @@
 				pins-bus {
 					pinmux = <PINMUX_GPIO148__FUNC_SCL9>,
 						 <PINMUX_GPIO149__FUNC_SDA9>;
-					bias-disable;
+					bias-pull-up = <MTK_PULL_SET_RSEL_011>;
+					input-enable;
 				};
 			};
 

@@ -138,6 +138,8 @@ if [ "$ROOT_MOUNTED" -eq 1 ]; then
 
         mkdir -p /sysroot/etc/systemd/journald.conf.d
         printf '[Journal]\nForwardToKMsg=no\n' > /sysroot/etc/systemd/journald.conf.d/kmsg.conf
+        mkdir -p /sysroot/etc/systemd/pstore.conf.d
+        printf '[PStore]\nStorage=none\nUnlink=no\n' > /sysroot/etc/systemd/pstore.conf.d/keep-ramoops.conf
         mkdir -p /sysroot/etc/systemd/logind.conf.d
         printf '[Login]\nHandlePowerKey=reboot\nHandlePowerKeyLongPress=reboot\n' > /sysroot/etc/systemd/logind.conf.d/powerkey.conf
         mkdir -p /sysroot/etc/systemd/system/getty.target.wants
