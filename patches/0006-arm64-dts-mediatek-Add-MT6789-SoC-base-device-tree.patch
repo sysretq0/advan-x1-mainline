@@ -14,10 +14,10 @@ Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 
 diff --git a/arch/arm64/boot/dts/mediatek/mt6789.dtsi b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
 new file mode 100644
-index 000000000..cf523f400
+index 000000000..111111111
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
-@@ -0,0 +1,1261 @@
+@@ -0,0 +1,1269 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * MediaTek MT6789 (Helio G99) SoC base device tree — mainline shape.
@@ -1014,6 +1014,14 @@ index 000000000..cf523f400
 +			reg = <0x00 0x1400f000 0x00 0x1000>;
 +			clocks = <&mmsys CLK_MM_DISP_DITHER0>;
 +			interrupts = <GIC_SPI 297 IRQ_TYPE_LEVEL_HIGH>;
++			power-domains = <&spm MT6789_POWER_DOMAIN_DISP>;
++		};
++
++		dsc0: dsc@14012000 {
++			compatible = "mediatek,mt6789-disp-dsc", "mediatek,mt8195-disp-dsc";
++			reg = <0x00 0x14012000 0x00 0x1000>;
++			clocks = <&mmsys CLK_MM_DISP_DSC_WRAP0>;
++			interrupts = <GIC_SPI 300 IRQ_TYPE_LEVEL_HIGH>;
 +			power-domains = <&spm MT6789_POWER_DOMAIN_DISP>;
 +		};
 +

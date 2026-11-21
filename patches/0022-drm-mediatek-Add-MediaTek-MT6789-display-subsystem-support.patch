@@ -225,23 +225,43 @@ index 67bd9e1ca..75f4adcb5 100644
  	  .data = &mt8173_rdma_driver_data},
  	{ .compatible = "mediatek,mt8183-disp-rdma",
 diff --git a/drivers/gpu/drm/mediatek/mtk_drm_drv.c b/drivers/gpu/drm/mediatek/mtk_drm_drv.c
-index a8bf06907..bbbfede54 100644
+index a8bf06907..7b00c5149 100644
 --- a/drivers/gpu/drm/mediatek/mtk_drm_drv.c
 +++ b/drivers/gpu/drm/mediatek/mtk_drm_drv.c
-@@ -289,6 +289,12 @@ static const struct mtk_mmsys_driver_data mt8186_mmsys_driver_data = {
+@@ -159,6 +159,19 @@ static const unsigned int mt8183_mtk_ddp_ext[] = {
+ 	DDP_COMPONENT_DPI0,
+ };
+ 
++static const unsigned int mt6789_mtk_ddp_main[] = {
++	DDP_COMPONENT_OVL0,
++	DDP_COMPONENT_RDMA0,
++	DDP_COMPONENT_COLOR0,
++	DDP_COMPONENT_CCORR,
++	DDP_COMPONENT_AAL0,
++	DDP_COMPONENT_GAMMA,
++	DDP_COMPONENT_POSTMASK0,
++	DDP_COMPONENT_DITHER0,
++	DDP_COMPONENT_DSC0,
++	DDP_COMPONENT_DSI0,
++};
++
+ static const unsigned int mt8186_mtk_ddp_main[] = {
+ 	DDP_COMPONENT_OVL0,
+ 	DDP_COMPONENT_RDMA0,
+@@ -289,6 +302,12 @@ static const struct mtk_mmsys_driver_data mt8186_mmsys_driver_data = {
  	.mmsys_dev_num = 1,
  };
  
 +static const struct mtk_mmsys_driver_data mt6789_mmsys_driver_data = {
-+	.main_path = mt8186_mtk_ddp_main,
-+	.main_len = ARRAY_SIZE(mt8186_mtk_ddp_main),
++	.main_path = mt6789_mtk_ddp_main,
++	.main_len = ARRAY_SIZE(mt6789_mtk_ddp_main),
 +	.mmsys_dev_num = 1,
 +};
 +
  static const struct mtk_mmsys_driver_data mt8188_vdosys0_driver_data = {
  	.main_path = mt8188_mtk_ddp_main,
  	.main_len = ARRAY_SIZE(mt8188_mtk_ddp_main),
-@@ -346,6 +352,8 @@ static const struct of_device_id mtk_drm_of_ids[] = {
+@@ -346,6 +365,8 @@ static const struct of_device_id mtk_drm_of_ids[] = {
  	  .data = &mt8183_mmsys_driver_data},
  	{ .compatible = "mediatek,mt8186-mmsys",
  	  .data = &mt8186_mmsys_driver_data},
@@ -250,7 +270,7 @@ index a8bf06907..bbbfede54 100644
  	{ .compatible = "mediatek,mt8188-vdosys0",
  	  .data = &mt8188_vdosys0_driver_data},
  	{ .compatible = "mediatek,mt8188-vdosys1",
-@@ -704,6 +712,8 @@ static const struct component_master_ops mtk_drm_ops = {
+@@ -704,6 +725,8 @@ static const struct component_master_ops mtk_drm_ops = {
  };
  
  static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
@@ -259,7 +279,7 @@ index a8bf06907..bbbfede54 100644
  	{ .compatible = "mediatek,mt8167-disp-aal",
  	  .data = (void *)MTK_DISP_AAL},
  	{ .compatible = "mediatek,mt8173-disp-aal",
-@@ -712,6 +722,8 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
+@@ -712,6 +735,8 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
  	  .data = (void *)MTK_DISP_AAL},
  	{ .compatible = "mediatek,mt8192-disp-aal",
  	  .data = (void *)MTK_DISP_AAL},
@@ -268,7 +288,7 @@ index a8bf06907..bbbfede54 100644
  	{ .compatible = "mediatek,mt8167-disp-ccorr",
  	  .data = (void *)MTK_DISP_CCORR },
  	{ .compatible = "mediatek,mt8183-disp-ccorr",
-@@ -720,16 +732,22 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
+@@ -720,16 +745,24 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
  	  .data = (void *)MTK_DISP_CCORR },
  	{ .compatible = "mediatek,mt2701-disp-color",
  	  .data = (void *)MTK_DISP_COLOR },
@@ -284,6 +304,8 @@ index a8bf06907..bbbfede54 100644
  	  .data = (void *)MTK_DISP_DITHER },
  	{ .compatible = "mediatek,mt8183-disp-dither",
  	  .data = (void *)MTK_DISP_DITHER },
++	{ .compatible = "mediatek,mt6789-disp-dsc",
++	  .data = (void *)MTK_DISP_DSC },
  	{ .compatible = "mediatek,mt8195-disp-dsc",
  	  .data = (void *)MTK_DISP_DSC },
 +	{ .compatible = "mediatek,mt6789-disp-gamma",
@@ -291,7 +313,7 @@ index a8bf06907..bbbfede54 100644
  	{ .compatible = "mediatek,mt8167-disp-gamma",
  	  .data = (void *)MTK_DISP_GAMMA, },
  	{ .compatible = "mediatek,mt8173-disp-gamma",
-@@ -744,6 +762,8 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
+@@ -744,6 +777,8 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
  	  .data = (void *)MTK_DISP_MUTEX },
  	{ .compatible = "mediatek,mt2712-disp-mutex",
  	  .data = (void *)MTK_DISP_MUTEX },
@@ -300,7 +322,7 @@ index a8bf06907..bbbfede54 100644
  	{ .compatible = "mediatek,mt8167-disp-mutex",
  	  .data = (void *)MTK_DISP_MUTEX },
  	{ .compatible = "mediatek,mt8173-disp-mutex",
-@@ -764,6 +784,8 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
+@@ -764,6 +799,8 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
  	  .data = (void *)MTK_DISP_OD },
  	{ .compatible = "mediatek,mt2701-disp-ovl",
  	  .data = (void *)MTK_DISP_OVL },
@@ -309,7 +331,7 @@ index a8bf06907..bbbfede54 100644
  	{ .compatible = "mediatek,mt8167-disp-ovl",
  	  .data = (void *)MTK_DISP_OVL },
  	{ .compatible = "mediatek,mt8173-disp-ovl",
-@@ -778,16 +800,22 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
+@@ -778,16 +815,22 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
  	  .data = (void *)MTK_DISP_OVL_2L },
  	{ .compatible = "mediatek,mt8192-disp-ovl-2l",
  	  .data = (void *)MTK_DISP_OVL_2L },
@@ -332,7 +354,7 @@ index a8bf06907..bbbfede54 100644
  	{ .compatible = "mediatek,mt8167-disp-rdma",
  	  .data = (void *)MTK_DISP_RDMA },
  	{ .compatible = "mediatek,mt8173-disp-rdma",
-@@ -820,6 +848,8 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
+@@ -820,6 +863,8 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
  	  .data = (void *)MTK_DPI },
  	{ .compatible = "mediatek,mt2701-dsi",
  	  .data = (void *)MTK_DSI },
@@ -366,14 +388,57 @@ index 29168a40b..1bc363156 100644
  	{ .compatible = "mediatek,mt8183-mipi-tx", .data = &mt8183_mipitx_data },
  	{ .compatible = "mediatek,mt8196-mipi-tx", .data = &mt8196_mipitx_data },
 diff --git a/drivers/soc/mediatek/mtk-mutex.c b/drivers/soc/mediatek/mtk-mutex.c
-index 2e94c8f68..7b1c4f92a 100644
+index 6d4e475cb..6b50decf2 100644
 --- a/drivers/soc/mediatek/mtk-mutex.c
 +++ b/drivers/soc/mediatek/mtk-mutex.c
-@@ -1134,6 +1134,7 @@ static int mtk_mutex_probe(struct platform_device *pdev)
+@@ -59,6 +59,7 @@
+ #define MT8186_MUTEX_MOD_DISP_POSTMASK0		9
+ #define MT8186_MUTEX_MOD_DISP_DITHER0		10
+ #define MT8186_MUTEX_MOD_DISP_RDMA1		17
++#define MT6789_MUTEX_MOD_DISP_DSC_WRAP0_CORE0	13
+ 
+ #define MT8186_MUTEX_SOF_SINGLE_MODE		0
+ #define MT8186_MUTEX_SOF_DSI0			1
+@@ -455,6 +456,19 @@ static const u8 mt8183_mutex_table_mod[MUTEX_MOD_IDX_MAX] = {
+ 	[MUTEX_MOD_IDX_MDP_CCORR0] = MT8183_MUTEX_MOD_MDP_CCORR0,
+ };
+ 
++static const u8 mt6789_mutex_mod[DDP_COMPONENT_ID_MAX] = {
++	[DDP_COMPONENT_AAL0] = MT8186_MUTEX_MOD_DISP_AAL0,
++	[DDP_COMPONENT_CCORR] = MT8186_MUTEX_MOD_DISP_CCORR0,
++	[DDP_COMPONENT_COLOR0] = MT8186_MUTEX_MOD_DISP_COLOR0,
++	[DDP_COMPONENT_DITHER0] = MT8186_MUTEX_MOD_DISP_DITHER0,
++	[DDP_COMPONENT_DSC0] = MT6789_MUTEX_MOD_DISP_DSC_WRAP0_CORE0,
++	[DDP_COMPONENT_GAMMA] = MT8186_MUTEX_MOD_DISP_GAMMA0,
++	[DDP_COMPONENT_OVL0] = MT8186_MUTEX_MOD_DISP_OVL0,
++	[DDP_COMPONENT_OVL_2L0] = MT8186_MUTEX_MOD_DISP_OVL0_2L,
++	[DDP_COMPONENT_POSTMASK0] = MT8186_MUTEX_MOD_DISP_POSTMASK0,
++	[DDP_COMPONENT_RDMA0] = MT8186_MUTEX_MOD_DISP_RDMA0,
++};
++
+ static const u8 mt8186_mutex_mod[DDP_COMPONENT_ID_MAX] = {
+ 	[DDP_COMPONENT_AAL0] = MT8186_MUTEX_MOD_DISP_AAL0,
+ 	[DDP_COMPONENT_CCORR] = MT8186_MUTEX_MOD_DISP_CCORR0,
+@@ -788,6 +802,14 @@ static const struct mtk_mutex_data mt8186_mdp_mutex_driver_data = {
+ 	.mutex_table_mod = mt8186_mdp_mutex_table_mod,
+ };
+ 
++static const struct mtk_mutex_data mt6789_mutex_driver_data = {
++	.mutex_mod = mt6789_mutex_mod,
++	.mutex_sof = mt8186_mutex_sof,
++	.mutex_mod_reg = MT8183_MUTEX0_MOD0,
++	.mutex_mod1_reg = MT8183_MUTEX0_MOD1,
++	.mutex_sof_reg = MT8183_MUTEX0_SOF0,
++};
++
+ static const struct mtk_mutex_data mt8186_mutex_driver_data = {
+ 	.mutex_mod = mt8186_mutex_mod,
+ 	.mutex_sof = mt8186_mutex_sof,
+@@ -1133,6 +1155,7 @@ static int mtk_mutex_probe(struct platform_device *pdev)
  static const struct of_device_id mutex_driver_dt_match[] = {
  	{ .compatible = "mediatek,mt2701-disp-mutex", .data = &mt2701_mutex_driver_data },
  	{ .compatible = "mediatek,mt2712-disp-mutex", .data = &mt2712_mutex_driver_data },
-+	{ .compatible = "mediatek,mt6789-disp-mutex", .data = &mt8186_mutex_driver_data },
++	{ .compatible = "mediatek,mt6789-disp-mutex", .data = &mt6789_mutex_driver_data },
  	{ .compatible = "mediatek,mt6795-disp-mutex", .data = &mt6795_mutex_driver_data },
  	{ .compatible = "mediatek,mt8167-disp-mutex", .data = &mt8167_mutex_driver_data },
  	{ .compatible = "mediatek,mt8173-disp-mutex", .data = &mt8173_mutex_driver_data },
