@@ -554,7 +554,38 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
  
  	ret = clk_set_rate(dsi->hs_clk, dsi->data_rate);
  	if (ret < 0) {
-@@ -877,9 +921,13 @@
+@@ -735,8 +779,11 @@
+ 	if (dsi->driver_data->has_shadow_ctl)
+ 		writel(FORCE_COMMIT | BYPASS_SHADOW,
+ 		       dsi->regs + dsi->driver_data->reg_shadow_dbg_off);
+ 
++	mtk_dsi_stop(dsi);
++	mtk_dsi_set_cmd_mode(dsi);
+ 	mtk_dsi_reset_engine(dsi);
++	writel(0, dsi->regs + DSI_INTSTA);
+ 	mtk_dsi_phy_timconfig(dsi);
+ 
+ 	mtk_dsi_ps_control(dsi, true);
+@@ -793,7 +840,8 @@
+ 	if (dsi->enabled)
+ 		return;
+ 
+ 	mtk_dsi_set_mode(dsi);
++	mtk_dsi_clk_hs_mode(dsi, 1);
+ 	mtk_dsi_start(dsi);
+ 
+ 	dsi->enabled = true;
+@@ -857,7 +905,8 @@
+ 		drm_err(drm, "failed to power on dsi\n");
+ 
+ 	mtk_dsi_lane_ready(dsi);
+-	mtk_dsi_clk_hs_mode(dsi, 1);
++	if (!(dsi->mode_flags & MIPI_DSI_MODE_LPM))
++		mtk_dsi_clk_hs_mode(dsi, 1);
+ }
+ 
+ static void mtk_dsi_bridge_atomic_post_disable(struct drm_bridge *bridge,
+@@ -877,9 +926,13 @@
  	struct mtk_dsi *dsi = bridge_to_dsi(bridge);
  	int bpp;
  
@@ -571,7 +602,7 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
  
  	if (mode->clock * bpp / dsi->lanes > 1500000)
  		return MODE_CLOCK_HIGH;
-@@ -914,6 +962,13 @@
+@@ -914,6 +967,13 @@
  	mtk_dsi_poweroff(dsi);
  }
  
@@ -585,7 +616,7 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
  static const struct drm_encoder_funcs mtk_dsi_encoder_funcs = {
  	.destroy = drm_encoder_cleanup,
  };
-@@ -999,6 +1054,8 @@
+@@ -999,6 +1059,8 @@
  	dsi->lanes = device->lanes;
  	dsi->format = device->format;
  	dsi->mode_flags = device->mode_flags;
@@ -594,14 +625,14 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
  	dsi->next_bridge = devm_drm_of_get_bridge(dev, dev->of_node, 1, 0);
  	if (IS_ERR(dsi->next_bridge)) {
  		ret = PTR_ERR(dsi->next_bridge);
-@@ -1296,6 +1353,15 @@
+@@ -1296,6 +1358,15 @@
  	.has_size_ctl = true,
  };
  
 +static const struct mtk_dsi_driver_data mt6789_dsi_driver_data = {
 +	.reg_cmdq_off = 0xd00,
 +	.reg_vm_cmd_off = 0x200,
-+	.reg_shadow_dbg_off = 0xc00,
++	.reg_shadow_dbg_off = 0x190,
 +	.has_shadow_ctl = true,
 +	.has_size_ctl = true,
 +	.cmdq_long_packet_ctl = true,
@@ -610,7 +641,7 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
  static const struct mtk_dsi_driver_data mt8186_dsi_driver_data = {
  	.reg_cmdq_off = 0xd00,
  	.reg_vm_cmd_off = 0x200,
-@@ -1316,7 +1382,7 @@
+@@ -1316,7 +1387,7 @@
  
  static const struct of_device_id mtk_dsi_of_match[] = {
  	{ .compatible = "mediatek,mt2701-dsi", .data = &mt2701_dsi_driver_data },
