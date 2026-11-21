@@ -744,7 +744,7 @@ index 000000000..cf523f400
 +		};
 +
 +		i2c0: i2c@11e00000 {
-+			compatible = "mediatek,mt6789-i2c", "mediatek,mt8192-i2c";
++			compatible = "mediatek,mt6789-i2c";
 +			reg = <0x00 0x11e00000 0x00 0x1000>,
 +			      <0x00 0x10217080 0x00 0x80>;
 +			interrupts = <GIC_SPI 144 IRQ_TYPE_LEVEL_HIGH>;
@@ -758,7 +758,7 @@ index 000000000..cf523f400
 +		};
 +
 +		i2c1: i2c@11e01000 {
-+			compatible = "mediatek,mt6789-i2c", "mediatek,mt8192-i2c";
++			compatible = "mediatek,mt6789-i2c";
 +			reg = <0x00 0x11e01000 0x00 0x1000>,
 +			      <0x00 0x10217100 0x00 0x80>;
 +			interrupts = <GIC_SPI 145 IRQ_TYPE_LEVEL_HIGH>;
@@ -772,7 +772,7 @@ index 000000000..cf523f400
 +		};
 +
 +		i2c2: i2c@11eb0000 {
-+			compatible = "mediatek,mt6789-i2c", "mediatek,mt8192-i2c";
++			compatible = "mediatek,mt6789-i2c";
 +			reg = <0x00 0x11eb0000 0x00 0x1000>,
 +			      <0x00 0x10217180 0x00 0x80>;
 +			interrupts = <GIC_SPI 146 IRQ_TYPE_LEVEL_HIGH>;
@@ -786,7 +786,7 @@ index 000000000..cf523f400
 +		};
 +
 +		i2c3: i2c@11015000 {
-+			compatible = "mediatek,mt6789-i2c", "mediatek,mt8192-i2c";
++			compatible = "mediatek,mt6789-i2c";
 +			reg = <0x00 0x11015000 0x00 0x1000>,
 +			      <0x00 0x10217280 0x00 0x80>;
 +			interrupts = <GIC_SPI 147 IRQ_TYPE_LEVEL_HIGH>;
@@ -800,7 +800,7 @@ index 000000000..cf523f400
 +		};
 +
 +		i2c4: i2c@11eb1000 {
-+			compatible = "mediatek,mt6789-i2c", "mediatek,mt8192-i2c";
++			compatible = "mediatek,mt6789-i2c";
 +			reg = <0x00 0x11eb1000 0x00 0x1000>,
 +			      <0x00 0x10217300 0x00 0x80>;
 +			interrupts = <GIC_SPI 148 IRQ_TYPE_LEVEL_HIGH>;
@@ -814,7 +814,7 @@ index 000000000..cf523f400
 +		};
 +
 +		i2c5: i2c@11017000 {
-+			compatible = "mediatek,mt6789-i2c", "mediatek,mt8192-i2c";
++			compatible = "mediatek,mt6789-i2c";
 +			reg = <0x00 0x11017000 0x00 0x1000>,
 +			      <0x00 0x10217400 0x00 0x80>;
 +			interrupts = <GIC_SPI 149 IRQ_TYPE_LEVEL_HIGH>;
@@ -828,7 +828,7 @@ index 000000000..cf523f400
 +		};
 +
 +		i2c6: i2c@1101a000 {
-+			compatible = "mediatek,mt6789-i2c", "mediatek,mt8192-i2c";
++			compatible = "mediatek,mt6789-i2c";
 +			reg = <0x00 0x1101a000 0x00 0x1000>,
 +			      <0x00 0x10217480 0x00 0x80>;
 +			interrupts = <GIC_SPI 150 IRQ_TYPE_LEVEL_HIGH>;
@@ -842,7 +842,7 @@ index 000000000..cf523f400
 +		};
 +
 +		i2c7: i2c@11f00000 {
-+			compatible = "mediatek,mt6789-i2c", "mediatek,mt8192-i2c";
++			compatible = "mediatek,mt6789-i2c";
 +			reg = <0x00 0x11f00000 0x00 0x1000>,
 +			      <0x00 0x10217500 0x00 0x80>;
 +			interrupts = <GIC_SPI 151 IRQ_TYPE_LEVEL_HIGH>;
@@ -856,7 +856,7 @@ index 000000000..cf523f400
 +		};
 +
 +		i2c8: i2c@11eb2000 {
-+			compatible = "mediatek,mt6789-i2c", "mediatek,mt8192-i2c";
++			compatible = "mediatek,mt6789-i2c";
 +			reg = <0x00 0x11eb2000 0x00 0x1000>,
 +			      <0x00 0x10217600 0x00 0x80>;
 +			interrupts = <GIC_SPI 152 IRQ_TYPE_LEVEL_HIGH>;
@@ -870,7 +870,7 @@ index 000000000..cf523f400
 +		};
 +
 +		i2c9: i2c@11eb3000 {
-+			compatible = "mediatek,mt6789-i2c", "mediatek,mt8192-i2c";
++			compatible = "mediatek,mt6789-i2c";
 +			reg = <0x00 0x11eb3000 0x00 0x1000>,
 +			      <0x00 0x10217700 0x00 0x80>;
 +			interrupts = <GIC_SPI 153 IRQ_TYPE_LEVEL_HIGH>;

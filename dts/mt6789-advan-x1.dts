@@ -29,7 +29,7 @@
 		 * exact value bytes in place, so this string IS the published
 		 * cmdline. Do not shrink below current capacity.
 		 */
-		bootargs = "earlycon=uart8250,mmio32,0x11002000 console=ttyGS0,115200 console=tty0 nokaslr loglevel=7 initcall_debug=1 rdinit=/init panic=5          ";
+		bootargs = "earlycon=uart8250,mmio32,0x11002000 console=ttyGS0,115200 console=tty0 nokaslr loglevel=7 rdinit=/init panic=5                           ";
 
 		/*
 		 * Loader publishes initrd coordinates ONLY when the DTB carries
@@ -174,25 +174,6 @@
 	pinctrl-0 = <&i2c1_pins>;
 	clock-frequency = <400000>;
 	status = "okay";
-
-	lcd_bias: regulator@3e {
-		compatible = "ti,tps65132";
-		reg = <0x3e>;
-
-		outp: outp {
-			regulator-name = "lcd_bias_outp";
-			regulator-min-microvolt = <4000000>;
-			regulator-max-microvolt = <6000000>;
-			enable-gpios = <&pio 108 GPIO_ACTIVE_HIGH>;
-		};
-
-		outn: outn {
-			regulator-name = "lcd_bias_outn";
-			regulator-min-microvolt = <4000000>;
-			regulator-max-microvolt = <6000000>;
-			enable-gpios = <&pio 109 GPIO_ACTIVE_HIGH>;
-		};
-	};
 };
 
 &i2c2 {
@@ -214,6 +195,27 @@
 	pinctrl-0 = <&i2c6_pins>;
 	clock-frequency = <400000>;
 	status = "okay";
+
+	lcd_bias: regulator@3e {
+		compatible = "ti,tps65132";
+		reg = <0x3e>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&lcd_bias_pins>;
+
+		outp: outp {
+			regulator-name = "lcd_bias_outp";
+			regulator-min-microvolt = <5800000>;
+			regulator-max-microvolt = <5800000>;
+			enable-gpios = <&pio 108 GPIO_ACTIVE_HIGH>;
+		};
+
+		outn: outn {
+			regulator-name = "lcd_bias_outn";
+			regulator-min-microvolt = <5800000>;
+			regulator-max-microvolt = <5800000>;
+			enable-gpios = <&pio 109 GPIO_ACTIVE_HIGH>;
+		};
+	};
 };
 
 &i2c7 {
@@ -566,19 +568,19 @@
 };
 
 &pio {
-	panel_pins: panel-default-pins {
-		pins-rst {
-			pinmux = <PINMUX_GPIO85__FUNC_GPIO85>;
-			output-low;
-		};
-		pins-ldo {
-			pinmux = <PINMUX_GPIO150__FUNC_GPIO150>;
-			output-low;
-		};
+	lcd_bias_pins: lcd-bias-default-pins {
 		pins-bias {
 			pinmux = <PINMUX_GPIO108__FUNC_GPIO108>,
 				 <PINMUX_GPIO109__FUNC_GPIO109>;
-			output-low;
+		};
+	};
+
+	panel_pins: panel-default-pins {
+		pins-rst {
+			pinmux = <PINMUX_GPIO85__FUNC_GPIO85>;
+		};
+		pins-ldo {
+			pinmux = <PINMUX_GPIO150__FUNC_GPIO150>;
 		};
 	};
 };
