@@ -376,7 +376,7 @@ index f82506e10..9b8c1aa20 100644
  	{ .compatible = "mediatek,mt8173-dsi", .data = &mt8173_dsi_driver_data },
  	{ .compatible = "mediatek,mt8183-dsi", .data = &mt8183_dsi_driver_data },
 diff --git a/drivers/phy/mediatek/phy-mtk-mipi-dsi-mt8183.c b/drivers/phy/mediatek/phy-mtk-mipi-dsi-mt8183.c
-index a54d44ef7..b1efc6910 100644
+index a54d44ef7..bde54cc26 100644
 --- a/drivers/phy/mediatek/phy-mtk-mipi-dsi-mt8183.c
 +++ b/drivers/phy/mediatek/phy-mtk-mipi-dsi-mt8183.c
 @@ -21,6 +21,8 @@
@@ -411,7 +411,7 @@ index a54d44ef7..b1efc6910 100644
  #define DSI_SW_CTL_EN			BIT(0)
  #define AD_DSI_PLL_SDM_PWR_ON		BIT(0)
  #define AD_DSI_PLL_SDM_ISO_EN		BIT(1)
-@@ -177,3 +189,146 @@ const struct mtk_mipitx_data mt8183_mipitx_data = {
+@@ -177,3 +189,164 @@ const struct mtk_mipitx_data mt8183_mipitx_data = {
  	.mipi_tx_enable_signal = mtk_mipi_tx_power_on_signal,
  	.mipi_tx_disable_signal = mtk_mipi_tx_power_off_signal,
  };
@@ -421,9 +421,29 @@ index a54d44ef7..b1efc6910 100644
 +	struct mtk_mipi_tx *mipi_tx = mtk_mipi_tx_from_clk_hw(hw);
 +	void __iomem *base = mipi_tx->regs;
 +	unsigned int txdiv, txdiv0;
++	u32 pll_con0, pll_con1;
 +	u64 pcw;
 +
-+	dev_dbg(mipi_tx->dev, "mt6789 prepare: %u bps\n", mipi_tx->data_rate);
++	pll_con0 = readl(base + MIPITX_PLL_CON0);
++	pll_con1 = readl(base + MIPITX_PLL_CON1);
++
++	/*
++	 * Match vendor mtk_is_mipi_tx_enable(): if the bootloader already
++	 * enabled and locked the MIPI-TX PLL, leave it undisturbed so active
++	 * D-PHY lane state is not disrupted during handover.
++	 */
++	if (pll_con1 & RG_DSI_PLL_EN) {
++		dev_info(mipi_tx->dev,
++			 "mt6789 pll already on: con0=0x%08x con1=0x%08x lane=0x%08x sw0=0x%08x sw4=0x%08x\n",
++			 pll_con0, pll_con1,
++			 readl(base + MIPITX_LANE_CON),
++			 readl(base + MIPITX_D0_SW_CTL_EN),
++			 readl(base + MIPITX_SW_CTRL_CON4));
++		return 0;
++	}
++
++	dev_info(mipi_tx->dev, "mt6789 pll cold-start: %u bps\n",
++		 mipi_tx->data_rate);
 +
 +	if (mipi_tx->data_rate >= 2000000000) {
 +		txdiv = 1;
@@ -446,14 +466,6 @@ index a54d44ef7..b1efc6910 100644
 +
 +	pcw = div_u64(((u64)mipi_tx->data_rate * txdiv) << 24, 26000000);
 +
-+	/* Keep bootloader-enabled PLL undisturbed if already locked at target rate */
-+	if ((readl(base + MIPITX_PLL_CON1) & RG_DSI_PLL_EN) &&
-+	    readl(base + MIPITX_PLL_CON0) == (u32)pcw &&
-+	    FIELD_GET(RG_DSI_PLL_POSDIV, readl(base + MIPITX_PLL_CON1)) == txdiv0) {
-+		mtk_phy_set_bits(base + MIPITX_SW_CTRL_CON4, BIT(0));
-+		return 0;
-+	}
-+
 +	writel(0x0, base + MIPITX_PRESERVED);
 +	writel(0x00FF12E0, base + MIPITX_PLL_CON4);
 +	writel(0x3FFF0180, base + MIPITX_LANE_CON);
@@ -468,7 +480,6 @@ index a54d44ef7..b1efc6910 100644
 +	mtk_phy_set_bits(base + MIPITX_CK_SW_CTL_EN, DSI_SW_CTL_EN);
 +
 +	mtk_phy_set_bits(base + MIPITX_PLL_PWR, AD_DSI_PLL_SDM_PWR_ON);
-+	mtk_phy_clear_bits(base + MIPITX_PLL_CON1, RG_DSI_PLL_EN);
 +	usleep_range(30, 100);
 +	mtk_phy_clear_bits(base + MIPITX_PLL_PWR, AD_DSI_PLL_SDM_ISO_EN);
 +
@@ -510,22 +521,29 @@ index a54d44ef7..b1efc6910 100644
 +	struct mtk_mipi_tx *mipi_tx = phy_get_drvdata(phy);
 +	void __iomem *base = mipi_tx->regs;
 +
-+	mtk_phy_set_bits(base + MIPITX_D2_SW_LPTX_PRE_OE, BIT(0));
-+	mtk_phy_set_bits(base + MIPITX_D2C_SW_LPTX_PRE_OE, BIT(0));
-+	mtk_phy_set_bits(base + MIPITX_D0_SW_LPTX_PRE_OE, BIT(0));
-+	mtk_phy_set_bits(base + MIPITX_D0C_SW_LPTX_PRE_OE, BIT(0));
-+	mtk_phy_set_bits(base + MIPITX_CK_SW_LPTX_PRE_OE, BIT(0));
-+	mtk_phy_set_bits(base + MIPITX_CKC_SW_LPTX_PRE_OE, BIT(0));
-+	mtk_phy_set_bits(base + MIPITX_D1_SW_LPTX_PRE_OE, BIT(0));
-+	mtk_phy_set_bits(base + MIPITX_D1C_SW_LPTX_PRE_OE, BIT(0));
-+	mtk_phy_set_bits(base + MIPITX_D3_SW_LPTX_PRE_OE, BIT(0));
-+	mtk_phy_set_bits(base + MIPITX_D3C_SW_LPTX_PRE_OE, BIT(0));
++	/*
++	 * Only toggle PRE_OE if lanes were isolated in SW control (cold start
++	 * or resume from power-off). Live bootloader handover keeps PRE_OE as
++	 * programmed by LK.
++	 */
++	if (readl(base + MIPITX_D0_SW_CTL_EN) & DSI_SW_CTL_EN) {
++		mtk_phy_set_bits(base + MIPITX_D2_SW_LPTX_PRE_OE, BIT(0));
++		mtk_phy_set_bits(base + MIPITX_D2C_SW_LPTX_PRE_OE, BIT(0));
++		mtk_phy_set_bits(base + MIPITX_D0_SW_LPTX_PRE_OE, BIT(0));
++		mtk_phy_set_bits(base + MIPITX_D0C_SW_LPTX_PRE_OE, BIT(0));
++		mtk_phy_set_bits(base + MIPITX_CK_SW_LPTX_PRE_OE, BIT(0));
++		mtk_phy_set_bits(base + MIPITX_CKC_SW_LPTX_PRE_OE, BIT(0));
++		mtk_phy_set_bits(base + MIPITX_D1_SW_LPTX_PRE_OE, BIT(0));
++		mtk_phy_set_bits(base + MIPITX_D1C_SW_LPTX_PRE_OE, BIT(0));
++		mtk_phy_set_bits(base + MIPITX_D3_SW_LPTX_PRE_OE, BIT(0));
++		mtk_phy_set_bits(base + MIPITX_D3C_SW_LPTX_PRE_OE, BIT(0));
 +
-+	mtk_phy_clear_bits(base + MIPITX_D0_SW_CTL_EN, DSI_SW_CTL_EN);
-+	mtk_phy_clear_bits(base + MIPITX_D1_SW_CTL_EN, DSI_SW_CTL_EN);
-+	mtk_phy_clear_bits(base + MIPITX_D2_SW_CTL_EN, DSI_SW_CTL_EN);
-+	mtk_phy_clear_bits(base + MIPITX_D3_SW_CTL_EN, DSI_SW_CTL_EN);
-+	mtk_phy_clear_bits(base + MIPITX_CK_SW_CTL_EN, DSI_SW_CTL_EN);
++		mtk_phy_clear_bits(base + MIPITX_D0_SW_CTL_EN, DSI_SW_CTL_EN);
++		mtk_phy_clear_bits(base + MIPITX_D1_SW_CTL_EN, DSI_SW_CTL_EN);
++		mtk_phy_clear_bits(base + MIPITX_D2_SW_CTL_EN, DSI_SW_CTL_EN);
++		mtk_phy_clear_bits(base + MIPITX_D3_SW_CTL_EN, DSI_SW_CTL_EN);
++		mtk_phy_clear_bits(base + MIPITX_CK_SW_CTL_EN, DSI_SW_CTL_EN);
++	}
 +
 +	mtk_phy_set_bits(base + MIPITX_CK_CKMODE_EN, DSI_CK_CKMODE_EN);
 +}

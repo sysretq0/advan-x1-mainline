@@ -382,6 +382,7 @@ index 679d413bf..9270d823b 100644
  int mtk_gamma_clk_enable(struct device *dev);
  void mtk_gamma_clk_disable(struct device *dev);
 diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_dsi.c
+index 9b8c1aa..5549c13 100644
 --- a/drivers/gpu/drm/mediatek/mtk_dsi.c
 +++ b/drivers/gpu/drm/mediatek/mtk_dsi.c
 @@ -18,6 +18,7 @@
@@ -400,7 +401,7 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
  
  #define DSI_INTEN		0x08
  
-@@ -42,12 +44,14 @@
+@@ -42,6 +44,7 @@
  #define TE_RDY_INT_FLAG			BIT(2)
  #define VM_DONE_INT_FLAG		BIT(3)
  #define EXT_TE_RDY_INT_FLAG		BIT(4)
@@ -408,14 +409,7 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
  #define DSI_BUSY			BIT(31)
  
  #define DSI_CON_CTRL		0x10
- #define DSI_RESET			BIT(0)
- #define DSI_EN				BIT(1)
- #define DPHY_RESET			BIT(2)
-+#define DSI_CM_WAIT_FIFO_FULL_EN	BIT(27)
- 
- #define DSI_MODE_CTRL		0x14
- #define MODE				(3)
-@@ -57,6 +61,7 @@
+@@ -57,6 +60,7 @@
  #define BURST_MODE			3
  #define FRM_MODE			BIT(16)
  #define MIX_MODE			BIT(17)
@@ -423,7 +417,7 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
  
  #define DSI_TXRX_CTRL		0x18
  #define VC_NUM				BIT(1)
-@@ -70,12 +75,13 @@
+@@ -70,12 +74,13 @@
  #define HSTX_CKLP_EN			BIT(16)
  
  #define DSI_PSCTRL		0x1c
@@ -439,16 +433,19 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
  
  #define DSI_VSA_NL		0x20
  #define DSI_VBP_NL		0x24
-@@ -106,6 +112,8 @@
+@@ -106,6 +111,11 @@
  #define DSI_RACK		0x84
  #define RACK				BIT(0)
  
++#define DSI_MEM_CONTI		0x90
++#define DSI_WMEM_CONTI			0x3c
++
 +#define DSI_TIME_CON0		0xa0
 +
  #define DSI_PHY_LCCON		0x104
  #define LC_HS_TX_EN			BIT(0)
  #define LC_ULPM_EN			BIT(1)
-@@ -115,6 +123,7 @@
+@@ -115,6 +125,7 @@
  #define LD0_HS_TX_EN			BIT(0)
  #define LD0_ULPM_EN			BIT(1)
  #define LD0_WAKEUP_EN			BIT(2)
@@ -456,26 +453,35 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
  
  #define DSI_PHY_TIMECON0	0x110
  #define LPX				GENMASK(7, 0)
-@@ -143,6 +152,9 @@
+@@ -143,9 +154,17 @@
  #define VM_CMD_EN			BIT(0)
  #define TS_VFP_EN			BIT(5)
  
++#define DSI_STATE_DBG0		0x148
++#define DSI_STATE_DBG1		0x14c
++#define DSI_STATE_DBG2		0x150
++#define DSI_STATE_DBG3		0x154
 +#define DSI_STATE_DBG6		0x160
 +#define DSI_STATE_DBG7		0x164
 +
  /* DSI_SHADOW_DEBUG */
  #define FORCE_COMMIT			BIT(0)
  #define BYPASS_SHADOW			BIT(1)
-@@ -194,6 +206,8 @@
++#define READ_WORKING			BIT(2)
+ 
+ /* CMDQ related bits */
+ #define CONFIG				GENMASK(7, 0)
+@@ -194,6 +213,9 @@ struct mtk_dsi_driver_data {
  	bool has_size_ctl;
  	bool cmdq_long_packet_ctl;
  	bool support_per_frame_lp;
-+	bool need_wait_fifo;
 +	bool need_sleepout_ulps;
++	bool mt6789_dphy_timing;
++	bool poll_for_idle;
  };
  
  struct mtk_dsi {
-@@ -212,6 +226,8 @@
+@@ -212,6 +234,8 @@ struct mtk_dsi {
  	struct clk *hs_clk;
  
  	u32 data_rate;
@@ -484,17 +490,112 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
  
  	unsigned long mode_flags;
  	enum mipi_dsi_pixel_format format;
-@@ -293,6 +309,9 @@
- static void mtk_dsi_enable(struct mtk_dsi *dsi)
+@@ -247,24 +271,64 @@ static void mtk_dsi_phy_timconfig(struct mtk_dsi *dsi)
  {
- 	mtk_dsi_mask(dsi, DSI_CON_CTRL, DSI_EN, DSI_EN);
-+	if (dsi->driver_data->need_wait_fifo)
-+		mtk_dsi_mask(dsi, DSI_CON_CTRL, DSI_CM_WAIT_FIFO_FULL_EN,
-+			     DSI_CM_WAIT_FIFO_FULL_EN);
+ 	u32 timcon0, timcon1, timcon2, timcon3;
+ 	u32 data_rate_mhz = DIV_ROUND_UP(dsi->data_rate, HZ_PER_MHZ);
++	u32 cont_det = 0;
+ 	struct mtk_phy_timing *timing = &dsi->phy_timing;
+ 
+-	timing->lpx = (60 * data_rate_mhz / (8 * 1000)) + 1;
+-	timing->da_hs_prepare = (80 * data_rate_mhz + 4 * 1000) / 8000;
+-	timing->da_hs_zero = (170 * data_rate_mhz + 10 * 1000) / 8000 + 1 -
+-			     timing->da_hs_prepare;
+-	timing->da_hs_trail = timing->da_hs_prepare + 1;
+-
+-	timing->ta_go = 4 * timing->lpx - 2;
+-	timing->ta_sure = timing->lpx + 2;
+-	timing->ta_get = 4 * timing->lpx;
+-	timing->da_hs_exit = 2 * timing->lpx + 1;
+-
+-	timing->clk_hs_prepare = 70 * data_rate_mhz / (8 * 1000);
+-	timing->clk_hs_post = timing->clk_hs_prepare + 8;
+-	timing->clk_hs_trail = timing->clk_hs_prepare;
+-	timing->clk_hs_zero = timing->clk_hs_trail * 4;
+-	timing->clk_hs_exit = 2 * timing->clk_hs_trail;
++	if (dsi->driver_data->mt6789_dphy_timing) {
++		u32 ui = (1000 / data_rate_mhz) ? (1000 / data_rate_mhz) : 1;
++		u32 cycle_time = (8000 / data_rate_mhz) ? (8000 / data_rate_mhz) : 1;
++		u32 lpx_base = 75 / cycle_time + 1;
++		u32 hs_trail_ui = (9 * ui) / cycle_time;
++		u32 hs_trail_ns = (80 + 5 * ui) / cycle_time;
++
++		timing->lpx = (lpx_base & 1) ? lpx_base - 1 : lpx_base;
++		if (timing->lpx < 2)
++			timing->lpx = 2;
++		timing->da_hs_prepare = (64 + 5 * ui) / cycle_time + 1;
++		timing->da_hs_zero = (200 + 10 * ui) / cycle_time;
++		if (timing->da_hs_zero > timing->da_hs_prepare)
++			timing->da_hs_zero -= timing->da_hs_prepare;
++		timing->da_hs_trail = max(hs_trail_ui, hs_trail_ns);
++
++		timing->ta_go = 4 * lpx_base;
++		timing->ta_sure = 3 * lpx_base / 2;
++		timing->ta_get = 5 * lpx_base;
++		timing->da_hs_exit = 125 / cycle_time + 1;
++
++		timing->clk_hs_prepare = 64 / cycle_time;
++		timing->clk_hs_zero = 350 / cycle_time;
++		if (timing->clk_hs_zero > timing->clk_hs_prepare)
++			timing->clk_hs_zero -= timing->clk_hs_prepare;
++		timing->clk_hs_trail = 80 / cycle_time;
++		timing->clk_hs_exit = 125 / cycle_time + 1;
++		timing->clk_hs_post = (90 + 52 * ui) / cycle_time;
++
++		/* N6/N4 D-PHY parity constraints: even LPX/HS_PREP, odd HS_EXIT */
++		if (timing->da_hs_prepare & 1)
++			timing->da_hs_prepare++;
++		if (timing->da_hs_prepare < 6)
++			timing->da_hs_prepare = 6;
++		if (!(timing->da_hs_exit & 1))
++			timing->da_hs_exit++;
++		cont_det = 3;
++	} else {
++		timing->lpx = (60 * data_rate_mhz / (8 * 1000)) + 1;
++		timing->da_hs_prepare = (80 * data_rate_mhz + 4 * 1000) / 8000;
++		timing->da_hs_zero = (170 * data_rate_mhz + 10 * 1000) / 8000 + 1 -
++				     timing->da_hs_prepare;
++		timing->da_hs_trail = timing->da_hs_prepare + 1;
++
++		timing->ta_go = 4 * timing->lpx - 2;
++		timing->ta_sure = timing->lpx + 2;
++		timing->ta_get = 4 * timing->lpx;
++		timing->da_hs_exit = 2 * timing->lpx + 1;
++
++		timing->clk_hs_prepare = 70 * data_rate_mhz / (8 * 1000);
++		timing->clk_hs_post = timing->clk_hs_prepare + 8;
++		timing->clk_hs_trail = timing->clk_hs_prepare;
++		timing->clk_hs_zero = timing->clk_hs_trail * 4;
++		timing->clk_hs_exit = 2 * timing->clk_hs_trail;
++	}
+ 
+ 	timcon0 = FIELD_PREP(LPX, timing->lpx) |
+ 		  FIELD_PREP(HS_PREP, timing->da_hs_prepare) |
+@@ -276,7 +340,8 @@ static void mtk_dsi_phy_timconfig(struct mtk_dsi *dsi)
+ 		  FIELD_PREP(TA_GET, timing->ta_get) |
+ 		  FIELD_PREP(DA_HS_EXIT, timing->da_hs_exit);
+ 
+-	timcon2 = FIELD_PREP(DA_HS_SYNC, 1) |
++	timcon2 = FIELD_PREP(CONT_DET, cont_det) |
++		  FIELD_PREP(DA_HS_SYNC, 1) |
+ 		  FIELD_PREP(CLK_ZERO, timing->clk_hs_zero) |
+ 		  FIELD_PREP(CLK_TRAIL, timing->clk_hs_trail);
+ 
+@@ -387,49 +452,63 @@ static void mtk_dsi_rxtx_control(struct mtk_dsi *dsi)
+ 	if (dsi->mode_flags & MIPI_DSI_CLOCK_NON_CONTINUOUS)
+ 		regval |= HSTX_CKLP_EN;
+ 
+-	if (dsi->mode_flags & MIPI_DSI_MODE_NO_EOT_PACKET)
++	if ((dsi->mode_flags & MIPI_DSI_MODE_NO_EOT_PACKET) &&
++	    !dsi->driver_data->mt6789_dphy_timing)
+ 		regval |= DIS_EOT;
+ 
+ 	writel(regval, dsi->regs + DSI_TXRX_CTRL);
++	if (dsi->driver_data->mt6789_dphy_timing)
++		writel(DSI_WMEM_CONTI, dsi->regs + DSI_MEM_CONTI);
  }
  
- static void mtk_dsi_disable(struct mtk_dsi *dsi)
-@@ -397,31 +416,39 @@
+ static void mtk_dsi_ps_control(struct mtk_dsi *dsi, bool config_vact)
  {
  	u32 dsi_buf_bpp, ps_val, ps_wc, vact_nl;
  
@@ -502,20 +603,13 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
 -		dsi_buf_bpp = 2;
 -	else
 -		dsi_buf_bpp = 3;
-+	if (dsi->dsc) {
-+		u32 slice_count = dsi->dsc->slice_count ? dsi->dsc->slice_count : 1;
-+		u32 chunk_bytes = dsi->dsc->slice_chunk_size * slice_count;
- 
+-
 -	/* Word count */
 -	ps_wc = FIELD_PREP(DSI_PS_WC, dsi->vm.hactive * dsi_buf_bpp);
 -	ps_val = ps_wc;
-+		ps_wc = FIELD_PREP(DSI_PS_WC, chunk_bytes);
-+		ps_val = ps_wc | FIELD_PREP(DSI_PS_SEL, COMPRESSED_PIXEL_STREAM);
-+	} else {
-+		if (dsi->format == MIPI_DSI_FMT_RGB565)
-+			dsi_buf_bpp = 2;
-+		else
-+			dsi_buf_bpp = 3;
++	if (dsi->dsc) {
++		u32 slice_count = dsi->dsc->slice_count ? dsi->dsc->slice_count : 1;
++		u32 chunk_bytes = dsi->dsc->slice_chunk_size * slice_count;
  
 -	/* Pixel Stream type */
 -	switch (dsi->format) {
@@ -533,6 +627,14 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
 -	case MIPI_DSI_FMT_RGB565:
 -		ps_val |= FIELD_PREP(DSI_PS_SEL, PACKED_PS_16BIT_RGB565);
 -		break;
++		ps_wc = FIELD_PREP(DSI_PS_WC, chunk_bytes);
++		ps_val = ps_wc | FIELD_PREP(DSI_PS_SEL, COMPRESSED_PIXEL_STREAM);
++	} else {
++		if (dsi->format == MIPI_DSI_FMT_RGB565)
++			dsi_buf_bpp = 2;
++		else
++			dsi_buf_bpp = 3;
++
 +		/* Word count */
 +		ps_wc = FIELD_PREP(DSI_PS_WC, dsi->vm.hactive * dsi_buf_bpp);
 +		ps_val = ps_wc;
@@ -557,7 +659,20 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
  	}
  
  	if (config_vact) {
-@@ -574,15 +601,41 @@
+ 		vact_nl = FIELD_PREP(VACT_NL, dsi->vm.vactive);
+ 		writel(vact_nl, dsi->regs + DSI_VACT_NL);
+-		writel(ps_wc, dsi->regs + DSI_HSTX_CKL_WC);
++		writel(dsi->dsc ? 0x00010000 : ps_wc, dsi->regs + DSI_HSTX_CKL_WC);
+ 	}
+-	writel(ps_val, dsi->regs + DSI_PSCTRL);
++	if (dsi->dsc)
++		mtk_dsi_mask(dsi, DSI_PSCTRL, DSI_PS_WC | DSI_PS_SEL, ps_val);
++	else
++		writel(ps_val, dsi->regs + DSI_PSCTRL);
+ }
+ 
+ static void mtk_dsi_config_vdo_timing_per_frame_lp(struct mtk_dsi *dsi)
+@@ -574,15 +653,41 @@ static void mtk_dsi_config_vdo_timing(struct mtk_dsi *dsi)
  	writel(vm->vfront_porch, dsi->regs + DSI_VFP_NL);
  	writel(vm->vactive, dsi->regs + DSI_VACT_NL);
  
@@ -578,8 +693,7 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
 +		       FIELD_PREP(DSI_WIDTH, width),
 +		       dsi->regs + DSI_SIZE_CON);
 +	}
- 
--	if (dsi->driver_data->support_per_frame_lp)
++
 +	if (dsi->dsc) {
 +		u32 hsa_byte, hbp_byte, hfp_byte;
 +
@@ -591,7 +705,8 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
 +			hbp_byte = ALIGN((vm->hback_porch + vm->hsync_len) * 3 - 10, 4);
 +		}
 +		hfp_byte = ALIGN(vm->hfront_porch * 3 - 12, 4);
-+
+ 
+-	if (dsi->driver_data->support_per_frame_lp)
 +		writel(hsa_byte, dsi->regs + DSI_HSA_WC);
 +		writel(hbp_byte, dsi->regs + DSI_HBP_WC);
 +		writel(hfp_byte, dsi->regs + DSI_HFP_WC);
@@ -604,7 +719,45 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
  
  	mtk_dsi_ps_control(dsi, false);
  }
-@@ -631,7 +684,28 @@
+@@ -620,6 +725,37 @@ static void mtk_dsi_irq_data_clear(struct mtk_dsi *dsi, u32 irq_bit)
+ 	dsi->irq_data &= ~irq_bit;
+ }
+ 
++static void mtk_dsi_dump_timeout(struct mtk_dsi *dsi, u32 irq_flag, u32 intsta)
++{
++	struct drm_device *drm = dsi->bridge.dev;
++	u32 cmdq_off = dsi->driver_data->reg_cmdq_off;
++
++	drm_warn(drm,
++		 "Wait DSI IRQ(0x%08x) Timeout: start=0x%08x intsta=0x%08x inten=0x%08x con=0x%08x mode=0x%08x txrx=0x%08x cmdq=0x%08x q0=0x%08x q1=0x%08x shd=0x%08x\n",
++		 irq_flag,
++		 readl(dsi->regs + DSI_START), intsta,
++		 readl(dsi->regs + DSI_INTEN),
++		 readl(dsi->regs + DSI_CON_CTRL),
++		 readl(dsi->regs + DSI_MODE_CTRL),
++		 readl(dsi->regs + DSI_TXRX_CTRL),
++		 readl(dsi->regs + DSI_CMDQ_SIZE),
++		 readl(dsi->regs + cmdq_off),
++		 readl(dsi->regs + cmdq_off + 4),
++		 readl(dsi->regs + dsi->driver_data->reg_shadow_dbg_off));
++	drm_warn(drm,
++		 "DSI DPHY dump: dbg0=0x%08x dbg1=0x%08x dbg2=0x%08x dbg3=0x%08x dbg6=0x%08x dbg7=0x%08x lc=0x%08x ld0=0x%08x t0=0x%08x t1=0x%08x\n",
++		 readl(dsi->regs + DSI_STATE_DBG0),
++		 readl(dsi->regs + DSI_STATE_DBG1),
++		 readl(dsi->regs + DSI_STATE_DBG2),
++		 readl(dsi->regs + DSI_STATE_DBG3),
++		 readl(dsi->regs + DSI_STATE_DBG6),
++		 readl(dsi->regs + DSI_STATE_DBG7),
++		 readl(dsi->regs + DSI_PHY_LCCON),
++		 readl(dsi->regs + DSI_PHY_LD0CON),
++		 readl(dsi->regs + DSI_PHY_TIMECON0),
++		 readl(dsi->regs + DSI_PHY_TIMECON1));
++}
++
+ static s32 mtk_dsi_wait_for_irq_done(struct mtk_dsi *dsi, u32 irq_flag,
+ 				     unsigned int timeout)
+ {
+@@ -631,7 +767,17 @@ static s32 mtk_dsi_wait_for_irq_done(struct mtk_dsi *dsi, u32 irq_flag,
  					       dsi->irq_data & irq_flag,
  					       jiffies);
  	if (ret == 0) {
@@ -619,24 +772,15 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
 +			return 1;
 +		}
 +
-+		drm_warn(drm,
-+			 "Wait DSI IRQ(0x%08x) Timeout: intsta=0x%08x inten=0x%08x con=0x%08x mode=0x%08x txrx=0x%08x cmdq=0x%08x dbg6=0x%08x dbg7=0x%08x lc=0x%08x ld0=0x%08x\n",
-+			 irq_flag, intsta,
-+			 readl(dsi->regs + DSI_INTEN),
-+			 readl(dsi->regs + DSI_CON_CTRL),
-+			 readl(dsi->regs + DSI_MODE_CTRL),
-+			 readl(dsi->regs + DSI_TXRX_CTRL),
-+			 readl(dsi->regs + DSI_CMDQ_SIZE),
-+			 readl(dsi->regs + DSI_STATE_DBG6),
-+			 readl(dsi->regs + DSI_STATE_DBG7),
-+			 readl(dsi->regs + DSI_PHY_LCCON),
-+			 readl(dsi->regs + DSI_PHY_LD0CON));
++		mtk_dsi_dump_timeout(dsi, irq_flag, intsta);
  
  		mtk_dsi_enable(dsi);
  		mtk_dsi_reset_engine(dsi);
-@@ -683,8 +757,38 @@
+@@ -682,9 +828,40 @@ static void mtk_dsi_lane_ready(struct mtk_dsi *dsi)
+ 		dsi->lanes_ready = true;
  		mtk_dsi_rxtx_control(dsi);
  		usleep_range(30, 100);
++		mtk_dsi_clk_hs_mode(dsi, 0);
  		mtk_dsi_reset_dphy(dsi);
 -		mtk_dsi_clk_ulp_mode_leave(dsi);
 -		mtk_dsi_lane0_ulp_mode_leave(dsi);
@@ -675,7 +819,7 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
  		mtk_dsi_clk_hs_mode(dsi, 0);
  		usleep_range(1000, 3000);
  		/* The reaction time after pulling up the mipi signal for dsi_rx */
-@@ -700,15 +804,21 @@
+@@ -700,15 +877,21 @@ static int mtk_dsi_poweron(struct mtk_dsi *dsi)
  	if (++dsi->refcount != 1)
  		return 0;
  
@@ -702,7 +846,7 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
  
  	ret = clk_set_rate(dsi->hs_clk, dsi->data_rate);
  	if (ret < 0) {
-@@ -716,12 +826,10 @@
+@@ -716,12 +899,10 @@ static int mtk_dsi_poweron(struct mtk_dsi *dsi)
  		goto err_refcount;
  	}
  
@@ -716,12 +860,32 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
  	}
  
  	ret = clk_prepare_enable(dsi->digital_clk);
-@@ -736,7 +844,18 @@
- 		writel(FORCE_COMMIT | BYPASS_SHADOW,
- 		       dsi->regs + dsi->driver_data->reg_shadow_dbg_off);
+@@ -732,11 +913,36 @@ static int mtk_dsi_poweron(struct mtk_dsi *dsi)
  
-+	mtk_dsi_stop(dsi);
-+	mtk_dsi_set_cmd_mode(dsi);
+ 	mtk_dsi_enable(dsi);
+ 
+-	if (dsi->driver_data->has_shadow_ctl)
+-		writel(FORCE_COMMIT | BYPASS_SHADOW,
++	if (dsi->driver_data->has_shadow_ctl) {
++		u32 shadow = dsi->driver_data->mt6789_dphy_timing ?
++			     (BYPASS_SHADOW | READ_WORKING) :
++			     (FORCE_COMMIT | BYPASS_SHADOW);
++		writel(shadow,
+ 		       dsi->regs + dsi->driver_data->reg_shadow_dbg_off);
++	}
++
++	if (readl(dsi->regs + DSI_MODE_CTRL) & MODE) {
++		u32 val;
+ 
++		mtk_dsi_set_cmd_mode(dsi);
++		mtk_dsi_stop(dsi);
++		readl_poll_timeout(dsi->regs + DSI_INTSTA, val,
++				   !(val & DSI_BUSY), 100, 50000);
++	} else {
++		mtk_dsi_stop(dsi);
++		mtk_dsi_set_cmd_mode(dsi);
++	}
++	mtk_dsi_clk_hs_mode(dsi, 0);
  	mtk_dsi_reset_engine(dsi);
 +	writel(0, dsi->regs + DSI_INTEN);
 +	writel(0, dsi->regs + DSI_INTSTA);
@@ -735,7 +899,7 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
  	mtk_dsi_phy_timconfig(dsi);
  
  	mtk_dsi_ps_control(dsi, true);
-@@ -745,10 +864,11 @@
+@@ -745,10 +951,11 @@ static int mtk_dsi_poweron(struct mtk_dsi *dsi)
  	mtk_dsi_set_interrupt_enable(dsi);
  
  	return 0;
@@ -749,7 +913,7 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
  err_refcount:
  	dsi->refcount--;
  	return ret;
-@@ -794,6 +914,7 @@
+@@ -794,6 +1001,7 @@ static void mtk_output_dsi_enable(struct mtk_dsi *dsi)
  		return;
  
  	mtk_dsi_set_mode(dsi);
@@ -757,7 +921,7 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
  	mtk_dsi_start(dsi);
  
  	dsi->enabled = true;
-@@ -858,7 +979,8 @@
+@@ -858,7 +1066,8 @@ static void mtk_dsi_bridge_atomic_pre_enable(struct drm_bridge *bridge,
  		drm_err(drm, "failed to power on dsi\n");
  
  	mtk_dsi_lane_ready(dsi);
@@ -767,7 +931,7 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
  }
  
  static void mtk_dsi_bridge_atomic_post_disable(struct drm_bridge *bridge,
-@@ -877,9 +999,13 @@
+@@ -877,9 +1086,13 @@ mtk_dsi_bridge_mode_valid(struct drm_bridge *bridge,
  	struct mtk_dsi *dsi = bridge_to_dsi(bridge);
  	int bpp;
  
@@ -784,7 +948,7 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
  
  	if (mode->clock * bpp / dsi->lanes > 1500000)
  		return MODE_CLOCK_HIGH;
-@@ -914,6 +1040,13 @@
+@@ -914,6 +1127,13 @@ void mtk_dsi_ddp_stop(struct device *dev)
  	mtk_dsi_poweroff(dsi);
  }
  
@@ -798,7 +962,7 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
  static const struct drm_encoder_funcs mtk_dsi_encoder_funcs = {
  	.destroy = drm_encoder_cleanup,
  };
-@@ -999,6 +1132,8 @@
+@@ -999,6 +1219,8 @@ static int mtk_dsi_host_attach(struct mipi_dsi_host *host,
  	dsi->lanes = device->lanes;
  	dsi->format = device->format;
  	dsi->mode_flags = device->mode_flags;
@@ -807,7 +971,7 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
  	dsi->next_bridge = devm_drm_of_get_bridge(dev, dev->of_node, 1, 0);
  	if (IS_ERR(dsi->next_bridge)) {
  		ret = PTR_ERR(dsi->next_bridge);
-@@ -1117,6 +1252,7 @@
+@@ -1117,9 +1339,26 @@ static ssize_t mtk_dsi_host_send_cmd(struct mtk_dsi *dsi,
  {
  	mtk_dsi_wait_for_idle(dsi);
  	mtk_dsi_irq_data_clear(dsi, flag);
@@ -815,7 +979,26 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
  	mtk_dsi_cmdq(dsi, msg);
  	mtk_dsi_start(dsi);
  
-@@ -1296,6 +1432,17 @@
++	if (dsi->driver_data->poll_for_idle) {
++		u32 val;
++		int ret;
++
++		ret = readl_poll_timeout(dsi->regs + DSI_INTSTA, val,
++					 !(val & DSI_BUSY), 10, 500000);
++		if (ret) {
++			mtk_dsi_dump_timeout(dsi, flag, val);
++			mtk_dsi_enable(dsi);
++			mtk_dsi_reset_engine(dsi);
++			return -ETIME;
++		}
++		writel(~(u32)flag, dsi->regs + DSI_INTSTA);
++		return 0;
++	}
++
+ 	if (!mtk_dsi_wait_for_irq_done(dsi, flag, 2000))
+ 		return -ETIME;
+ 	else
+@@ -1296,6 +1535,18 @@ static const struct mtk_dsi_driver_data mt8183_dsi_driver_data = {
  	.has_size_ctl = true,
  };
  
@@ -826,14 +1009,15 @@ diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_d
 +	.has_shadow_ctl = true,
 +	.has_size_ctl = true,
 +	.cmdq_long_packet_ctl = true,
-+	.need_wait_fifo = true,
 +	.need_sleepout_ulps = true,
++	.mt6789_dphy_timing = true,
++	.poll_for_idle = true,
 +};
 +
  static const struct mtk_dsi_driver_data mt8186_dsi_driver_data = {
  	.reg_cmdq_off = 0xd00,
  	.reg_vm_cmd_off = 0x200,
-@@ -1316,7 +1463,7 @@
+@@ -1316,7 +1567,7 @@ static const struct mtk_dsi_driver_data mt8188_dsi_driver_data = {
  
  static const struct of_device_id mtk_dsi_of_match[] = {
  	{ .compatible = "mediatek,mt2701-dsi", .data = &mt2701_dsi_driver_data },
