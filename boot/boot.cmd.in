@@ -1,0 +1,99 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Advan X1 (MediaTek MT6789 / Helio G99) U-Boot Boot Script
+#
+# Discovered automatically by U-Boot bootstd (`bootflow scan -lb` -> bootmeth_script).
+# Supports two storage layouts seamlessly:
+#   1. Single-space (<= 32 MiB): boot.scr + uEnv.txt + advan-x1.itb on one partition
+#      (e.g. FAT32 `esp` or a dedicated `/boot` partition).
+#   2. 2-space split (> 32 MiB): tiny boot.scr + uEnv.txt on Space 1 (`esp`), and
+#      advan-x1.itb on Space 2 (GPT partition labeled `mainline`, `boot`, or `shared`).
+
+echo "=== Advan X1 (MT6789) Mainline Linux U-Boot Loader ==="
+
+# Safe DRAM staging bounds inside verified clean 0x60000000..0x6F000000 window:
+#   0x61000000..0x667FFFFF : Decompressed Linux Image + BSS (88 MiB)
+#   0x68000000..0x6CFFFFFF : FIT image staging buffer (80 MiB, zero overlap)
+#   <= 0x6E000000          : Relocated FDT & initrd (inside Linux memory@61000000)
+setenv fdt_high 0x6e000000
+setenv initrd_high 0x6e000000
+setenv fit_addr 0x68000000
+
+# Defaults when invoked manually from U-Boot shell instead of bootflow
+if test -z "${devtype}"; then setenv devtype scsi; fi
+if test -z "${devnum}"; then setenv devnum 2; fi
+if test -z "${prefix}"; then setenv prefix /; fi
+if test -z "${distro_bootpart}"; then
+    if part number ${devtype} ${devnum} linux_boot _boot_part; then
+        setenv distro_bootpart ${_boot_part}
+    elif part number ${devtype} ${devnum} esp _boot_part; then
+        setenv distro_bootpart ${_boot_part}
+    else
+        setenv distro_bootpart 1
+    fi
+fi
+
+# Default boot parameters (override any of these in plain-text uEnv.txt)
+setenv fit_file "@FIT_FILE@"
+setenv fit_conf "@FIT_CONF@"
+setenv payload_part_label "@PAYLOAD_PART_LABEL@"
+setenv payload_fallback_labels "linux_boot esp boot"
+setenv default_bootargs "@DEFAULT_BOOTARGS@"
+setenv extra_bootargs ""
+setenv uenv_addr 0x60380000
+
+# Optional plain-text runtime overrides (uEnv.txt on Space 1)
+if load ${devtype} ${devnum}:${distro_bootpart} ${uenv_addr} ${prefix}uEnv.txt; then
+    echo "Loaded ${prefix}uEnv.txt (${filesize} bytes)"
+    env import -t ${uenv_addr} ${filesize}
+elif load ${devtype} ${devnum}:${distro_bootpart} ${uenv_addr} /uEnv.txt; then
+    echo "Loaded /uEnv.txt (${filesize} bytes)"
+    env import -t ${uenv_addr} ${filesize}
+fi
+
+# Locate and load FIT image: try Space 1 first, then Space 2 GPT labels
+setenv fit_loaded 0
+
+if test "${force_split}" != "1"; then
+    if load ${devtype} ${devnum}:${distro_bootpart} ${fit_addr} ${prefix}${fit_file}; then
+        echo "Loaded FIT from Space 1 (${devtype} ${devnum}:${distro_bootpart} ${prefix}${fit_file}, ${filesize} B)"
+        setenv fit_loaded 1
+    elif load ${devtype} ${devnum}:${distro_bootpart} ${fit_addr} /${fit_file}; then
+        echo "Loaded FIT from Space 1 (${devtype} ${devnum}:${distro_bootpart} /${fit_file}, ${filesize} B)"
+        setenv fit_loaded 1
+    fi
+fi
+
+if test "${fit_loaded}" != "1"; then
+    echo "FIT not on Space 1; searching Space 2 partitions..."
+    for lbl in ${payload_part_label} ${payload_fallback_labels}; do
+        if test "${fit_loaded}" != "1"; then
+            if part number ${devtype} ${devnum} ${lbl} payload_part; then
+                if load ${devtype} ${devnum}:${payload_part} ${fit_addr} /${fit_file}; then
+                    echo "Loaded FIT from Space 2 (${lbl} part ${payload_part}: /${fit_file}, ${filesize} B)"
+                    setenv fit_loaded 1
+                elif load ${devtype} ${devnum}:${payload_part} ${fit_addr} /boot/${fit_file}; then
+                    echo "Loaded FIT from Space 2 (${lbl} part ${payload_part}: /boot/${fit_file}, ${filesize} B)"
+                    setenv fit_loaded 1
+                fi
+            fi
+        fi
+    done
+fi
+
+if test "${fit_loaded}" != "1"; then
+    echo "ERROR: Could not locate ${fit_file} on Space 1 or Space 2 (${payload_part_label} / ${payload_fallback_labels})"
+    exit 1
+fi
+
+# Assemble final kernel command line
+if test -z "${bootargs}"; then
+    setenv bootargs "${default_bootargs}"
+fi
+if test -n "${extra_bootargs}"; then
+    setenv bootargs "${bootargs} ${extra_bootargs}"
+fi
+
+echo "Booting FIT ${fit_addr}#${fit_conf}"
+echo "bootargs: ${bootargs}"
+bootm ${fit_addr}#${fit_conf}

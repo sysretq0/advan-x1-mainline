@@ -1,4 +1,4 @@
-name: Build Mainline Kernel & LNXB Bundle
+name: Build Mainline Kernel & U-Boot FIT Bundle
 
 on:
   push:
@@ -11,6 +11,14 @@ on:
         description: 'Upstream Linux Git Ref (tag, branch, commit)'
         required: true
         default: 'master'
+      compression:
+        description: 'FIT kernel compression (gzip, lzma, lz4, none)'
+        required: true
+        default: 'gzip'
+      boot_mode:
+        description: 'Storage layout mode (auto, single, split)'
+        required: true
+        default: 'auto'
       use_ccache:
         description: 'Enable ccache compiler cache (uncheck for completely clean build)'
         required: true
@@ -71,6 +79,7 @@ jobs:
           sudo apt-get -o Acquire::Retries="3" install -y --no-install-recommends \
             clang lld llvm device-tree-compiler libelf-dev \
             gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu libc6-dev-arm64-cross \
+            u-boot-tools dosfstools mtools lz4 \
             ccache
 
       - name: Restore ccache cache
@@ -180,31 +189,41 @@ jobs:
           dtc -I dts -O dtb -o "$GITHUB_WORKSPACE/build/mt6789-advan-x1.dtb" "$PDTB"
           rm -f "$PDTB"
 
-      - name: Pack LNXB bundle
+      - name: Pack U-Boot FIT + boot.scr bundle
         timeout-minutes: 5
         run: |
-          python3 "$GITHUB_WORKSPACE/tools/pack_linux_bundle.py" \
+          python3 "$GITHUB_WORKSPACE/tools/pack_uboot_boot.py" \
             --kernel "$GITHUB_WORKSPACE/build/Image" \
             --dtb "$GITHUB_WORKSPACE/build/mt6789-advan-x1.dtb" \
             --initramfs "$GITHUB_WORKSPACE/build/initramfs.cpio.gz" \
-            --out "$GITHUB_WORKSPACE/build/bundle.img"
-          
+            --compression "${{ inputs.compression || 'gzip' }}" \
+            --mode "${{ inputs.boot_mode || 'auto' }}" \
+            --max-size 32M \
+            --payload-label linux_boot \
+            --make-fat-image \
+            --out-dir "$GITHUB_WORKSPACE/build"
+
           cd "$GITHUB_WORKSPACE/build"
-          sha256sum Image mt6789-advan-x1.dtb initramfs.cpio.gz bundle.img > sha256sums.txt
+          mkimage -l advan-x1.itb
+          sha256sum advan-x1.itb boot.scr uEnv.txt mt6789-advan-x1.dtb initramfs.cpio.gz boot-space1.img > sha256sums.txt
           cat sha256sums.txt
+          cat boot-manifest.json
 
       - name: Compress artifacts into tar.xz
         timeout-minutes: 5
         run: |
           cd "$GITHUB_WORKSPACE/build"
-          XZ_OPT="-9e -T0" tar -cJf "$GITHUB_WORKSPACE/bundle.tar.xz" bundle.img Image mt6789-advan-x1.dtb initramfs.cpio.gz sha256sums.txt
-          ls -lh "$GITHUB_WORKSPACE/bundle.tar.xz"
+          XZ_OPT="-9e -T0" tar -cJf "$GITHUB_WORKSPACE/uboot-bundle.tar.xz" \
+            advan-x1.itb boot.scr uEnv.txt boot-space1.img boot-manifest.json \
+            space1 $([ -d space2 ] && echo space2) \
+            mt6789-advan-x1.dtb initramfs.cpio.gz sha256sums.txt
+          ls -lh "$GITHUB_WORKSPACE/uboot-bundle.tar.xz"
 
-      - name: Upload bundle.tar.xz artifact
+      - name: Upload uboot-bundle.tar.xz artifact
         timeout-minutes: 15
         uses: actions/upload-artifact@v6
         with:
-          name: advan-x1-mainline-bundle
-          path: bundle.tar.xz
+          name: advan-x1-mainline-uboot
+          path: uboot-bundle.tar.xz
           if-no-files-found: error
           retention-days: 14

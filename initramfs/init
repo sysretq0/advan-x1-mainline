@@ -82,10 +82,13 @@ for ufs_pwr in /sys/bus/platform/devices/*.ufshci/power/control; do
     [ -e "$ufs_pwr" ] && echo on > "$ufs_pwr" 2>/dev/null || true
 done
 
-# Nested GPT rootfs detection on /dev/sdc72 (xnu_data, offset 34560*4096 = 141557760)
-log "=== Nested GPT Rootfs Detection on /dev/sdc72 (xnu_data) ==="
+# Rootfs discovery:
+#   1. Explicit kernel cmdline `root=PARTLABEL=<name>` / `root=UUID=<uuid>` / `root=/dev/<node>`
+#      (standard flat GPT Linux rootfs partition)
+#   2. Legacy fallback: nested GPT ext4 rootfs inside /dev/sdc72 (xnu_data, offset 141557760)
 mkdir -p /sysroot
 ROOT_MOUNTED=0
+ROOT_LEGACY_LOOP=0
 
 # Ensure loop control nodes exist
 [ -e /dev/loop-control ] || mknod /dev/loop-control c 10 237 2>/dev/null || true
@@ -93,35 +96,107 @@ for l in 0 1 2 3 4 5 6 7; do
     [ -e /dev/loop$l ] || mknod /dev/loop$l b 7 $l 2>/dev/null || true
 done
 
-# Mount /dev/sdc72 (xnu_data partition, nested GPT part 1 offset 34560*4096 = 141557760)
-if [ -b /dev/sdc72 ]; then
-    log "Checking /dev/sdc72 nested GPT (offset 141557760)..."
-    losetup -o 141557760 /dev/loop0 /dev/sdc72 2>/dev/null || true
-    if mount -t ext4 -o rw /dev/loop0 /sysroot 2>/dev/null; then
-        ROOT_MOUNTED=1
-        log "SUCCESS: Mounted /dev/sdc72 nested ext4 rootfs on /sysroot (rw)"
-        if [ -f /sysroot/etc/os-release ]; then
-            log "Rootfs OS: $(grep -E '^(NAME|VERSION)=' /sysroot/etc/os-release 2>/dev/null | tr '\n' '; ')"
+resolve_partlabel() {
+    local want="$1"
+    for uev in /sys/block/*/*/uevent /sys/block/*/uevent; do
+        [ -r "$uev" ] || continue
+        if grep -qx "PARTNAME=$want" "$uev" 2>/dev/null; then
+            local dname
+            dname=$(sed -n 's/^DEVNAME=//p' "$uev" | head -n 1)
+            [ -n "$dname" ] && [ -b "/dev/$dname" ] && echo "/dev/$dname" && return 0
         fi
-        if [ -d /sysroot/etc/systemd/system/getty.target.wants ]; then
-            log "getty.target.wants: $(ls /sysroot/etc/systemd/system/getty.target.wants/ 2>/dev/null)"
-            if [ -L /sysroot/etc/systemd/system/getty.target.wants/serial-getty@ttyGS0.service ] || [ -e /sysroot/etc/systemd/system/getty.target.wants/serial-getty@ttyGS0.service ]; then
-                log "SUCCESS: serial-getty@ttyGS0.service is present in getty.target.wants"
-            else
-                log "WARNING: serial-getty@ttyGS0.service is MISSING from getty.target.wants"
-            fi
+    done
+    return 1
+}
+
+CMD_ROOT=""
+CMD_ROOTFSTYPE=""
+for tok in $(cat /proc/cmdline 2>/dev/null); do
+    case "$tok" in
+        root=*) CMD_ROOT="${tok#root=}" ;;
+        rootfstype=*) CMD_ROOTFSTYPE="${tok#rootfstype=}" ;;
+    esac
+done
+
+if [ -n "$CMD_ROOT" ]; then
+    log "=== Explicit Rootfs Discovery (root=$CMD_ROOT) ==="
+    ROOT_DEV=""
+    for i in 1 2 3 4 5 6; do
+        case "$CMD_ROOT" in
+            PARTLABEL=*)
+                ROOT_DEV=$(resolve_partlabel "${CMD_ROOT#PARTLABEL=}" || true)
+                ;;
+            UUID=*)
+                ROOT_DEV=$(blkid -t "$CMD_ROOT" -o device 2>/dev/null | head -n 1 || true)
+                if [ -z "$ROOT_DEV" ] && command -v findfs >/dev/null 2>&1; then
+                    ROOT_DEV=$(findfs "$CMD_ROOT" 2>/dev/null || true)
+                fi
+                ;;
+            /dev/*)
+                [ -b "$CMD_ROOT" ] && ROOT_DEV="$CMD_ROOT"
+                ;;
+        esac
+        [ -n "$ROOT_DEV" ] && [ -b "$ROOT_DEV" ] && break
+        sleep 0.5
+    done
+
+    if [ -n "$ROOT_DEV" ] && [ -b "$ROOT_DEV" ]; then
+        FSTYPE_OPT=""
+        [ -n "$CMD_ROOTFSTYPE" ] && FSTYPE_OPT="-t $CMD_ROOTFSTYPE"
+        if mount $FSTYPE_OPT -o rw "$ROOT_DEV" /sysroot 2>/dev/null || \
+           mount -t ext4 -o rw "$ROOT_DEV" /sysroot 2>/dev/null; then
+            ROOT_MOUNTED=1
+            log "SUCCESS: Mounted $CMD_ROOT ($ROOT_DEV) on /sysroot (rw)"
+        else
+            log "WARNING: Found $ROOT_DEV for $CMD_ROOT but mount failed"
         fi
     else
-        losetup -d /dev/loop0 2>/dev/null || true
+        log "WARNING: Timed out waiting for $CMD_ROOT"
+    fi
+fi
+
+# Fallback: locate `xnu_data` by GPT PARTNAME (works across repartitions, falls back to /dev/sdc72)
+# and mount its nested GPT part 1 ext4 rootfs (offset 34560*4096 = 141557760).
+if [ "$ROOT_MOUNTED" -eq 0 ]; then
+    XNU_DEV=""
+    for i in 1 2 3 4 5 6; do
+        XNU_DEV=$(resolve_partlabel "xnu_data" || true)
+        [ -z "$XNU_DEV" ] && [ -b /dev/sdc72 ] && XNU_DEV="/dev/sdc72"
+        [ -n "$XNU_DEV" ] && [ -b "$XNU_DEV" ] && break
+        sleep 0.5
+    done
+
+    if [ -n "$XNU_DEV" ] && [ -b "$XNU_DEV" ]; then
+        log "=== Nested GPT Rootfs Fallback on $XNU_DEV (xnu_data, offset 141557760) ==="
+        losetup -o 141557760 /dev/loop0 "$XNU_DEV" 2>/dev/null || true
+        if mount -t ext4 -o rw /dev/loop0 /sysroot 2>/dev/null; then
+            ROOT_MOUNTED=1
+            ROOT_LEGACY_LOOP=1
+            log "SUCCESS: Mounted $XNU_DEV (xnu_data) nested ext4 rootfs on /sysroot (rw)"
+        else
+            losetup -d /dev/loop0 2>/dev/null || true
+        fi
     fi
 fi
 
 if [ "$ROOT_MOUNTED" -eq 1 ]; then
+    if [ -f /sysroot/etc/os-release ]; then
+        log "Rootfs OS: $(grep -E '^(NAME|VERSION)=' /sysroot/etc/os-release 2>/dev/null | tr '\n' '; ')"
+    fi
+    if [ -d /sysroot/etc/systemd/system/getty.target.wants ]; then
+        log "getty.target.wants: $(ls /sysroot/etc/systemd/system/getty.target.wants/ 2>/dev/null)"
+        if [ -L /sysroot/etc/systemd/system/getty.target.wants/serial-getty@ttyGS0.service ] || [ -e /sysroot/etc/systemd/system/getty.target.wants/serial-getty@ttyGS0.service ]; then
+            log "SUCCESS: serial-getty@ttyGS0.service is present in getty.target.wants"
+        else
+            log "WARNING: serial-getty@ttyGS0.service is MISSING from getty.target.wants"
+        fi
+    fi
+
     log "Rootfs is ready at /sysroot."
     if grep -q "noswitch" /proc/cmdline 2>/dev/null; then
         log "noswitch detected on cmdline; staying in standalone initramfs rescue shell."
     elif [ -x /sysroot/sbin/init ] || [ -f /sysroot/lib/systemd/systemd ]; then
-        if [ -f /sysroot/etc/fstab ] && ! grep -q "UUID=e8f59895-03e3-4f1c-a25a-2d7a8cd3b050" /sysroot/etc/fstab 2>/dev/null; then
+        if [ "$ROOT_LEGACY_LOOP" -eq 1 ] && [ -f /sysroot/etc/fstab ] && ! grep -q "UUID=e8f59895-03e3-4f1c-a25a-2d7a8cd3b050" /sysroot/etc/fstab 2>/dev/null; then
             sed -i -E 's|^PARTUUID=[^ ]+ +/ +ext4|UUID=e8f59895-03e3-4f1c-a25a-2d7a8cd3b050 / ext4|g' /sysroot/etc/fstab
             sed -i 's|PARTUUID=1cd1f6a4-689e-4ce4-922c-749d9691cd48|UUID=e8f59895-03e3-4f1c-a25a-2d7a8cd3b050|g' /sysroot/etc/fstab
             sed -i 's|PARTUUID=39a7004f-9b43-4ba1-a46b-91cb78a4b1dd|UUID=e8f59895-03e3-4f1c-a25a-2d7a8cd3b050|g' /sysroot/etc/fstab

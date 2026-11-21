@@ -4,3 +4,5 @@ dist/
 *.tar.xz
 scripts/bin/llvm-*
 scripts/bin/ld.lld
+__pycache__/
+*.pyc

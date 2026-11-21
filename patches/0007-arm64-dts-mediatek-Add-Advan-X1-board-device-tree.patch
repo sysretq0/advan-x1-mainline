@@ -7,8 +7,8 @@ Change-Id: I0d623ead8108e78abc3a153625ae6e616ce065df
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  arch/arm64/boot/dts/mediatek/Makefile         |   1 +
- .../boot/dts/mediatek/mt6789-advan-x1.dts     | 621 ++++++++++++++++++
- 2 files changed, 622 insertions(+)
+ .../boot/dts/mediatek/mt6789-advan-x1.dts     | 609 ++++++++++++++++++
+ 2 files changed, 610 insertions(+)
  create mode 100644 arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
 
 diff --git a/arch/arm64/boot/dts/mediatek/Makefile b/arch/arm64/boot/dts/mediatek/Makefile
@@ -27,16 +27,15 @@ new file mode 100644
 index 000000000..b21d29300
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
-@@ -0,0 +1,623 @@
+@@ -0,0 +1,609 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Advan X1 (MT6789) board device tree — clean redo.
 + *
 + * Board values from Advan X1 stock artifacts (extracted/v5/dtb/main_dtb_0.dts
 + * and live /proc/iomem audits 2026-11-11). Structure: upstream board-dts
-+ * conventions. Loader interaction notes are evidence, not decoration — the
-+ * loki-loader LNXB chain rewrites the chosen/bootargs bytes in place and
-+ * publishes initrd coordinates only when the stub properties exist.
++ * conventions. Booted at Non-Secure EL2 via upstream U-Boot (advan-x1-uboot),
++ * which passes cmdline and initrd coordinates cleanly via libfdt.
 + */
 +
 +/dts-v1/;
@@ -54,20 +53,7 @@ index 000000000..b21d29300
 +	compatible = "advan,x1", "mediatek,mt6789";
 +
 +	chosen {
-+		/*
-+		 * Bootargs stub: loader (loki-loader/src/boot.c) rewrites these
-+		 * exact value bytes in place, so this string IS the published
-+		 * cmdline. Do not shrink below current capacity.
-+		 */
-+		bootargs = "earlycon=uart8250,mmio32,0x11002000 console=ttyGS0,115200 console=tty0 nokaslr loglevel=7 rdinit=/init panic=5                           ";
-+
-+		/*
-+		 * Loader publishes initrd coordinates ONLY when the DTB carries
-+		 * these stubs (boot.c/fdt.c FDT_NO_PROP). Boot 18 lost the
-+		 * initramfs entirely because these two properties went missing.
-+		 */
-+		linux,initrd-start = <0x00 0x00>;
-+		linux,initrd-end = <0x00 0x00>;
++		bootargs = "earlycon=uart8250,mmio32,0x11002000 console=ttyGS0,115200 console=tty0 nokaslr loglevel=7 rdinit=/init panic=5";
 +		stdout-path = "serial0:115200n8";
 +	};
 +

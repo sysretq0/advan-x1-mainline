@@ -1,12 +1,19 @@
 #!/bin/bash
-# Advan X1 port — clean build pipeline (repo redo).
-# Pristine mainline checkout + patches/ series + config frags + DTs -> Image, DTB, LNXB bundle.
+# Advan X1 port — clean build pipeline (U-Boot FIT + boot.scr).
+# Pristine mainline checkout + patches/ series + config frags + DTs ->
+#   Image, DTB, SHA-256 FIT (advan-x1.itb), boot.scr, uEnv.txt (<=32 MiB single or 2-space split).
 # Kernel tree: /work/mainline/linux (stays pristine; patches apply on worktree).
 # Toolchain: native aarch64 clang 21 (LLVM=1).
 # Resource limit: JOBS=1 to prevent OOM on 3.2 GB RAM host.
 # Usage:
-#   ./scripts/build.sh           -> Full local build (Image + DTB + bundle.img)
+#   ./scripts/build.sh           -> Full local build (Image + DTB + U-Boot FIT/boot.scr)
 #   ./scripts/build.sh check     -> Fast local subsystem check (drivers/clk/mediatek/)
+# Env knobs:
+#   COMPRESSION=gzip|lzma|lz4|none  (default: gzip, ~22.7 MiB FIT)
+#   BOOT_MODE=auto|single|split     (default: auto, splits automatically if > MAX_SIZE)
+#   MAX_SIZE=32M                    (default: 32M Space 1 budget; 48M for linux_boot)
+#   PAYLOAD_LABEL=linux_boot        (default: linux_boot Space 2 GPT label)
+#   INITRD=/path/to/initramfs.cpio.gz
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 K=${K:-/work/mainline/linux}
@@ -86,14 +93,29 @@ clang -E -nostdinc -undef -D__DTS__ -x assembler-with-cpp \
 rm -f "$PDTB"
 dtc -I dtb -O dts -o /dev/null "$OUT/mt6789-advan-x1.dtb" && echo "dtb roundtrip ok"
 
-echo "== LNXB bundle =="
-PACK_TOOL="${REPO}/tools/pack_linux_bundle.py"
-if [ ! -f "$PACK_TOOL" ]; then
-    PACK_TOOL="/work/bootloader/loki-loader/tools/pack_linux_bundle.py"
-fi
+echo "== U-Boot FIT + boot.scr packaging =="
 INITRD=${INITRD:-}
-python3 "$PACK_TOOL" \
-    --kernel "$OUT/arch/arm64/boot/Image" --dtb "$OUT/mt6789-advan-x1.dtb" \
-    ${INITRD:+--initramfs "$INITRD"} --out "$OUT/bundle.img"
-sha256sum "$OUT/arch/arm64/boot/Image" "$OUT/mt6789-advan-x1.dtb" "$OUT/bundle.img"
+if [ -z "$INITRD" ] && [ -f "$REPO/dist/initramfs.cpio.gz" ]; then
+    INITRD="$REPO/dist/initramfs.cpio.gz"
+fi
+COMPRESSION=${COMPRESSION:-gzip}
+BOOT_MODE=${BOOT_MODE:-auto}
+MAX_SIZE=${MAX_SIZE:-32M}
+PAYLOAD_LABEL=${PAYLOAD_LABEL:-linux_boot}
+PYTHON_BIN=${PYTHON_BIN:-python3}
+[ -x /work/.venv/bin/python ] && PYTHON_BIN=/work/.venv/bin/python
+
+"$PYTHON_BIN" "$REPO/tools/pack_uboot_boot.py" \
+    --kernel "$OUT/arch/arm64/boot/Image" \
+    --dtb "$OUT/mt6789-advan-x1.dtb" \
+    ${INITRD:+--initramfs "$INITRD"} \
+    --compression "$COMPRESSION" \
+    --mode "$BOOT_MODE" \
+    --max-size "$MAX_SIZE" \
+    --payload-label "$PAYLOAD_LABEL" \
+    --make-fat-image \
+    --out-dir "$OUT/uboot"
+
+sha256sum "$OUT/arch/arm64/boot/Image" "$OUT/mt6789-advan-x1.dtb" \
+    "$OUT/uboot/advan-x1.itb" "$OUT/uboot/boot.scr" "$OUT/uboot/uEnv.txt"
 echo "== build done =="

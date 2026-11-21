@@ -1,0 +1,22 @@
+# Optional extlinux.conf reference for loose-file booting (Image.gz + DTB + initramfs).
+# Kept as .example so U-Boot bootmeth_1extlinux does not preempt boot.scr (FIT).
+# To use loose files instead of FIT, rename to /extlinux/extlinux.conf and copy
+# Image.gz, mt6789-advan-x1.dtb, and initramfs.cpio.gz onto the same partition.
+# Requires U-Boot with kernel_comp_addr_r=0x68000000 and kernel_comp_size=0x03000000.
+
+DEFAULT advan-x1
+TIMEOUT 20
+
+LABEL advan-x1
+    MENU LABEL Advan X1 (MT6789) Mainline Linux
+    LINUX /Image.gz
+    FDT /mt6789-advan-x1.dtb
+    INITRD /initramfs.cpio.gz
+    APPEND earlycon=uart8250,mmio32,0x11002000 console=ttyGS0,115200 console=tty0 nokaslr loglevel=7 rdinit=/init panic=5
+
+LABEL advan-x1-rescue
+    MENU LABEL Advan X1 Mainline Linux (Initramfs Rescue Shell)
+    LINUX /Image.gz
+    FDT /mt6789-advan-x1.dtb
+    INITRD /initramfs.cpio.gz
+    APPEND earlycon=uart8250,mmio32,0x11002000 console=ttyGS0,115200 console=tty0 nokaslr loglevel=7 rdinit=/init panic=5 noswitch
