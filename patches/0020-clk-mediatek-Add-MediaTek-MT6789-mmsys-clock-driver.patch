@@ -99,7 +99,7 @@ index 000000000..111111111
 +	GATE_MM0_FLAGS(CLK_MM_SMI_IOMMU, "mm_smi_iommu", "top_disp", 24, CLK_IS_CRITICAL),
 +	/* MM1 */
 +	GATE_MM1_FLAGS(CLK_MM_DSI0_DSI_CK_DOMAIN, "mm_dsi0_dsi_domain", "top_dsi_occ", 0, CLK_IS_CRITICAL),
-+	GATE_MM1(CLK_MM_DISP_26M, "mm_disp_26m_ck", "clk26m", 10),
++	GATE_MM1_FLAGS(CLK_MM_DISP_26M, "mm_disp_26m_ck", "clk26m", 10, CLK_IS_CRITICAL),
 +};
 +
 +static const struct mtk_clk_desc mm_desc = {
