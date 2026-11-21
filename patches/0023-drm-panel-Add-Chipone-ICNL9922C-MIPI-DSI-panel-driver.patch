@@ -1,0 +1,551 @@
+From 2323232323232323232323232323232323232323 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Sat, 21 Nov 2026 04:00:00 +0000
+Subject: [PATCH 23/23] drm/panel: Add Chipone ICNL9922C MIPI-DSI panel driver
+
+Add support for the Chipone ICNL9922C based 1080x2460 MIPI-DSI LCD panel
+(BOE 6.78\" panel found on the Advan X1).
+
+The panel operates in 4-lane video mode with 60Hz (preferred), 90Hz,
+and 120Hz modes. It requires 1.8V logic LDO control, dual ±5.5V bias
+regulators (VSP/VSN), and active-low reset sequencing followed by a
+manufacturer initialization command sequence.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+
+diff --git a/Documentation/devicetree/bindings/display/panel/chipone,icnl9922c.yaml b/Documentation/devicetree/bindings/display/panel/chipone,icnl9922c.yaml
+new file mode 100644
+index 000000000..6b7efc2bc
+--- /dev/null
++++ b/Documentation/devicetree/bindings/display/panel/chipone,icnl9922c.yaml
+@@ -0,0 +1,71 @@
++# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/display/panel/chipone,icnl9922c.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Chipone ICNL9922C 1080x2460 MIPI-DSI LCD Panel
++
++maintainers:
++  - sysretq0 <324514544+sysretq0@users.noreply.github.com>
++
++allOf:
++  - $ref: panel-common.yaml#
++
++properties:
++  compatible:
++    const: chipone,icnl9922c
++
++  reg:
++    maxItems: 1
++    description: DSI virtual channel
++
++  vsp-supply:
++    description: Positive 5.5V bias supply
++
++  vsn-supply:
++    description: Negative 5.5V bias supply
++
++  ldo18-gpios:
++    maxItems: 1
++    description: GPIO to enable 1.8V LDO logic supply
++
++  reset-gpios:
++    maxItems: 1
++
++  backlight: true
++  port: true
++
++required:
++  - compatible
++  - reg
++  - reset-gpios
++  - port
++
++additionalProperties: false
++
++examples:
++  - |
++    #include <dt-bindings/gpio/gpio.h>
++    dsi {
++        #address-cells = <1>;
++        #size-cells = <0>;
++
++        panel@0 {
++            compatible = "chipone,icnl9922c";
++            reg = <0>;
++
++            reset-gpios = <&pio 85 GPIO_ACTIVE_LOW>;
++            ldo18-gpios = <&pio 150 GPIO_ACTIVE_HIGH>;
++            vsp-supply = <&outp>;
++            vsn-supply = <&outn>;
++            backlight = <&backlight_lcd>;
++
++            port {
++                panel_in: endpoint {
++                    remote-endpoint = <&dsi0_out>;
++                };
++            };
++        };
++    };
++...
+diff --git a/drivers/gpu/drm/panel/Kconfig b/drivers/gpu/drm/panel/Kconfig
+index 7a520b4d6..0ba94c1a4 100644
+--- a/drivers/gpu/drm/panel/Kconfig
++++ b/drivers/gpu/drm/panel/Kconfig
+@@ -56,6 +56,16 @@ config DRM_PANEL_AUO_A030JTN01
+ 	  Say Y here to enable support for the AUO A030JTN01 320x480 3.0" panel
+ 	  as found in the YLM RS-97 handheld gaming console.
+ 
++config DRM_PANEL_CHIPONE_ICNL9922C
++	tristate "Chipone ICNL9922C DSI panel"
++	depends on OF
++	depends on DRM_MIPI_DSI
++	depends on BACKLIGHT_CLASS_DEVICE
++	help
++	  Say Y here if you want to enable support for Chipone ICNL9922C
++	  based MIPI-DSI panels, such as the BOE 6.78" 1080x2460 panel
++	  found on the Advan X1.
++
+ config DRM_PANEL_BOE_BF060Y8M_AJ0
+ 	tristate "Boe BF060Y8M-AJ0 panel"
+ 	depends on OF
+diff --git a/drivers/gpu/drm/panel/Makefile b/drivers/gpu/drm/panel/Makefile
+index da5175909..a48f8f876 100644
+--- a/drivers/gpu/drm/panel/Makefile
++++ b/drivers/gpu/drm/panel/Makefile
+@@ -4,6 +4,7 @@ obj-$(CONFIG_DRM_PANEL_ANBERNIC_TD4310) += panel-anbernic-td4310.o
+ obj-$(CONFIG_DRM_PANEL_ARM_VERSATILE) += panel-arm-versatile.o
+ obj-$(CONFIG_DRM_PANEL_ASUS_Z00T_TM5P5_NT35596) += panel-asus-z00t-tm5p5-n35596.o
+ obj-$(CONFIG_DRM_PANEL_AUO_A030JTN01) += panel-auo-a030jtn01.o
++obj-$(CONFIG_DRM_PANEL_CHIPONE_ICNL9922C) += panel-chipone-icnl9922c.o
+ obj-$(CONFIG_DRM_PANEL_BOE_BF060Y8M_AJ0) += panel-boe-bf060y8m-aj0.o
+ obj-$(CONFIG_DRM_PANEL_BOE_HIMAX8279D) += panel-boe-himax8279d.o
+ obj-$(CONFIG_DRM_PANEL_BOE_TD4320) += panel-boe-td4320.o
+diff --git a/drivers/gpu/drm/panel/panel-chipone-icnl9922c.c b/drivers/gpu/drm/panel/panel-chipone-icnl9922c.c
+new file mode 100644
+index 000000000..5c75cd077
+--- /dev/null
++++ b/drivers/gpu/drm/panel/panel-chipone-icnl9922c.c
+@@ -0,0 +1,417 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Chipone ICNL9922C MIPI-DSI Panel Driver (BOE 6.78" 1080x2460)
++ *
++ * Copyright (c) 2026 sysretq0 <324514544+sysretq0@users.noreply.github.com>
++ */
++
++#include <linux/delay.h>
++#include <linux/gpio/consumer.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/regulator/consumer.h>
++
++#include <drm/drm_mipi_dsi.h>
++#include <drm/drm_modes.h>
++#include <drm/drm_panel.h>
++
++#include <video/mipi_display.h>
++
++struct icnl9922c_cmd {
++	bool is_generic;
++	const u8 *data;
++	size_t len;
++};
++
++static const u8 init_chunk_0[] = { 0xf0, 0x99, 0x22, 0x0c };
++static const u8 init_chunk_1[] = { 0x70, 0xc1, 0x12, 0x00, 0x05, 0x00, 0x5a, 0x00, 0x6f, 0x00, 0x77, 0x00, 0x31, 0x02, 0x00, 0x20 };
++static const u8 init_chunk_2[] = { 0x71, 0x11, 0x00, 0x00, 0x89, 0x30, 0x80, 0x09, 0x9c, 0x04, 0x38, 0x00, 0x14, 0x02, 0x1c, 0x02, 0x1c, 0x02, 0x00, 0x02, 0x25, 0x00, 0x20, 0x01, 0xd5, 0x00, 0x07, 0x00, 0x0d, 0x05, 0x7a, 0x05, 0x16 };
++static const u8 init_chunk_3[] = { 0x72, 0x18, 0x00, 0x10, 0xf0, 0x03, 0x0c, 0x20, 0x00, 0x06, 0x0b, 0x0b, 0x33, 0x0e, 0x1c, 0x2a, 0x38, 0x46, 0x54, 0x62, 0x69, 0x70, 0x77, 0x79, 0x7b, 0x7d, 0x7e, 0x01, 0x02, 0x01, 0x00, 0x09, 0x40 };
++static const u8 init_chunk_4[] = { 0x73, 0x09, 0xbe, 0x19, 0xfc, 0x19, 0xfa, 0x19, 0xf8, 0x1a, 0x38, 0x1a, 0x78, 0x1a, 0xb6, 0x2a, 0xf6, 0x2b, 0x34, 0x2b, 0x74, 0x3b, 0x74, 0x6b, 0xf4, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
++static const u8 init_chunk_5[] = { 0xc7, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x10, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x77, 0x10, 0x34, 0x00, 0x01, 0xff, 0xff, 0x00, 0xf0, 0xf0, 0x00 };
++static const u8 init_chunk_6[] = { 0x80, 0xff, 0xf7, 0xeb, 0xe2, 0xda, 0xd3, 0xcd, 0xc8, 0xc3, 0xb3, 0xa7, 0x9d, 0x95, 0x8d, 0x87, 0x7c, 0x72, 0x6a, 0x62, 0x62, 0x5a, 0x52, 0x49, 0x40, 0x3b, 0x35, 0x2e, 0x26, 0x1c, 0x12, 0x0f, 0x0d };
++static const u8 init_chunk_7[] = { 0x81, 0xff, 0xf7, 0xeb, 0xe2, 0xda, 0xd3, 0xcd, 0xc8, 0xc3, 0xb3, 0xa7, 0x9d, 0x95, 0x8d, 0x87, 0x7c, 0x72, 0x6a, 0x62, 0x62, 0x5a, 0x52, 0x49, 0x40, 0x3b, 0x35, 0x2e, 0x26, 0x1c, 0x12, 0x0f, 0x0d };
++static const u8 init_chunk_8[] = { 0x82, 0xff, 0xf7, 0xeb, 0xe2, 0xda, 0xd3, 0xcd, 0xc8, 0xc3, 0xb3, 0xa7, 0x9d, 0x95, 0x8d, 0x87, 0x7c, 0x72, 0x6a, 0x62, 0x62, 0x5a, 0x52, 0x49, 0x40, 0x3b, 0x35, 0x2e, 0x26, 0x1c, 0x12, 0x0f, 0x0d };
++static const u8 init_chunk_9[] = { 0x83, 0x09, 0x0b, 0x09, 0x07, 0x05, 0x03, 0x02, 0x0b, 0x09, 0x07, 0x05, 0x03, 0x02, 0x0b, 0x09, 0x07, 0x05, 0x03, 0x02, 0x12, 0x0e, 0x0a, 0x06, 0x02, 0x00, 0x12, 0x0e, 0x0a, 0x06, 0x02, 0x00, 0x12 };
++static const u8 init_chunk_10[] = { 0x84, 0x0e, 0x0a, 0x06, 0x02, 0x00, 0x2f, 0xbd, 0xff, 0x7b, 0xfd, 0x0b, 0xda, 0xdb, 0xfe, 0x32, 0xfb, 0xdf, 0xf7, 0xbf, 0xd0, 0xbd, 0xad, 0xbf, 0xe3, 0x2f, 0xbd, 0xff, 0x7b, 0xfd, 0x0b, 0xda, 0xdb };
++static const u8 init_chunk_11[] = { 0x85, 0xfe, 0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
++static const u8 init_chunk_12[] = { 0xb2, 0x0d, 0x06, 0x05, 0x04, 0xf2, 0x22, 0x03, 0x00, 0x22, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x61, 0x5b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x55, 0x55, 0x05, 0x05, 0x00, 0x00, 0x00 };
++static const u8 init_chunk_13[] = { 0xb3, 0x31, 0x0b, 0x01, 0x0b, 0x81, 0x61, 0x00, 0x00, 0x5b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xbc, 0x22, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
++static const u8 init_chunk_14[] = { 0xb4, 0x30, 0x04, 0x01, 0x05, 0x81, 0x02, 0x00, 0x00, 0x47, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xbc, 0x22, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
++static const u8 init_chunk_15[] = { 0xb5, 0x00, 0x0b, 0x06, 0x0d, 0x10, 0x26, 0x34, 0x91, 0xa2, 0x33, 0x44, 0x00, 0x26, 0x00, 0xbf, 0x3c, 0x02, 0x08, 0x20, 0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x5c, 0x35 };
++static const u8 init_chunk_16[] = { 0xb6, 0x1e, 0x1d, 0x1c, 0x82, 0x0d, 0x0c, 0x0f, 0x0e, 0x82, 0x3a, 0x3a, 0x3a, 0x3a, 0x82, 0xc0, 0x82, 0x00, 0x00, 0x00, 0x28, 0x05, 0x04, 0x01, 0x01, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x3c, 0x00 };
++static const u8 init_chunk_17[] = { 0xb7, 0x1e, 0x1d, 0x1c, 0x82, 0x0d, 0x0c, 0x0f, 0x0e, 0x82, 0x3a, 0x3a, 0x3a, 0x3a, 0x82, 0xc0, 0x82, 0x00, 0x00, 0x00, 0x28, 0x05, 0x04, 0x01, 0x01, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x3c, 0x00 };
++static const u8 init_chunk_18[] = { 0xb8, 0x03, 0x01, 0x01, 0x82, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x1f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
++static const u8 init_chunk_19[] = { 0x9d, 0x00, 0x00, 0x00, 0x12, 0x1d, 0x39, 0x44, 0x5e, 0x54, 0x61, 0x6b, 0x79, 0x83, 0x92, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
++static const u8 init_chunk_20[] = { 0xb9, 0x12, 0x33, 0x21, 0x12, 0x33, 0x21, 0x12, 0x33, 0x21, 0x12, 0x33, 0x21, 0x12, 0x33, 0x21, 0x12, 0x33, 0x21, 0x12, 0x33, 0x21, 0x12, 0x33, 0x21, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02 };
++static const u8 init_chunk_21[] = { 0xba, 0x01, 0xfe, 0xff, 0xbf, 0xee, 0xff, 0xff, 0xfe, 0xff, 0xbf, 0xee, 0xff, 0xff, 0xfe, 0x00, 0x80, 0x2e, 0x00, 0x00, 0xfe, 0x00, 0x80, 0x2e, 0x00, 0x00 };
++static const u8 init_chunk_22[] = { 0xbb, 0x01, 0x02, 0x03, 0x0a, 0x04, 0x13, 0x14, 0x52, 0x16, 0x5c, 0x00, 0x15, 0x16, 0x00 };
++static const u8 init_chunk_23[] = { 0xbc, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0xff, 0xf8, 0x0b, 0x11, 0x50, 0x5e, 0x55, 0x99, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
++static const u8 init_chunk_24[] = { 0xbd, 0xa1, 0xa2, 0x52, 0x2e, 0x00, 0x8f, 0x0d, 0x09, 0xc1, 0x04, 0x01, 0xae, 0x14 };
++static const u8 init_chunk_25[] = { 0xbe, 0x28, 0x1e, 0x0b, 0xaa, 0x43, 0x35, 0x33, 0x32, 0x1e, 0x00, 0x00, 0x3a };
++static const u8 init_chunk_26[] = { 0xc0, 0x40, 0x93, 0xff, 0xff, 0xff, 0x3f, 0xff, 0x00, 0xff, 0x00, 0xcc, 0x04, 0x12, 0x35, 0x67, 0x89, 0xa0, 0xff, 0xff, 0xf0, 0x0b, 0xeb };
++static const u8 init_chunk_27[] = { 0xc1, 0x00, 0x00, 0x20, 0x26, 0x26, 0x04, 0x08, 0x10, 0x04, 0x9c, 0x19, 0x22, 0x50, 0x01, 0x11, 0x07, 0x63, 0x08, 0xa0, 0x00, 0x93 };
++static const u8 init_chunk_28[] = { 0xc2, 0x00 };
++static const u8 init_chunk_29[] = { 0xc3, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x15, 0x28, 0x23, 0x16, 0x16, 0x16, 0x00, 0xff, 0x40, 0x40, 0x2a, 0x2a, 0x2a, 0x2a, 0x2a, 0x2a, 0x2a, 0x2a, 0x00, 0x00, 0x18, 0x00, 0x00, 0x10, 0x00, 0x00 };
++static const u8 init_chunk_30[] = { 0xc4, 0x0c, 0x93, 0xa8, 0x28, 0x00, 0x3c, 0x02, 0x00, 0x00, 0x0a, 0x26, 0x48, 0x91, 0xb3, 0x75, 0x00, 0xf0, 0xef, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
++static const u8 init_chunk_31[] = { 0xc5, 0x02, 0x4f, 0xf0, 0xa8, 0x64, 0x04, 0x02, 0x02, 0x19, 0x02, 0x10, 0x4f, 0x05, 0x06, 0x00, 0x20, 0x0d, 0x0a, 0x06, 0x12, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
++static const u8 init_chunk_32[] = { 0xc6, 0x65, 0x08, 0x18, 0x48, 0x48, 0x20, 0x3f, 0x03, 0x16, 0x16, 0x00, 0x00 };
++static const u8 init_chunk_33[] = { 0xc8, 0x06, 0x09 };
++static const u8 init_chunk_34[] = { 0xc9, 0x62, 0x62, 0x5c, 0x5c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
++static const u8 init_chunk_35[] = { 0xd0, 0x0c, 0x23, 0x18, 0xff, 0xff, 0x00, 0x80, 0x0c, 0xff, 0x0f, 0x40 };
++static const u8 init_chunk_36[] = { 0x9a, 0x11, 0x7a, 0x00, 0x00, 0xff, 0x00, 0x0a, 0x00, 0x17, 0x00, 0x22 };
++static const u8 init_chunk_37[] = { 0x99, 0x91, 0xb5, 0x00, 0x3f, 0x00, 0x7a, 0x00, 0x30, 0x22, 0x01 };
++static const u8 init_chunk_38[] = { 0xe0, 0x0c, 0x00, 0xb0, 0x10, 0x00, 0x15, 0x7c };
++static const u8 init_chunk_39[] = { 0xf0, 0x00, 0x00, 0x00 };
++static const u8 init_chunk_40[] = { 0x35, 0x00, 0x00 };
++static const u8 init_chunk_41[] = { 0x51, 0x0f, 0xf0 };
++static const u8 init_chunk_42[] = { 0x53, 0x2c, 0x00 };
++
++static const struct icnl9922c_cmd icnl9922c_init_cmds[] = {
++	{ true , init_chunk_0, sizeof(init_chunk_0) },
++	{ false, init_chunk_1, sizeof(init_chunk_1) },
++	{ false, init_chunk_2, sizeof(init_chunk_2) },
++	{ false, init_chunk_3, sizeof(init_chunk_3) },
++	{ false, init_chunk_4, sizeof(init_chunk_4) },
++	{ true , init_chunk_5, sizeof(init_chunk_5) },
++	{ false, init_chunk_6, sizeof(init_chunk_6) },
++	{ false, init_chunk_7, sizeof(init_chunk_7) },
++	{ false, init_chunk_8, sizeof(init_chunk_8) },
++	{ false, init_chunk_9, sizeof(init_chunk_9) },
++	{ false, init_chunk_10, sizeof(init_chunk_10) },
++	{ false, init_chunk_11, sizeof(init_chunk_11) },
++	{ true , init_chunk_12, sizeof(init_chunk_12) },
++	{ true , init_chunk_13, sizeof(init_chunk_13) },
++	{ true , init_chunk_14, sizeof(init_chunk_14) },
++	{ true , init_chunk_15, sizeof(init_chunk_15) },
++	{ true , init_chunk_16, sizeof(init_chunk_16) },
++	{ true , init_chunk_17, sizeof(init_chunk_17) },
++	{ true , init_chunk_18, sizeof(init_chunk_18) },
++	{ false, init_chunk_19, sizeof(init_chunk_19) },
++	{ true , init_chunk_20, sizeof(init_chunk_20) },
++	{ true , init_chunk_21, sizeof(init_chunk_21) },
++	{ true , init_chunk_22, sizeof(init_chunk_22) },
++	{ true , init_chunk_23, sizeof(init_chunk_23) },
++	{ true , init_chunk_24, sizeof(init_chunk_24) },
++	{ true , init_chunk_25, sizeof(init_chunk_25) },
++	{ true , init_chunk_26, sizeof(init_chunk_26) },
++	{ true , init_chunk_27, sizeof(init_chunk_27) },
++	{ true , init_chunk_28, sizeof(init_chunk_28) },
++	{ true , init_chunk_29, sizeof(init_chunk_29) },
++	{ true , init_chunk_30, sizeof(init_chunk_30) },
++	{ true , init_chunk_31, sizeof(init_chunk_31) },
++	{ true , init_chunk_32, sizeof(init_chunk_32) },
++	{ true , init_chunk_33, sizeof(init_chunk_33) },
++	{ true , init_chunk_34, sizeof(init_chunk_34) },
++	{ true , init_chunk_35, sizeof(init_chunk_35) },
++	{ false, init_chunk_36, sizeof(init_chunk_36) },
++	{ false, init_chunk_37, sizeof(init_chunk_37) },
++	{ true , init_chunk_38, sizeof(init_chunk_38) },
++	{ true , init_chunk_39, sizeof(init_chunk_39) },
++	{ false, init_chunk_40, sizeof(init_chunk_40) },
++	{ false, init_chunk_41, sizeof(init_chunk_41) },
++	{ false, init_chunk_42, sizeof(init_chunk_42) },
++};
++
++struct icnl9922c_panel {
++	struct drm_panel panel;
++	struct mipi_dsi_device *dsi;
++	struct regulator *vsp;
++	struct regulator *vsn;
++	struct gpio_desc *ldo18_gpio;
++	struct gpio_desc *reset_gpio;
++	bool prepared;
++};
++
++static inline struct icnl9922c_panel *to_icnl9922c_panel(struct drm_panel *panel)
++{
++	return container_of(panel, struct icnl9922c_panel, panel);
++}
++
++static const struct drm_display_mode icnl9922c_modes[] = {
++	{
++		/* 1080x2460 @ 60Hz */
++		.clock = 336920,
++		.hdisplay = 1080,
++		.hsync_start = 1080 + 16,
++		.hsync_end = 1080 + 16 + 4,
++		.htotal = 1080 + 16 + 4 + 8,
++		.vdisplay = 2460,
++		.vsync_start = 2460 + 2572,
++		.vsync_end = 2460 + 2572 + 4,
++		.vtotal = 2460 + 2572 + 4 + 32,
++		.flags = 0,
++		.type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED,
++		.width_mm = 70,
++		.height_mm = 160,
++	},
++	{
++		/* 1080x2460 @ 90Hz */
++		.clock = 337053,
++		.hdisplay = 1080,
++		.hsync_start = 1080 + 16,
++		.hsync_end = 1080 + 16 + 4,
++		.htotal = 1080 + 16 + 4 + 8,
++		.vdisplay = 2460,
++		.vsync_start = 2460 + 884,
++		.vsync_end = 2460 + 884 + 4,
++		.vtotal = 2460 + 884 + 4 + 32,
++		.flags = 0,
++		.type = DRM_MODE_TYPE_DRIVER,
++		.width_mm = 70,
++		.height_mm = 160,
++	},
++	{
++		/* 1080x2460 @ 120Hz */
++		.clock = 336122,
++		.hdisplay = 1080,
++		.hsync_start = 1080 + 16,
++		.hsync_end = 1080 + 16 + 4,
++		.htotal = 1080 + 16 + 4 + 8,
++		.vdisplay = 2460,
++		.vsync_start = 2460 + 32,
++		.vsync_end = 2460 + 32 + 4,
++		.vtotal = 2460 + 32 + 4 + 32,
++		.flags = 0,
++		.type = DRM_MODE_TYPE_DRIVER,
++		.width_mm = 70,
++		.height_mm = 160,
++	},
++};
++
++static int icnl9922c_prepare(struct drm_panel *panel)
++{
++	struct icnl9922c_panel *ctx = to_icnl9922c_panel(panel);
++	struct device *dev = &ctx->dsi->dev;
++	static const u8 cmd_ac[] = { 0xac, 0x05, 0x00 };
++	unsigned int i;
++	int ret;
++
++	if (ctx->prepared)
++		return 0;
++
++	if (ctx->ldo18_gpio) {
++		gpiod_set_value_cansleep(ctx->ldo18_gpio, 1);
++		usleep_range(5000, 10000);
++	}
++
++	if (ctx->vsp) {
++		ret = regulator_enable(ctx->vsp);
++		if (ret) {
++			dev_err(dev, "Failed to enable vsp regulator: %d\n", ret);
++			goto err_vsp;
++		}
++		usleep_range(5000, 10000);
++	}
++
++	if (ctx->vsn) {
++		ret = regulator_enable(ctx->vsn);
++		if (ret) {
++			dev_err(dev, "Failed to enable vsn regulator: %d\n", ret);
++			goto err_vsn;
++		}
++		usleep_range(15000, 20000);
++	}
++
++	/* Hardware reset: active low, hold low 20ms then release high 150ms */
++	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
++	msleep(20);
++	gpiod_set_value_cansleep(ctx->reset_gpio, 0);
++	msleep(150);
++
++	for (i = 0; i < ARRAY_SIZE(icnl9922c_init_cmds); i++) {
++		const struct icnl9922c_cmd *cmd = &icnl9922c_init_cmds[i];
++
++		if (cmd->is_generic)
++			ret = mipi_dsi_generic_write(ctx->dsi, cmd->data, cmd->len);
++		else
++			ret = mipi_dsi_dcs_write_buffer(ctx->dsi, cmd->data, cmd->len);
++
++		if (ret < 0) {
++			dev_err(dev, "Failed to write init cmd %u: %d\n", i, ret);
++			goto err_cmds;
++		}
++	}
++
++	ret = mipi_dsi_dcs_exit_sleep_mode(ctx->dsi);
++	if (ret < 0) {
++		dev_err(dev, "Failed to exit sleep mode: %d\n", ret);
++		goto err_cmds;
++	}
++	msleep(120);
++
++	ret = mipi_dsi_dcs_set_display_on(ctx->dsi);
++	if (ret < 0) {
++		dev_err(dev, "Failed to set display on: %d\n", ret);
++		goto err_cmds;
++	}
++	msleep(20);
++
++	ret = mipi_dsi_dcs_write_buffer(ctx->dsi, cmd_ac, sizeof(cmd_ac));
++	if (ret < 0) {
++		dev_err(dev, "Failed to write post-init cmd: %d\n", ret);
++		goto err_cmds;
++	}
++
++	ctx->prepared = true;
++	return 0;
++
++err_cmds:
++	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
++	if (ctx->vsn)
++		regulator_disable(ctx->vsn);
++err_vsn:
++	if (ctx->vsp)
++		regulator_disable(ctx->vsp);
++err_vsp:
++	if (ctx->ldo18_gpio)
++		gpiod_set_value_cansleep(ctx->ldo18_gpio, 0);
++	return ret;
++}
++
++static int icnl9922c_unprepare(struct drm_panel *panel)
++{
++	struct icnl9922c_panel *ctx = to_icnl9922c_panel(panel);
++
++	if (!ctx->prepared)
++		return 0;
++
++	mipi_dsi_dcs_set_display_off(ctx->dsi);
++	msleep(20);
++
++	mipi_dsi_dcs_enter_sleep_mode(ctx->dsi);
++	msleep(120);
++
++	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
++	msleep(10);
++
++	if (ctx->vsn) {
++		regulator_disable(ctx->vsn);
++		usleep_range(5000, 10000);
++	}
++
++	if (ctx->vsp) {
++		regulator_disable(ctx->vsp);
++		usleep_range(5000, 10000);
++	}
++
++	if (ctx->ldo18_gpio)
++		gpiod_set_value_cansleep(ctx->ldo18_gpio, 0);
++
++	ctx->prepared = false;
++	return 0;
++}
++
++static int icnl9922c_get_modes(struct drm_panel *panel,
++			       struct drm_connector *connector)
++{
++	struct drm_display_mode *mode;
++	unsigned int i;
++
++	for (i = 0; i < ARRAY_SIZE(icnl9922c_modes); i++) {
++		mode = drm_mode_duplicate(connector->dev, &icnl9922c_modes[i]);
++		if (!mode)
++			return -ENOMEM;
++		drm_mode_set_name(mode);
++		drm_mode_probed_add(connector, mode);
++	}
++
++	connector->display_info.width_mm = 70;
++	connector->display_info.height_mm = 160;
++	connector->display_info.bpc = 8;
++
++	return ARRAY_SIZE(icnl9922c_modes);
++}
++
++static const struct drm_panel_funcs icnl9922c_panel_funcs = {
++	.prepare = icnl9922c_prepare,
++	.unprepare = icnl9922c_unprepare,
++	.get_modes = icnl9922c_get_modes,
++};
++
++static int icnl9922c_probe(struct mipi_dsi_device *dsi)
++{
++	struct device *dev = &dsi->dev;
++	struct icnl9922c_panel *ctx;
++	int ret;
++
++	ctx = devm_drm_panel_alloc(dev, struct icnl9922c_panel, panel,
++				   &icnl9922c_panel_funcs,
++				   DRM_MODE_CONNECTOR_DSI);
++	if (IS_ERR(ctx))
++		return PTR_ERR(ctx);
++
++	ctx->dsi = dsi;
++	mipi_dsi_set_drvdata(dsi, ctx);
++
++	ctx->vsp = devm_regulator_get_optional(dev, "vsp");
++	if (IS_ERR(ctx->vsp)) {
++		if (PTR_ERR(ctx->vsp) != -ENODEV)
++			return dev_err_probe(dev, PTR_ERR(ctx->vsp), "Failed to get vsp regulator\n");
++		ctx->vsp = NULL;
++	}
++
++	ctx->vsn = devm_regulator_get_optional(dev, "vsn");
++	if (IS_ERR(ctx->vsn)) {
++		if (PTR_ERR(ctx->vsn) != -ENODEV)
++			return dev_err_probe(dev, PTR_ERR(ctx->vsn), "Failed to get vsn regulator\n");
++		ctx->vsn = NULL;
++	}
++
++	ctx->ldo18_gpio = devm_gpiod_get_optional(dev, "ldo18", GPIOD_OUT_LOW);
++	if (IS_ERR(ctx->ldo18_gpio))
++		return dev_err_probe(dev, PTR_ERR(ctx->ldo18_gpio), "Failed to get ldo18-gpios\n");
++
++	ctx->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
++	if (IS_ERR(ctx->reset_gpio))
++		return dev_err_probe(dev, PTR_ERR(ctx->reset_gpio), "Failed to get reset-gpios\n");
++
++	ret = drm_panel_of_backlight(&ctx->panel);
++	if (ret)
++		return dev_err_probe(dev, ret, "Failed to get backlight\n");
++
++	ctx->panel.prepare_prev_first = true;
++
++	drm_panel_add(&ctx->panel);
++
++	dsi->lanes = 4;
++	dsi->format = MIPI_DSI_FMT_RGB888;
++	dsi->mode_flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_BURST | MIPI_DSI_MODE_LPM;
++
++	ret = mipi_dsi_attach(dsi);
++	if (ret < 0) {
++		dev_err(dev, "Failed to attach DSI device: %d\n", ret);
++		drm_panel_remove(&ctx->panel);
++		return ret;
++	}
++
++	return 0;
++}
++
++static void icnl9922c_remove(struct mipi_dsi_device *dsi)
++{
++	struct icnl9922c_panel *ctx = mipi_dsi_get_drvdata(dsi);
++
++	mipi_dsi_detach(ctx->dsi);
++	drm_panel_remove(&ctx->panel);
++}
++
++static const struct of_device_id icnl9922c_of_match[] = {
++	{ .compatible = "chipone,icnl9922c" },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(of, icnl9922c_of_match);
++
++static struct mipi_dsi_driver icnl9922c_driver = {
++	.probe = icnl9922c_probe,
++	.remove = icnl9922c_remove,
++	.driver = {
++		.name = "panel-chipone-icnl9922c",
++		.of_match_table = icnl9922c_of_match,
++	},
++};
++module_mipi_dsi_driver(icnl9922c_driver);
++
++MODULE_AUTHOR("sysretq0 <324514544+sysretq0@users.noreply.github.com>");
++MODULE_DESCRIPTION("Chipone ICNL9922C MIPI-DSI panel driver");
++MODULE_LICENSE("GPL");
+-- 
+2.43.0

@@ -14,8 +14,8 @@ CLK_MM_DISP_RDMA0, CLK_MM_SMI_COMMON, CLK_MM_DSI0) with CLK_IS_CRITICAL.
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  drivers/clk/mediatek/Makefile        |  3 +-
- drivers/clk/mediatek/clk-mt6789-mm.c | 84 ++++++++++++++++++++++++++++++++++++
- 2 files changed, 86 insertions(+), 1 deletion(-)
+ drivers/clk/mediatek/clk-mt6789-mm.c | 87 ++++++++++++++++++++++++++++++++++++
+ 2 files changed, 89 insertions(+), 1 deletion(-)
  create mode 100644 drivers/clk/mediatek/clk-mt6789-mm.c
 
 diff --git a/drivers/clk/mediatek/Makefile b/drivers/clk/mediatek/Makefile
@@ -37,7 +37,7 @@ new file mode 100644
 index 000000000..307accc0b
 --- /dev/null
 +++ b/drivers/clk/mediatek/clk-mt6789-mm.c
-@@ -0,0 +1,84 @@
+@@ -0,0 +1,87 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +//
 +// Copyright (c) 2022 MediaTek Inc.
@@ -71,6 +71,9 @@ index 000000000..307accc0b
 +#define GATE_MM1(_id, _name, _parent, _shift)			\
 +	GATE_MTK(_id, _name, _parent, &mm1_cg_regs, _shift, &mtk_clk_gate_ops_setclr)
 +
++#define GATE_MM1_FLAGS(_id, _name, _parent, _shift, _flags)	\
++	GATE_MTK_FLAGS(_id, _name, _parent, &mm1_cg_regs, _shift, &mtk_clk_gate_ops_setclr, _flags)
++
 +static const struct mtk_gate mm_clks[] = {
 +	/* MM0 */
 +	GATE_MM0_FLAGS(CLK_MM_DISP_MUTEX0, "mm_disp_mutex0", "top_disp", 0, CLK_IS_CRITICAL),
@@ -80,14 +83,14 @@ index 000000000..307accc0b
 +	GATE_MM0(CLK_MM_DISP_OVL0_2L, "mm_disp_ovl0_2l", "top_disp", 4),
 +	GATE_MM0(CLK_MM_DISP_WDMA0, "mm_disp_wdma0", "top_disp", 5),
 +	GATE_MM0(CLK_MM_DISP_RSZ0, "mm_disp_rsz0", "top_disp", 7),
-+	GATE_MM0(CLK_MM_DISP_AAL0, "mm_disp_aal0", "top_disp", 8),
-+	GATE_MM0(CLK_MM_DISP_CCORR0, "mm_disp_ccorr0", "top_disp", 9),
-+	GATE_MM0(CLK_MM_DISP_COLOR0, "mm_disp_color0", "top_disp", 10),
++	GATE_MM0_FLAGS(CLK_MM_DISP_AAL0, "mm_disp_aal0", "top_disp", 8, CLK_IS_CRITICAL),
++	GATE_MM0_FLAGS(CLK_MM_DISP_CCORR0, "mm_disp_ccorr0", "top_disp", 9, CLK_IS_CRITICAL),
++	GATE_MM0_FLAGS(CLK_MM_DISP_COLOR0, "mm_disp_color0", "top_disp", 10, CLK_IS_CRITICAL),
 +	GATE_MM0(CLK_MM_SMI_INFRA, "mm_smi_infra", "top_disp", 11),
 +	GATE_MM0(CLK_MM_DISP_DSC_WRAP0, "mm_disp_dsc_wrap0", "top_disp", 12),
-+	GATE_MM0(CLK_MM_DISP_GAMMA0, "mm_disp_gamma0", "top_disp", 13),
-+	GATE_MM0(CLK_MM_DISP_POSTMASK0, "mm_disp_postmask0", "top_disp", 14),
-+	GATE_MM0(CLK_MM_DISP_DITHER0, "mm_disp_dither0", "top_disp", 16),
++	GATE_MM0_FLAGS(CLK_MM_DISP_GAMMA0, "mm_disp_gamma0", "top_disp", 13, CLK_IS_CRITICAL),
++	GATE_MM0_FLAGS(CLK_MM_DISP_POSTMASK0, "mm_disp_postmask0", "top_disp", 14, CLK_IS_CRITICAL),
++	GATE_MM0_FLAGS(CLK_MM_DISP_DITHER0, "mm_disp_dither0", "top_disp", 16, CLK_IS_CRITICAL),
 +	GATE_MM0_FLAGS(CLK_MM_SMI_COMMON, "mm_smi_common", "top_disp", 17, CLK_IS_CRITICAL),
 +	GATE_MM0_FLAGS(CLK_MM_DSI0, "mm_dsi0", "top_disp", 19, CLK_IS_CRITICAL),
 +	GATE_MM0(CLK_MM_DISP_FAKE_ENG0, "mm_disp_fake_eng0", "top_disp", 20),
@@ -95,7 +98,7 @@ index 000000000..307accc0b
 +	GATE_MM0(CLK_MM_SMI_GALS, "mm_smi_gals", "top_disp", 22),
 +	GATE_MM0(CLK_MM_SMI_IOMMU, "mm_smi_iommu", "top_disp", 24),
 +	/* MM1 */
-+	GATE_MM1(CLK_MM_DSI0_DSI_CK_DOMAIN, "mm_dsi0_dsi_domain", "top_dsi_occ", 0),
++	GATE_MM1_FLAGS(CLK_MM_DSI0_DSI_CK_DOMAIN, "mm_dsi0_dsi_domain", "top_dsi_occ", 0, CLK_IS_CRITICAL),
 +	GATE_MM1(CLK_MM_DISP_26M, "mm_disp_26m_ck", "clk26m", 10),
 +};
 +
