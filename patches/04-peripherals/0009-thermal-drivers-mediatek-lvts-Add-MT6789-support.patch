@@ -3,25 +3,199 @@ From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 04:29:46 +0000
 Subject: [PATCH 09/11] thermal/drivers/mediatek/lvts: Add MT6789 support
 
-Add LVTS thermal controller data and OF match entry for the MediaTek
-MT6789 SoC (4 controllers, 13 sensors in filtered mode).
+Add LVTS thermal controller data, V5 manual RCK calibration, and OF match
+entry for the MediaTek MT6789 SoC (4 controllers, 13 sensors in filtered
+mode).
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- drivers/thermal/mediatek/lvts_thermal.c | 78 +++++++++++++++++++++++++
- 1 file changed, 78 insertions(+)
+ drivers/thermal/mediatek/lvts_thermal.c | 174 +++++++++++++++++++++++
+ 1 file changed, 173 insertions(+), 1 deletions(-)
 
 diff --git a/drivers/thermal/mediatek/lvts_thermal.c b/drivers/thermal/mediatek/lvts_thermal.c
-index 16caaf4b3..4e0a6bebc 100644
 --- a/drivers/thermal/mediatek/lvts_thermal.c
 +++ b/drivers/thermal/mediatek/lvts_thermal.c
-@@ -1626,6 +1626,68 @@ static const u32 mt7988_init_cmds[] = {
+@@ -57,6 +57,7 @@
+ #define LVTS_IMMD1(__base)		(__base + 0x00A4)
+ #define LVTS_IMMD2(__base)		(__base + 0x00A8)
+ #define LVTS_IMMD3(__base)		(__base + 0x00AC)
++#define LVTS_RDATA0(__base)		(__base + 0x00B0)
+ #define LVTS_PROTCTL(__base)	(__base + 0x00C0)
+ #define LVTS_PROTTA(__base)		(__base + 0x00C4)
+ #define LVTS_PROTTB(__base)		(__base + 0x00C8)
+@@ -108,6 +109,20 @@
+ #define LVTS_NUM_CAL_OFFSETS_MT7988	3
+ #define LVTS_NUM_CAL_OFFSETS_MT8196	2
+ 
++#define LVTS_CONFIG_DEVICE_SENSING_STATUS	BIT(25)
++#define LVTS_CONFIG_DEVICE_ACCESS_STATUS	BIT(24)
++#define LVTS_DEVICE_READ_REG0			0xC1020000
++#define LVTS_CMD_MANUAL_RCK_V5			0xC1030E00
++#define LVTS_CMD_SELECT_SENSOR_RCK(id)		(0xC1030D00 | (id))
++#define LVTS_CMD_SENSOR_NO_RCK			0xC1030D10
++#define LVTS_CMD_SINGLE_MODE_V5			0xC10306F8
++#define LVTS_CMD_LOW_POWER_SINGLE_MODE		0xC10306B8
++#define LVTS_CMD_COUNT_WIN_20US_HI		0xC1030500
++#define LVTS_CMD_COUNT_WIN_20US_LO		0xC1030420
++#define LVTS_CMD_KICK_OFF_RCK			0xC1030302
++#define LVTS_DEF_COUNT_RC			2750
++#define LVTS_COUNT_RC_DELTA_MAX			1061
++
+ static int golden_temp = LVTS_GOLDEN_TEMP_DEFAULT;
+ static int golden_temp_offset;
+ 
+@@ -125,6 +140,7 @@
+ struct lvts_ctrl_data {
+ 	struct lvts_sensor_data lvts_sensor[LVTS_SENSOR_MAX];
+ 	u8 valid_sensor_mask;
++	u8 count_rc_offset;
+ 	int offset;
+ 	enum lvts_msr_mode mode;
+ };
+@@ -176,6 +192,7 @@
+ 	struct lvts_sensor sensors[LVTS_SENSOR_MAX];
+ 	const struct lvts_data *lvts_data;
+ 	u32 calibration[LVTS_SENSOR_MAX];
++	u32 count_rc;
+ 	u8 valid_sensor_mask;
+ 	int mode;
+ 	void __iomem *base;
+@@ -867,6 +884,21 @@
+ 		}
+ 	}
+ 
++	if (lvts_ctrl_data->count_rc_offset) {
++		u8 off = lvts_ctrl_data->count_rc_offset;
++		u32 count_rc = 0;
++
++		if ((size_t)off + 2 >= calib_len)
++			return -EINVAL;
++
++		if (gt)
++			count_rc = efuse_calibration[off] |
++				   (efuse_calibration[off + 1] << 8) |
++				   (efuse_calibration[off + 2] << 16);
++
++		lvts_ctrl->count_rc = count_rc ? count_rc : LVTS_DEF_COUNT_RC;
++	}
++
+ 	return 0;
+ }
+ 
+@@ -1146,6 +1178,86 @@
+ 	return 0;
+ }
+ 
++static void lvts_write_device(struct device *dev, struct lvts_ctrl *lvts_ctrl,
++			      u32 cmd)
++{
++	void __iomem *base = lvts_ctrl->base;
++	u32 val;
++	int ret;
++
++	writel(cmd, LVTS_CONFIG(base));
++	usleep_range(5, 10);
++
++	ret = readl_poll_timeout(LVTS_CONFIG(base), val,
++				 !(val & LVTS_CONFIG_DEVICE_ACCESS_STATUS),
++				 2, 200);
++	if (ret)
++		dev_warn(dev, "LVTS device write 0x%08x timeout\n", cmd);
++}
++
++static u32 lvts_read_device_reg0(struct device *dev, struct lvts_ctrl *lvts_ctrl)
++{
++	void __iomem *base = lvts_ctrl->base;
++	u32 val;
++	int ret;
++
++	writel(LVTS_DEVICE_READ_REG0, LVTS_CONFIG(base));
++
++	ret = readl_poll_timeout(LVTS_CONFIG(base), val,
++				 !(val & LVTS_CONFIG_DEVICE_ACCESS_STATUS),
++				 2, 200);
++	if (ret)
++		dev_warn(dev, "LVTS device read reg0 timeout\n");
++
++	return readl(LVTS_RDATA0(base));
++}
++
++static void lvts_ctrl_read_count_rc_n(struct device *dev,
++				      struct lvts_ctrl *lvts_ctrl)
++{
++	void __iomem *base = lvts_ctrl->base;
++	u32 val, rc_data, count_rc_now;
++	int i, ret;
++
++	lvts_write_device(dev, lvts_ctrl, LVTS_CMD_MANUAL_RCK_V5);
++
++	lvts_for_each_valid_sensor(i, lvts_ctrl) {
++		lvts_write_device(dev, lvts_ctrl, LVTS_CMD_SELECT_SENSOR_RCK(i));
++		lvts_write_device(dev, lvts_ctrl, LVTS_CMD_SINGLE_MODE_V5);
++		lvts_write_device(dev, lvts_ctrl, LVTS_CMD_COUNT_WIN_20US_HI);
++		lvts_write_device(dev, lvts_ctrl, LVTS_CMD_COUNT_WIN_20US_LO);
++		lvts_write_device(dev, lvts_ctrl, LVTS_CMD_KICK_OFF_RCK);
++		usleep_range(50, 60);
++
++		ret = readl_poll_timeout(LVTS_CONFIG(base), val,
++					 !(val & LVTS_CONFIG_DEVICE_SENSING_STATUS),
++					 2, 200);
++		if (ret)
++			dev_warn(dev, "LVTS sensor %d RCK sensing timeout\n", i);
++
++		rc_data = lvts_read_device_reg0(dev, lvts_ctrl) & GENMASK(23, 0);
++		usleep_range(5, 10);
++
++		if (!rc_data) {
++			count_rc_now = lvts_ctrl->count_rc;
++		} else {
++			u32 hi = max(rc_data, lvts_ctrl->count_rc);
++			u32 lo = min(rc_data, lvts_ctrl->count_rc);
++
++			if ((u64)hi * 1000 > (u64)lo * LVTS_COUNT_RC_DELTA_MAX)
++				count_rc_now = lvts_ctrl->count_rc;
++			else
++				count_rc_now = rc_data;
++		}
++
++		lvts_ctrl->calibration[i] =
++			((u64)count_rc_now * lvts_ctrl->calibration[i]) >> 14;
++	}
++
++	lvts_write_device(dev, lvts_ctrl, LVTS_CMD_SENSOR_NO_RCK);
++	lvts_write_device(dev, lvts_ctrl, LVTS_CMD_LOW_POWER_SINGLE_MODE);
++}
++
+ static int lvts_ctrl_calibrate(struct device *dev, struct lvts_ctrl *lvts_ctrl)
+ {
+ 	int i;
+@@ -1156,6 +1268,9 @@
+ 		LVTS_EDATA03(lvts_ctrl->base)
+ 	};
+ 
++	if (lvts_ctrl->count_rc)
++		lvts_ctrl_read_count_rc_n(dev, lvts_ctrl);
++
+ 	/*
+ 	 * LVTS_EDATA0X : Efuse calibration reference value for sensor X
+ 	 *
+@@ -1200,8 +1315,8 @@
+ 	/*
+ 	 * LVTS_CALSCALE : ADC voltage round
+ 	 */
+-	value = 0x300;
+ 	value = LVTS_CALSCALE_CONF;
++	writel(value, LVTS_CALSCALE(lvts_ctrl->base));
+ 
+ 	/*
+ 	 * LVTS_MSRCTL0 : Sensor filtering strategy
+@@ -1626,6 +1741,72 @@
   *
   * Hence the rather confusing offsets provided below.
   */
 +static const u32 mt6789_init_cmds[] = {
 +	0xC1030300, 0xC1030420, 0xC1030500, 0xC10307A6, 0xC1030CFC,
-+	0xC1030A8C, 0xC103098D, 0xC10308F1, 0xC1030E01, 0xC10306B8
++	0xC1030A8C, 0xC103098D, 0xC10308F1
 +};
 +
 +static const struct lvts_ctrl_data mt6789_lvts_data_ctrl[] = {
@@ -37,6 +211,7 @@ index 16caaf4b3..4e0a6bebc 100644
 +			  .cal_offsets = { 10, 11 } }
 +		},
 +		VALID_SENSOR_MAP(1, 1, 1, 1),
++		.count_rc_offset = 32,
 +		.offset = 0x0,
 +		.mode = LVTS_MSR_FILTERED_MODE,
 +	},
@@ -52,6 +227,7 @@ index 16caaf4b3..4e0a6bebc 100644
 +			  .cal_offsets = { 18, 19 } }
 +		},
 +		VALID_SENSOR_MAP(1, 1, 1, 1),
++		.count_rc_offset = 36,
 +		.offset = 0x100,
 +		.mode = LVTS_MSR_FILTERED_MODE,
 +	},
@@ -67,6 +243,7 @@ index 16caaf4b3..4e0a6bebc 100644
 +			  .cal_offsets = { 26, 27 } }
 +		},
 +		VALID_SENSOR_MAP(1, 1, 1, 1),
++		.count_rc_offset = 40,
 +		.offset = 0x200,
 +		.mode = LVTS_MSR_FILTERED_MODE,
 +	},
@@ -76,6 +253,7 @@ index 16caaf4b3..4e0a6bebc 100644
 +			  .cal_offsets = { 28, 29 } }
 +		},
 +		VALID_SENSOR_MAP(1, 0, 0, 0),
++		.count_rc_offset = 44,
 +		.offset = 0x300,
 +		.mode = LVTS_MSR_FILTERED_MODE,
 +	}
@@ -84,7 +262,7 @@ index 16caaf4b3..4e0a6bebc 100644
  static const struct lvts_ctrl_data mt8186_lvts_data_ctrl[] = {
  	{
  		.lvts_sensor = {
-@@ -2037,6 +2099,21 @@ static const struct lvts_data mt7988_lvts_ap_data = {
+@@ -2037,6 +2218,21 @@
  	.ops = &lvts_platform_ops_mt7988,
  };
  
@@ -106,7 +284,7 @@ index 16caaf4b3..4e0a6bebc 100644
  static const struct lvts_data mt8186_lvts_data = {
  	.lvts_ctrl	= mt8186_lvts_data_ctrl,
  	.conn_cmd	= default_conn_cmds,
-@@ -2167,6 +2244,7 @@ static const struct lvts_data mt8196_lvts_ap_data = {
+@@ -2167,6 +2363,7 @@
  };
  
  static const struct of_device_id lvts_of_match[] = {
@@ -116,4 +294,3 @@ index 16caaf4b3..4e0a6bebc 100644
  	{ .compatible = "mediatek,mt8186-lvts", .data = &mt8186_lvts_data },
 -- 
 2.55.0
-
