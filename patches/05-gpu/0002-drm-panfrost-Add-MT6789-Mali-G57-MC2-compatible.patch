@@ -1,0 +1,28 @@
+From 06e3c36b51b67d0c7351f4e64e1c17973375d3e3 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 04:29:52 +0000
+Subject: [PATCH 2/2] drm/panfrost: Add MT6789 Mali-G57 MC2 compatible
+
+Add mediatek,mt6789-mali match entry referencing mediatek_mt8186_data
+for the Mali-G57 MC2 GPU in MediaTek MT6789.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/gpu/drm/panfrost/panfrost_drv.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/gpu/drm/panfrost/panfrost_drv.c b/drivers/gpu/drm/panfrost/panfrost_drv.c
+index eeda11303..3f1d566a7 100644
+--- a/drivers/gpu/drm/panfrost/panfrost_drv.c
++++ b/drivers/gpu/drm/panfrost/panfrost_drv.c
+@@ -994,6 +994,7 @@ static const struct of_device_id dt_match[] = {
+ 	{ .compatible = "arm,mali-t880", .data = &default_data, },
+ 	{ .compatible = "arm,mali-bifrost", .data = &default_data, },
+ 	{ .compatible = "arm,mali-valhall-jm", .data = &default_data, },
++	{ .compatible = "mediatek,mt6789-mali", .data = &mediatek_mt8186_data },
+ 	{ .compatible = "mediatek,mt8183-mali", .data = &mediatek_mt8183_data },
+ 	{ .compatible = "mediatek,mt8183b-mali", .data = &mediatek_mt8183_b_data },
+ 	{ .compatible = "mediatek,mt8186-mali", .data = &mediatek_mt8186_data },
+-- 
+2.55.0
+

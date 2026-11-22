@@ -1,0 +1,163 @@
+From 13bcae6aee347a228453189ac7c8fdc618b8f972 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 04:29:31 +0000
+Subject: [PATCH 02/11] pmdomain: mediatek: Add MT6789 power domains support
+
+Add MT6789 SCPSYS power domain definitions (MFG0-MFG3 and DISP) and
+AXI bus protection configuration to the mtk-pm-domains driver.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/pmdomain/mediatek/mt6789-pm-domains.h | 116 ++++++++++++++++++
+ drivers/pmdomain/mediatek/mtk-pm-domains.c    |   5 +
+ 2 files changed, 121 insertions(+)
+ create mode 100644 drivers/pmdomain/mediatek/mt6789-pm-domains.h
+
+diff --git a/drivers/pmdomain/mediatek/mt6789-pm-domains.h b/drivers/pmdomain/mediatek/mt6789-pm-domains.h
+new file mode 100644
+index 000000000..e28c54a46
+--- /dev/null
++++ b/drivers/pmdomain/mediatek/mt6789-pm-domains.h
+@@ -0,0 +1,116 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/*
++ * Copyright (c) 2022 MediaTek Inc.
++ * Author: Owen Chen <owen.chen@mediatek.com>
++ */
++
++#ifndef __SOC_MEDIATEK_MT6789_PM_DOMAINS_H
++#define __SOC_MEDIATEK_MT6789_PM_DOMAINS_H
++
++#include "mtk-pm-domains.h"
++#include <dt-bindings/power/mt6789-power.h>
++
++#define MT6789_TOP_AXI_PROT_EN_MM_DISP		(BIT(10) | BIT(12))
++#define MT6789_TOP_AXI_PROT_EN_DISP		(BIT(6) | BIT(23))
++
++/*
++ * MT6789 power domain support
++ */
++static enum scpsys_bus_prot_block scpsys_bus_prot_blocks_mt6789[] = {
++	BUS_PROT_BLOCK_INFRA
++};
++
++static const struct scpsys_domain_data scpsys_domain_data_mt6789[] = {
++	[MT6789_POWER_DOMAIN_MFG0] = {
++		.name = "mfg0",
++		.sta_mask = BIT(2),
++		.ctl_offs = 0x308,
++		.pwr_sta_offs = 0x16C,
++		.pwr_sta2nd_offs = 0x170,
++		.sram_pdn_bits = BIT(8),
++		.sram_pdn_ack_bits = BIT(12),
++		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
++	},
++	[MT6789_POWER_DOMAIN_MFG1] = {
++		.name = "mfg1",
++		.sta_mask = BIT(3),
++		.ctl_offs = 0x30c,
++		.pwr_sta_offs = 0x16C,
++		.pwr_sta2nd_offs = 0x170,
++		.sram_pdn_bits = BIT(8),
++		.sram_pdn_ack_bits = BIT(12),
++		.bp_cfg = {
++			BUS_PROT_WR_IGN(INFRA,
++					MT8192_TOP_AXI_PROT_EN_1_MFG1,
++					MT8192_TOP_AXI_PROT_EN_1_SET,
++					MT8192_TOP_AXI_PROT_EN_1_CLR,
++					MT8192_TOP_AXI_PROT_EN_1_STA1),
++			BUS_PROT_WR_IGN(INFRA,
++					MT8192_TOP_AXI_PROT_EN_2_MFG1,
++					MT8192_TOP_AXI_PROT_EN_2_SET,
++					MT8192_TOP_AXI_PROT_EN_2_CLR,
++					MT8192_TOP_AXI_PROT_EN_2_STA1),
++			BUS_PROT_WR_IGN(INFRA,
++					MT8192_TOP_AXI_PROT_EN_MFG1,
++					MT8192_TOP_AXI_PROT_EN_SET,
++					MT8192_TOP_AXI_PROT_EN_CLR,
++					MT8192_TOP_AXI_PROT_EN_STA1),
++			BUS_PROT_WR_IGN(INFRA,
++					MT8192_TOP_AXI_PROT_EN_2_MFG1_2ND,
++					MT8192_TOP_AXI_PROT_EN_2_SET,
++					MT8192_TOP_AXI_PROT_EN_2_CLR,
++					MT8192_TOP_AXI_PROT_EN_2_STA1),
++		},
++		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
++	},
++	[MT6789_POWER_DOMAIN_MFG2] = {
++		.name = "mfg2",
++		.sta_mask = BIT(4),
++		.ctl_offs = 0x310,
++		.pwr_sta_offs = 0x16C,
++		.pwr_sta2nd_offs = 0x170,
++		.sram_pdn_bits = BIT(8),
++		.sram_pdn_ack_bits = BIT(12),
++		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
++	},
++	[MT6789_POWER_DOMAIN_MFG3] = {
++		.name = "mfg3",
++		.sta_mask = BIT(5),
++		.ctl_offs = 0x314,
++		.pwr_sta_offs = 0x16C,
++		.pwr_sta2nd_offs = 0x170,
++		.sram_pdn_bits = BIT(8),
++		.sram_pdn_ack_bits = BIT(12),
++		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
++	},
++	[MT6789_POWER_DOMAIN_DISP] = {
++		.name = "disp",
++		.sta_mask = BIT(21),
++		.ctl_offs = 0x354,
++		.pwr_sta_offs = 0x16C,
++		.pwr_sta2nd_offs = 0x170,
++		.sram_pdn_bits = BIT(8),
++		.sram_pdn_ack_bits = BIT(12),
++		.bp_cfg = {
++			BUS_PROT_WR_IGN(INFRA,
++					MT6789_TOP_AXI_PROT_EN_MM_DISP,
++					MT8192_TOP_AXI_PROT_EN_MM_SET,
++					MT8192_TOP_AXI_PROT_EN_MM_CLR,
++					MT8192_TOP_AXI_PROT_EN_MM_STA1),
++			BUS_PROT_WR_IGN(INFRA,
++					MT6789_TOP_AXI_PROT_EN_DISP,
++					MT8192_TOP_AXI_PROT_EN_SET,
++					MT8192_TOP_AXI_PROT_EN_CLR,
++					MT8192_TOP_AXI_PROT_EN_STA1),
++		},
++	},
++};
++
++static const struct scpsys_soc_data mt6789_scpsys_data = {
++	.domains_data = scpsys_domain_data_mt6789,
++	.num_domains = ARRAY_SIZE(scpsys_domain_data_mt6789),
++	.bus_prot_blocks = scpsys_bus_prot_blocks_mt6789,
++	.num_bus_prot_blocks = ARRAY_SIZE(scpsys_bus_prot_blocks_mt6789),
++};
++
++#endif /* __SOC_MEDIATEK_MT6789_PM_DOMAINS_H */
+diff --git a/drivers/pmdomain/mediatek/mtk-pm-domains.c b/drivers/pmdomain/mediatek/mtk-pm-domains.c
+index 5f85db3fc..5b21bc46b 100644
+--- a/drivers/pmdomain/mediatek/mtk-pm-domains.c
++++ b/drivers/pmdomain/mediatek/mtk-pm-domains.c
+@@ -19,6 +19,7 @@
+ #include <linux/soc/mediatek/mtk_sip_svc.h>
+ 
+ #include "mt6735-pm-domains.h"
++#include "mt6789-pm-domains.h"
+ #include "mt6795-pm-domains.h"
+ #include "mt6858-pm-domains.h"
+ #include "mt6893-pm-domains.h"
+@@ -1287,6 +1288,10 @@ static const struct of_device_id scpsys_of_match[] = {
+ 		.compatible = "mediatek,mt6735-power-controller",
+ 		.data = &mt6735_scpsys_data,
+ 	},
++	{
++		.compatible = "mediatek,mt6789-power-controller",
++		.data = &mt6789_scpsys_data,
++	},
+ 	{
+ 		.compatible = "mediatek,mt6795-power-controller",
+ 		.data = &mt6795_scpsys_data,
+-- 
+2.55.0
+

@@ -1,0 +1,27 @@
+From 13c85fb638f0cf23c281e0ad47184f34a51faadd Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 04:29:38 +0000
+Subject: [PATCH 01/11] dt-bindings: spi: mediatek: Add MT6789 compatible
+
+Document the mediatek,mt6789-spi compatible string in spi-mt65xx.yaml.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ Documentation/devicetree/bindings/spi/mediatek,spi-mt65xx.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/spi/mediatek,spi-mt65xx.yaml b/Documentation/devicetree/bindings/spi/mediatek,spi-mt65xx.yaml
+index 3bf3eb1f8..88369e56b 100644
+--- a/Documentation/devicetree/bindings/spi/mediatek,spi-mt65xx.yaml
++++ b/Documentation/devicetree/bindings/spi/mediatek,spi-mt65xx.yaml
+@@ -27,6 +27,7 @@ properties:
+       - items:
+           - enum:
+               - mediatek,mt6779-spi
++              - mediatek,mt6789-spi
+               - mediatek,mt8186-spi
+               - mediatek,mt8192-spi
+               - mediatek,mt8195-spi
+-- 
+2.55.0
+

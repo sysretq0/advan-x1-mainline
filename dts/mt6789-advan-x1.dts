@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * Advan X1 (MT6789) board device tree — clean redo.
+ * Device Tree Source for the Advan X1 smartphone (MediaTek MT6789).
  *
- * Board values from Advan X1 stock artifacts (extracted/v5/dtb/main_dtb_0.dts
- * and live /proc/iomem audits 2026-11-11). Structure: upstream board-dts
- * conventions. Booted at Non-Secure EL2 via upstream U-Boot (advan-x1-uboot),
- * which passes cmdline and initrd coordinates cleanly via libfdt.
+ * Copyright (c) 2026 sysretq0 <324514544+sysretq0@users.noreply.github.com>
  */
 
 /dts-v1/;
@@ -23,7 +20,6 @@
 	compatible = "advan,x1", "mediatek,mt6789";
 
 	chosen {
-		bootargs = "earlycon=uart8250,mmio32,0x11002000 console=ttyGS0,115200 console=tty0 nokaslr loglevel=7 rdinit=/init panic=5";
 		stdout-path = "serial0:115200n8";
 	};
 
@@ -42,7 +38,7 @@
 
 		/*
 		 * Constrain CMA below 4GB (0x100000000). MT6789 DISP_OVL0
-		 * only supports 32-bit physical addresses (.is_support_34bits = false).
+		 * only supports 32-bit physical addresses.
 		 */
 		linux,cma {
 			compatible = "shared-dma-pool";
@@ -52,12 +48,9 @@
 			linux,cma-default;
 		};
 
-		/* Stock ramoops carveout (matching Android cmdline geometry):
-		 * 896 KiB (0xe0000) window at 0x48090000:
-		 * dmesg: 143 * 4 KiB (0x8f000), console: 256 KiB (0x40000),
-		 * ftrace: 4 KiB (0x1000), pmsg: 64 KiB (0x10000).
-		 * Matching Android's exact layout ensures console-ramoops-0
-		 * aligns at 0x4811f000 without 4 KiB offset or interleaving. */
+		/*
+		 * Bootloader ramoops carveout: 896 KiB window at 0x48090000.
+		 */
 		ramoops@48090000 {
 			compatible = "ramoops";
 			reg = <0x00 0x48090000 0x00 0x000e0000>;
@@ -70,32 +63,19 @@
 		};
 	};
 
-	/* Memory: ONE verifiably clean window from live stock /proc/iomem
-	 * (2026-11-11): 0x140000000-0x2296fffff has zero reserved children.
-	 * Above it sit TZ/pKVM-class reservations to 0x23fffefff; device is
-	 * 8 GB total, stock MemTotal 7.49 GiB. Do NOT widen without a fresh
-	 * iomem audit. The stock ramoops hole is declared as memory + reserved
-	 * above. */
 	memory@48090000 {
 		device_type = "memory";
-		reg = <0x00 0x48090000 0x00 0x000e0000>; /* 896 KiB stock ramoops hole */
+		reg = <0x00 0x48090000 0x00 0x000e0000>;
 	};
 
-	/* Kernel staging region: loader drops the Image at 0x61000000 (2 MiB
-	 * aligned); the arm64 kernel needs its load address inside a declared
-	 * memory region or the linear map never covers its own image (first
-	 * boot silence, 2026-11-11: silent hang + 30 s WDT). image_size
-	 * 0x54a0000 (84.6 MiB) fits with margin; top 0x69000000 stays below
-	 * the stock hole at 0x70000000-0x76bfffff. Loader image/stack/DTB
-	 * staging (0x60000000-0x61000000) stay outside on purpose. */
 	memory@61000000 {
 		device_type = "memory";
-		reg = <0x00 0x61000000 0x00 0x0e000000>; /* 224 MiB */
+		reg = <0x00 0x61000000 0x00 0x0e000000>;
 	};
 
 	memory@140000000 {
 		device_type = "memory";
-		reg = <0x01 0x40000000 0x00 0xe9700000>; /* 3.64 GiB clean window */
+		reg = <0x01 0x40000000 0x00 0xe9700000>;
 	};
 };
 
@@ -120,32 +100,6 @@
 	pinctrl-0 = <&spi0_pins>;
 	mediatek,pad-select = <0>;
 	status = "okay";
-
-	touchscreen@0 {
-		compatible = "chipone-tddi";
-		reg = <0>;
-		spi-max-frequency = <3000000>;
-		spi-cpha;
-		spi-cpol;
-		interrupt-parent = <&pio>;
-		interrupts = <9 IRQ_TYPE_EDGE_FALLING>;
-		chipone,x-res = <1080>;
-		chipone,y-res = <2460>;
-		status = "okay";
-	};
-};
-
-&spi5 {
-	pinctrl-names = "default";
-	pinctrl-0 = <&spi5_pins>;
-	mediatek,pad-select = <0>;
-	status = "okay";
-
-	spidev5: spidev@0 {
-		compatible = "rohm,dh2228fv";
-		reg = <0>;
-		spi-max-frequency = <8000000>;
-	};
 };
 
 &i2c0 {

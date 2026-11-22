@@ -1,0 +1,75 @@
+From 6193d1e6422d16b1a95d3ffafc1b31eb9b4feff2 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 04:29:31 +0000
+Subject: [PATCH 01/11] dt-bindings: power: mediatek: Add MT6789 power domains
+
+Add devicetree bindings and power domain ID header for the MediaTek
+MT6789 SCPSYS power controller.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ .../bindings/mfd/mediatek,mt8195-scpsys.yaml  |  1 +
+ .../power/mediatek,power-controller.yaml      |  1 +
+ include/dt-bindings/power/mt6789-power.h      | 26 +++++++++++++++++++
+ 3 files changed, 28 insertions(+)
+ create mode 100644 include/dt-bindings/power/mt6789-power.h
+
+diff --git a/Documentation/devicetree/bindings/mfd/mediatek,mt8195-scpsys.yaml b/Documentation/devicetree/bindings/mfd/mediatek,mt8195-scpsys.yaml
+index 9f073d0c2..3f080cdba 100644
+--- a/Documentation/devicetree/bindings/mfd/mediatek,mt8195-scpsys.yaml
++++ b/Documentation/devicetree/bindings/mfd/mediatek,mt8195-scpsys.yaml
+@@ -19,6 +19,7 @@ properties:
+   compatible:
+     items:
+       - enum:
++          - mediatek,mt6789-scpsys
+           - mediatek,mt6795-scpsys
+           - mediatek,mt6893-scpsys
+           - mediatek,mt8167-scpsys
+diff --git a/Documentation/devicetree/bindings/power/mediatek,power-controller.yaml b/Documentation/devicetree/bindings/power/mediatek,power-controller.yaml
+index d03e4a925..43a425a4d 100644
+--- a/Documentation/devicetree/bindings/power/mediatek,power-controller.yaml
++++ b/Documentation/devicetree/bindings/power/mediatek,power-controller.yaml
+@@ -24,6 +24,7 @@ properties:
+   compatible:
+     enum:
+       - mediatek,mt6735-power-controller
++      - mediatek,mt6789-power-controller
+       - mediatek,mt6795-power-controller
+       - mediatek,mt6858-power-controller
+       - mediatek,mt6893-power-controller
+diff --git a/include/dt-bindings/power/mt6789-power.h b/include/dt-bindings/power/mt6789-power.h
+new file mode 100644
+index 000000000..bafc3638c
+--- /dev/null
++++ b/include/dt-bindings/power/mt6789-power.h
+@@ -0,0 +1,26 @@
++/* SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause) */
++/*
++ * Copyright (c) 2022 MediaTek Inc.
++ */
++
++#ifndef _DT_BINDINGS_POWER_MT6789_POWER_H
++#define _DT_BINDINGS_POWER_MT6789_POWER_H
++
++#define MT6789_POWER_DOMAIN_MD				0
++#define MT6789_POWER_DOMAIN_CONN			1
++#define MT6789_POWER_DOMAIN_MFG0			2
++#define MT6789_POWER_DOMAIN_MFG1			3
++#define MT6789_POWER_DOMAIN_MFG2			4
++#define MT6789_POWER_DOMAIN_MFG3			5
++#define MT6789_POWER_DOMAIN_ISP				6
++#define MT6789_POWER_DOMAIN_IPE				7
++#define MT6789_POWER_DOMAIN_VDEC			8
++#define MT6789_POWER_DOMAIN_VENC			9
++#define MT6789_POWER_DOMAIN_DISP			10
++#define MT6789_POWER_DOMAIN_AUDIO			11
++#define MT6789_POWER_DOMAIN_CAM				12
++#define MT6789_POWER_DOMAIN_CAM_RAWA			13
++#define MT6789_POWER_DOMAIN_CAM_RAWB			14
++#define MT6789_POWER_DOMAIN_NR				15
++
++#endif /* _DT_BINDINGS_POWER_MT6789_POWER_H */
+-- 
+2.55.0
+

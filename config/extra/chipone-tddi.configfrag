@@ -1,0 +1,2 @@
+# Optional out-of-tree Chipone TDDI touchscreen driver (use with INCLUDE_EXTRA=1)
+CONFIG_TOUCHSCREEN_CHIPONE_TDDI=y

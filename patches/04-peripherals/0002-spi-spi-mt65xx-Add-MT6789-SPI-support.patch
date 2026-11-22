@@ -1,0 +1,29 @@
+From dea2206f819f6e007e6753d16c24132a00806587 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 04:29:38 +0000
+Subject: [PATCH 02/11] spi: spi-mt65xx: Add MT6789 SPI support
+
+Add mediatek,mt6789-spi match entry to spi-mt65xx.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/spi/spi-mt65xx.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/spi/spi-mt65xx.c b/drivers/spi/spi-mt65xx.c
+index 8b4deef91..3d681d0ba 100644
+--- a/drivers/spi/spi-mt65xx.c
++++ b/drivers/spi/spi-mt65xx.c
+@@ -253,6 +253,9 @@ static const struct of_device_id mtk_spi_of_match[] = {
+ 	{ .compatible = "mediatek,mt6765-spi",
+ 		.data = (void *)&mt6765_compat,
+ 	},
++	{ .compatible = "mediatek,mt6789-spi",
++		.data = (void *)&mt6765_compat,
++	},
+ 	{ .compatible = "mediatek,mt6991-spi",
+ 		.data = (void *)&mt6991_compat,
+ 	},
+-- 
+2.55.0
+

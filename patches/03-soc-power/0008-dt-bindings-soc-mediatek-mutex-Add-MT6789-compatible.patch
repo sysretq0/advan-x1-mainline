@@ -1,0 +1,29 @@
+From e2223f35e400a71b2942c26f0e5bd8438a25d211 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 04:29:35 +0000
+Subject: [PATCH 08/11] dt-bindings: soc: mediatek: mutex: Add MT6789
+ compatible
+
+Document the mediatek,mt6789-disp-mutex compatible string in the
+MediaTek display mutex devicetree binding.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ .../devicetree/bindings/soc/mediatek/mediatek,mutex.yaml         | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/soc/mediatek/mediatek,mutex.yaml b/Documentation/devicetree/bindings/soc/mediatek/mediatek,mutex.yaml
+index 1ba086ad7..4a444f31a 100644
+--- a/Documentation/devicetree/bindings/soc/mediatek/mediatek,mutex.yaml
++++ b/Documentation/devicetree/bindings/soc/mediatek/mediatek,mutex.yaml
+@@ -29,6 +29,7 @@ properties:
+     enum:
+       - mediatek,mt2701-disp-mutex
+       - mediatek,mt2712-disp-mutex
++      - mediatek,mt6789-disp-mutex
+       - mediatek,mt6795-disp-mutex
+       - mediatek,mt8167-disp-mutex
+       - mediatek,mt8173-disp-mutex
+-- 
+2.55.0
+

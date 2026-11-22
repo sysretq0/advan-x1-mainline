@@ -1,0 +1,29 @@
+From fb88551043612c0b8a800f74fe9c885428f69758 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 04:29:53 +0000
+Subject: [PATCH 1/7] dt-bindings: phy: mediatek: dsi-phy: Add MT6789
+ compatible
+
+Document the mediatek,mt6789-mipi-tx compatible string in
+mediatek,dsi-phy.yaml.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ Documentation/devicetree/bindings/phy/mediatek,dsi-phy.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/phy/mediatek,dsi-phy.yaml b/Documentation/devicetree/bindings/phy/mediatek,dsi-phy.yaml
+index 9df1dbe12..134a30123 100644
+--- a/Documentation/devicetree/bindings/phy/mediatek,dsi-phy.yaml
++++ b/Documentation/devicetree/bindings/phy/mediatek,dsi-phy.yaml
+@@ -31,6 +31,7 @@ properties:
+           - const: mediatek,mt8173-mipi-tx
+       - items:
+           - enum:
++              - mediatek,mt6789-mipi-tx
+               - mediatek,mt6893-mipi-tx
+               - mediatek,mt8188-mipi-tx
+               - mediatek,mt8195-mipi-tx
+-- 
+2.55.0
+

@@ -1,0 +1,28 @@
+From ab7df16b9e7995ec7291cb8c7940561d05f4d488 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 04:29:48 +0000
+Subject: [PATCH 10/11] dt-bindings: pwm: mediatek: disp: Add MT6789 compatible
+
+Document the mediatek,mt6789-disp-pwm compatible string in
+mediatek,pwm-disp.yaml.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ Documentation/devicetree/bindings/pwm/mediatek,pwm-disp.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/pwm/mediatek,pwm-disp.yaml b/Documentation/devicetree/bindings/pwm/mediatek,pwm-disp.yaml
+index 68ef30414..9222895db 100644
+--- a/Documentation/devicetree/bindings/pwm/mediatek,pwm-disp.yaml
++++ b/Documentation/devicetree/bindings/pwm/mediatek,pwm-disp.yaml
+@@ -18,6 +18,7 @@ properties:
+       - enum:
+           - mediatek,mt2701-disp-pwm
+           - mediatek,mt6595-disp-pwm
++          - mediatek,mt6789-disp-pwm
+           - mediatek,mt8173-disp-pwm
+           - mediatek,mt8183-disp-pwm
+       - items:
+-- 
+2.55.0
+

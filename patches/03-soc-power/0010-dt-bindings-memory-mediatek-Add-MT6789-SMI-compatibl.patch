@@ -1,0 +1,58 @@
+From 000a4f2db9a0e2b38208bf025f5687fda23cbd0e Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 04:29:36 +0000
+Subject: [PATCH 10/11] dt-bindings: memory: mediatek: Add MT6789 SMI
+ compatibles
+
+Document mediatek,mt6789-smi-common and mediatek,mt6789-smi-larb
+compatibles in the MediaTek SMI devicetree bindings.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ .../bindings/memory-controllers/mediatek,smi-common.yaml        | 2 ++
+ .../bindings/memory-controllers/mediatek,smi-larb.yaml          | 2 ++
+ 2 files changed, 4 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/memory-controllers/mediatek,smi-common.yaml b/Documentation/devicetree/bindings/memory-controllers/mediatek,smi-common.yaml
+index 33c989f7f..83c432268 100644
+--- a/Documentation/devicetree/bindings/memory-controllers/mediatek,smi-common.yaml
++++ b/Documentation/devicetree/bindings/memory-controllers/mediatek,smi-common.yaml
+@@ -47,6 +47,7 @@ properties:
+           - mediatek,mt2701-smi-common
+           - mediatek,mt2712-smi-common
+           - mediatek,mt6779-smi-common
++          - mediatek,mt6789-smi-common
+           - mediatek,mt6795-smi-common
+           - mediatek,mt6893-smi-common
+           - mediatek,mt8167-smi-common
+@@ -148,6 +149,7 @@ allOf:
+         compatible:
+           enum:
+             - mediatek,mt6779-smi-common
++            - mediatek,mt6789-smi-common
+             - mediatek,mt8183-smi-common
+             - mediatek,mt8186-smi-common
+             - mediatek,mt8192-smi-common
+diff --git a/Documentation/devicetree/bindings/memory-controllers/mediatek,smi-larb.yaml b/Documentation/devicetree/bindings/memory-controllers/mediatek,smi-larb.yaml
+index 9a5dafd7c..f20de26e4 100644
+--- a/Documentation/devicetree/bindings/memory-controllers/mediatek,smi-larb.yaml
++++ b/Documentation/devicetree/bindings/memory-controllers/mediatek,smi-larb.yaml
+@@ -20,6 +20,7 @@ properties:
+           - mediatek,mt2701-smi-larb
+           - mediatek,mt2712-smi-larb
+           - mediatek,mt6779-smi-larb
++          - mediatek,mt6789-smi-larb
+           - mediatek,mt6795-smi-larb
+           - mediatek,mt6893-smi-larb
+           - mediatek,mt8167-smi-larb
+@@ -119,6 +120,7 @@ allOf:
+               - mediatek,mt2701-smi-larb
+               - mediatek,mt2712-smi-larb
+               - mediatek,mt6779-smi-larb
++              - mediatek,mt6789-smi-larb
+               - mediatek,mt8186-smi-larb
+               - mediatek,mt8188-smi-larb
+               - mediatek,mt8189-smi-larb
+-- 
+2.55.0
+

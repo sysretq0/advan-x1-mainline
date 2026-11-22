@@ -1,0 +1,27 @@
+From eb57935d5f8314043b2b94690143c80f3ce37f76 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 04:29:39 +0000
+Subject: [PATCH 03/11] dt-bindings: i2c: mt65xx: Add MT6789 compatible
+
+Document the mediatek,mt6789-i2c compatible string in i2c-mt65xx.yaml.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ Documentation/devicetree/bindings/i2c/i2c-mt65xx.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/i2c/i2c-mt65xx.yaml b/Documentation/devicetree/bindings/i2c/i2c-mt65xx.yaml
+index ecd5783f0..897a82d06 100644
+--- a/Documentation/devicetree/bindings/i2c/i2c-mt65xx.yaml
++++ b/Documentation/devicetree/bindings/i2c/i2c-mt65xx.yaml
+@@ -22,6 +22,7 @@ properties:
+       - const: mediatek,mt2712-i2c
+       - const: mediatek,mt6577-i2c
+       - const: mediatek,mt6589-i2c
++      - const: mediatek,mt6789-i2c
+       - const: mediatek,mt7622-i2c
+       - const: mediatek,mt7981-i2c
+       - const: mediatek,mt7986-i2c
+-- 
+2.55.0
+

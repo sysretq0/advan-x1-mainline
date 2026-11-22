@@ -1,0 +1,29 @@
+From dc08ae6529c0e8b7acd5101c8e9a47bbf369a3f5 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 04:29:41 +0000
+Subject: [PATCH 05/11] dt-bindings: nvmem: mediatek: efuse: Add MT6789
+ compatible
+
+Document the mediatek,mt6789-efuse compatible string in
+mediatek,efuse.yaml.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ Documentation/devicetree/bindings/nvmem/mediatek,efuse.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/nvmem/mediatek,efuse.yaml b/Documentation/devicetree/bindings/nvmem/mediatek,efuse.yaml
+index f9323b3ec..5f24fa4cb 100644
+--- a/Documentation/devicetree/bindings/nvmem/mediatek,efuse.yaml
++++ b/Documentation/devicetree/bindings/nvmem/mediatek,efuse.yaml
+@@ -44,6 +44,7 @@ properties:
+ 
+       - items:
+           - enum:
++              - mediatek,mt6789-efuse
+               - mediatek,mt7622-efuse
+               - mediatek,mt7623-efuse
+               - mediatek,mt7981-efuse
+-- 
+2.55.0
+

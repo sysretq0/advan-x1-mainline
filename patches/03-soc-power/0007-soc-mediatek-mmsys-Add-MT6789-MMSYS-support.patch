@@ -1,0 +1,130 @@
+From f1b5d848a23f1487bb8566dc2246b70d0401ec20 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 04:29:34 +0000
+Subject: [PATCH 07/11] soc: mediatek: mmsys: Add MT6789 MMSYS support
+
+Add MT6789 MMSYS routing table and platform data to mtk-mmsys for the
+OVL0 -> RDMA0 -> COLOR0 -> CCORR0 -> AAL0 -> GAMMA0 -> POSTMASK0 ->
+DITHER0 -> DSC_WRAP0 -> DSI0 display pipeline.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/soc/mediatek/mt6789-mmsys.h | 70 +++++++++++++++++++++++++++++
+ drivers/soc/mediatek/mtk-mmsys.c    | 10 +++++
+ 2 files changed, 80 insertions(+)
+ create mode 100644 drivers/soc/mediatek/mt6789-mmsys.h
+
+diff --git a/drivers/soc/mediatek/mt6789-mmsys.h b/drivers/soc/mediatek/mt6789-mmsys.h
+new file mode 100644
+index 000000000..5815739df
+--- /dev/null
++++ b/drivers/soc/mediatek/mt6789-mmsys.h
+@@ -0,0 +1,70 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++
++#ifndef __SOC_MEDIATEK_MT6789_MMSYS_H
++#define __SOC_MEDIATEK_MT6789_MMSYS_H
++
++#define MT6789_MMSYS_SW0_RST_B				0x160
++
++#define MT6789_MMSYS_OVL_CON				0xF04
++#define MT6789_MMSYS_OVL0_CON_MASK			0x3
++#define MT6789_OVL0_GO_BLEND				BIT(0)
++
++#define MT6789_DISP_RDMA0_SOUT_SEL			0xF0C
++#define MT6789_RDMA0_SOUT_SEL_MASK			0xF
++#define MT6789_RDMA0_SOUT_TO_DSI0			0
++#define MT6789_RDMA0_SOUT_TO_COLOR0			1
++
++#define MT6789_DISP_OVL0_MOUT_EN			0xF18
++#define MT6789_OVL0_MOUT_EN_MASK			0xF
++#define MT6789_OVL0_MOUT_TO_RDMA0			BIT(0)
++
++#define MT6789_DISP_DITHER0_MOUT_EN			0xF20
++#define MT6789_DITHER0_MOUT_EN_MASK			0xF
++#define MT6789_DITHER0_MOUT_TO_DSI0			BIT(0)
++#define MT6789_DITHER0_MOUT_TO_DSC0			BIT(2)
++
++#define MT6789_DISP_RDMA0_SEL_IN			0xF28
++#define MT6789_RDMA0_SEL_IN_MASK			0xF
++#define MT6789_RDMA0_FROM_OVL0				0
++
++#define MT6789_DISP_DSI0_SEL_IN				0xF30
++#define MT6789_DSI0_SEL_IN_MASK				0xF
++#define MT6789_DSI0_FROM_RDMA0				0
++#define MT6789_DSI0_FROM_DITHER0			1
++#define MT6789_DSI0_FROM_DSC0				2
++
++#define MT6789_DISP_DSC_WRAP0_MOUT_EN			0xF38
++#define MT6789_DSC_WRAP0_MOUT_EN_MASK			0xF
++#define MT6789_DSC_WRAP0_MOUT_TO_DSI0			BIT(1)
++
++static const struct mtk_mmsys_routes mmsys_mt6789_routing_table[] = {
++	MMSYS_ROUTE(OVL, 0, RDMA, 0,
++		    MT6789_DISP_OVL0_MOUT_EN, MT6789_OVL0_MOUT_EN_MASK,
++		    MT6789_OVL0_MOUT_TO_RDMA0),
++	MMSYS_ROUTE(OVL, 0, RDMA, 0,
++		    MT6789_DISP_RDMA0_SEL_IN, MT6789_RDMA0_SEL_IN_MASK,
++		    MT6789_RDMA0_FROM_OVL0),
++	MMSYS_ROUTE(OVL, 0, RDMA, 0,
++		    MT6789_MMSYS_OVL_CON, MT6789_MMSYS_OVL0_CON_MASK,
++		    MT6789_OVL0_GO_BLEND),
++	MMSYS_ROUTE(RDMA, 0, COLOR, 0,
++		    MT6789_DISP_RDMA0_SOUT_SEL, MT6789_RDMA0_SOUT_SEL_MASK,
++		    MT6789_RDMA0_SOUT_TO_COLOR0),
++	MMSYS_ROUTE(DITHER, 0, DSI, 0,
++		    MT6789_DISP_DITHER0_MOUT_EN, MT6789_DITHER0_MOUT_EN_MASK,
++		    MT6789_DITHER0_MOUT_TO_DSI0),
++	MMSYS_ROUTE(DITHER, 0, DSI, 0,
++		    MT6789_DISP_DSI0_SEL_IN, MT6789_DSI0_SEL_IN_MASK,
++		    MT6789_DSI0_FROM_DITHER0),
++	MMSYS_ROUTE(DITHER, 0, DSC, 0,
++		    MT6789_DISP_DITHER0_MOUT_EN, MT6789_DITHER0_MOUT_EN_MASK,
++		    MT6789_DITHER0_MOUT_TO_DSC0),
++	MMSYS_ROUTE(DSC, 0, DSI, 0,
++		    MT6789_DISP_DSC_WRAP0_MOUT_EN, MT6789_DSC_WRAP0_MOUT_EN_MASK,
++		    MT6789_DSC_WRAP0_MOUT_TO_DSI0),
++	MMSYS_ROUTE(DSC, 0, DSI, 0,
++		    MT6789_DISP_DSI0_SEL_IN, MT6789_DSI0_SEL_IN_MASK,
++		    MT6789_DSI0_FROM_DSC0),
++};
++
++#endif /* __SOC_MEDIATEK_MT6789_MMSYS_H */
+diff --git a/drivers/soc/mediatek/mtk-mmsys.c b/drivers/soc/mediatek/mtk-mmsys.c
+index bfcd93830..df36f2430 100644
+--- a/drivers/soc/mediatek/mtk-mmsys.c
++++ b/drivers/soc/mediatek/mtk-mmsys.c
+@@ -14,6 +14,7 @@
+ #include <linux/soc/mediatek/mtk-mmsys.h>
+ 
+ #include "mtk-mmsys.h"
++#include "mt6789-mmsys.h"
+ #include "mt8167-mmsys.h"
+ #include "mt8173-mmsys.h"
+ #include "mt8183-mmsys.h"
+@@ -67,6 +68,14 @@ static const struct mtk_mmsys_driver_data mt8173_mmsys_driver_data = {
+ 	.num_resets = 64,
+ };
+ 
++static const struct mtk_mmsys_driver_data mt6789_mmsys_driver_data = {
++	.clk_driver = "clk-mt6789-mm",
++	.routes = mmsys_mt6789_routing_table,
++	.num_routes = ARRAY_SIZE(mmsys_mt6789_routing_table),
++	.sw0_rst_offset = MT6789_MMSYS_SW0_RST_B,
++	.num_resets = 32,
++};
++
+ static const struct mtk_mmsys_driver_data mt8183_mmsys_driver_data = {
+ 	.clk_driver = "clk-mt8183-mm",
+ 	.routes = mmsys_mt8183_routing_table,
+@@ -461,6 +470,7 @@ static const struct of_device_id of_match_mtk_mmsys[] = {
+ 	{ .compatible = "mediatek,mt2701-mmsys", .data = &mt2701_mmsys_driver_data },
+ 	{ .compatible = "mediatek,mt2712-mmsys", .data = &mt2712_mmsys_driver_data },
+ 	{ .compatible = "mediatek,mt6779-mmsys", .data = &mt6779_mmsys_driver_data },
++	{ .compatible = "mediatek,mt6789-mmsys", .data = &mt6789_mmsys_driver_data },
+ 	{ .compatible = "mediatek,mt6795-mmsys", .data = &mt6795_mmsys_driver_data },
+ 	{ .compatible = "mediatek,mt6797-mmsys", .data = &mt6797_mmsys_driver_data },
+ 	{ .compatible = "mediatek,mt8167-mmsys", .data = &mt8167_mmsys_driver_data },
+-- 
+2.55.0
+

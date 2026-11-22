@@ -1,0 +1,114 @@
+From 2342bac832721bbf26cc123fc263555107353a56 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 04:29:46 +0000
+Subject: [PATCH 09/11] thermal/drivers/mediatek/lvts: Add MT6789 support
+
+Add LVTS thermal controller data and OF match entry for the MediaTek
+MT6789 SoC (4 controllers, 13 sensors in filtered mode).
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/thermal/mediatek/lvts_thermal.c | 73 +++++++++++++++++++++++++
+ 1 file changed, 73 insertions(+)
+
+diff --git a/drivers/thermal/mediatek/lvts_thermal.c b/drivers/thermal/mediatek/lvts_thermal.c
+index 16caaf4b3..4e0a6bebc 100644
+--- a/drivers/thermal/mediatek/lvts_thermal.c
++++ b/drivers/thermal/mediatek/lvts_thermal.c
+@@ -1626,6 +1626,63 @@ static const u32 mt7988_init_cmds[] = {
+  *
+  * Hence the rather confusing offsets provided below.
+  */
++static const struct lvts_ctrl_data mt6789_lvts_data_ctrl[] = {
++	{
++		.lvts_sensor = {
++			{ .dt_id = MT6789_LITTLE_CPU0,
++			  .cal_offsets = { 4, 5 } },
++			{ .dt_id = MT6789_LITTLE_CPU1,
++			  .cal_offsets = { 6, 7 } },
++			{ .dt_id = MT6789_LITTLE_CPU2,
++			  .cal_offsets = { 8, 9 } },
++			{ .dt_id = MT6789_LITTLE_CPU3,
++			  .cal_offsets = { 10, 11 } }
++		},
++		VALID_SENSOR_MAP(1, 1, 1, 1),
++		.offset = 0x0,
++		.mode = LVTS_MSR_FILTERED_MODE,
++	},
++	{
++		.lvts_sensor = {
++			{ .dt_id = MT6789_BIG_CPU0,
++			  .cal_offsets = { 12, 13 } },
++			{ .dt_id = MT6789_BIG_CPU1,
++			  .cal_offsets = { 14, 15 } },
++			{ .dt_id = MT6789_BIG_CPU2,
++			  .cal_offsets = { 16, 17 } },
++			{ .dt_id = MT6789_BIG_CPU3,
++			  .cal_offsets = { 18, 19 } }
++		},
++		VALID_SENSOR_MAP(1, 1, 1, 1),
++		.offset = 0x100,
++		.mode = LVTS_MSR_FILTERED_MODE,
++	},
++	{
++		.lvts_sensor = {
++			{ .dt_id = MT6789_GPU0,
++			  .cal_offsets = { 20, 21 } },
++			{ .dt_id = MT6789_GPU1,
++			  .cal_offsets = { 22, 23 } },
++			{ .dt_id = MT6789_SOC0,
++			  .cal_offsets = { 24, 25 } },
++			{ .dt_id = MT6789_SOC1,
++			  .cal_offsets = { 26, 27 } }
++		},
++		VALID_SENSOR_MAP(1, 1, 1, 1),
++		.offset = 0x200,
++		.mode = LVTS_MSR_FILTERED_MODE,
++	},
++	{
++		.lvts_sensor = {
++			{ .dt_id = MT6789_MD,
++			  .cal_offsets = { 28, 29 } }
++		},
++		VALID_SENSOR_MAP(1, 0, 0, 0),
++		.offset = 0x300,
++		.mode = LVTS_MSR_FILTERED_MODE,
++	}
++};
++
+ static const struct lvts_ctrl_data mt8186_lvts_data_ctrl[] = {
+ 	{
+ 		.lvts_sensor = {
+@@ -2037,6 +2094,21 @@ static const struct lvts_data mt7988_lvts_ap_data = {
+ 	.ops = &lvts_platform_ops_mt7988,
+ };
+ 
++static const struct lvts_data mt6789_lvts_data = {
++	.lvts_ctrl	= mt6789_lvts_data_ctrl,
++	.conn_cmd	= default_conn_cmds,
++	.init_cmd	= default_init_cmds,
++	.num_lvts_ctrl	= ARRAY_SIZE(mt6789_lvts_data_ctrl),
++	.num_conn_cmd	= ARRAY_SIZE(default_conn_cmds),
++	.num_init_cmd	= ARRAY_SIZE(default_init_cmds),
++	.temp_factor	= LVTS_COEFF_A_MT8195,
++	.temp_offset	= LVTS_COEFF_B_MT8195,
++	.gt_calib_bit_offset = 24,
++	.def_calibration = 35000,
++	.num_cal_offsets = LVTS_NUM_CAL_OFFSETS_MT8196,
++	.ops = &lvts_platform_ops_mt7988,
++};
++
+ static const struct lvts_data mt8186_lvts_data = {
+ 	.lvts_ctrl	= mt8186_lvts_data_ctrl,
+ 	.conn_cmd	= default_conn_cmds,
+@@ -2167,6 +2239,7 @@ static const struct lvts_data mt8196_lvts_ap_data = {
+ };
+ 
+ static const struct of_device_id lvts_of_match[] = {
++	{ .compatible = "mediatek,mt6789-lvts", .data = &mt6789_lvts_data },
+ 	{ .compatible = "mediatek,mt7987-lvts-ap", .data = &mt7987_lvts_ap_data },
+ 	{ .compatible = "mediatek,mt7988-lvts-ap", .data = &mt7988_lvts_ap_data },
+ 	{ .compatible = "mediatek,mt8186-lvts", .data = &mt8186_lvts_data },
+-- 
+2.55.0
+

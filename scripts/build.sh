@@ -50,15 +50,27 @@ else
 fi
 cd "$WORK"
 
-for p in "$REPO"/patches/*.patch; do
-    [ -e "$p" ] || { echo "no patches"; break; }
-    echo "  apply $(basename "$p")"
+for p in "$REPO"/patches/*/*.patch "$REPO"/patches/*.patch; do
+    [ -e "$p" ] || continue
+    echo "  apply ${p#"$REPO"/}"
     git apply --whitespace=nowarn "$p"
 done
 
+if [ "${INCLUDE_EXTRA:-0}" = "1" ]; then
+    for p in "$REPO"/patches-extra/*.patch; do
+        [ -e "$p" ] || continue
+        echo "  apply ${p#"$REPO"/}"
+        git apply --whitespace=nowarn "$p"
+    done
+fi
+
 echo "== config: defconfig + frags =="
 make defconfig O="$OUT" LLVM=1 >/dev/null
-scripts/kconfig/merge_config.sh -m -O "$OUT" "$OUT/.config" "$REPO"/config/*.configfrag >/dev/null
+EXTRA_FRAGS=()
+if [ "${INCLUDE_EXTRA:-0}" = "1" ] && compgen -G "$REPO/config/extra/*.configfrag" >/dev/null; then
+    EXTRA_FRAGS=("$REPO"/config/extra/*.configfrag)
+fi
+scripts/kconfig/merge_config.sh -m -O "$OUT" "$OUT/.config" "$REPO"/config/*.configfrag "${EXTRA_FRAGS[@]}" >/dev/null
 make -j"$JOBS" O="$OUT" olddefconfig LLVM=1 >/dev/null
 
 # verify critical symbols land
@@ -88,7 +100,7 @@ echo "== dtb =="
 PDTB="$OUT/advan_x1.dts.tmp"
 clang -E -nostdinc -undef -D__DTS__ -x assembler-with-cpp \
     -I "$WORK/include" -I "$WORK/include/dt-bindings" -I "$WORK/arch/arm64/boot/dts" \
-    "$REPO/dts/mt6789-advan-x1.dts" -o "$PDTB"
+    "$WORK/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts" -o "$PDTB"
 "$OUT/scripts/dtc/dtc" -I dts -O dtb -o "$OUT/mt6789-advan-x1.dtb" "$PDTB"
 rm -f "$PDTB"
 dtc -I dtb -O dts -o /dev/null "$OUT/mt6789-advan-x1.dtb" && echo "dtb roundtrip ok"

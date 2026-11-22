@@ -1,0 +1,64 @@
+From c6688d5e7b07e8ba6328336b18f3f1f064d34f06 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 04:29:32 +0000
+Subject: [PATCH 04/11] soc: mediatek: pwrap: Add MT6789 PMIC wrapper support
+
+Add MT6789 PMIC wrapper register map and platform data to
+mtk-pmic-wrap for communicating with the MT6366/MT6358 PMIC.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/soc/mediatek/mtk-pmic-wrap.c | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/drivers/soc/mediatek/mtk-pmic-wrap.c b/drivers/soc/mediatek/mtk-pmic-wrap.c
+index 90677187c..23c913cbd 100644
+--- a/drivers/soc/mediatek/mtk-pmic-wrap.c
++++ b/drivers/soc/mediatek/mtk-pmic-wrap.c
+@@ -1316,6 +1316,7 @@ enum pwrap_type {
+ 	PWRAP_MT2701,
+ 	PWRAP_MT6765,
+ 	PWRAP_MT6779,
++	PWRAP_MT6789,
+ 	PWRAP_MT6795,
+ 	PWRAP_MT6797,
+ 	PWRAP_MT6873,
+@@ -1852,6 +1853,7 @@ static int pwrap_init_cipher(struct pmic_wrapper *wrp)
+ 	case PWRAP_MT7622:
+ 		pwrap_writel(wrp, 0, PWRAP_CIPHER_EN);
+ 		break;
++	case PWRAP_MT6789:
+ 	case PWRAP_MT6873:
+ 	case PWRAP_MT8183:
+ 	case PWRAP_MT8195:
+@@ -2302,6 +2304,19 @@ static const struct pmic_wrapper_type pwrap_mt6779 = {
+ 	.init_soc_specific = NULL,
+ };
+ 
++static const struct pmic_wrapper_type pwrap_mt6789 = {
++	.regs = mt8195_regs,
++	.type = PWRAP_MT6789,
++	.arb_en_all = 0x777f,
++	.int_en_all = 0x180000,
++	.int1_en_all = 0,
++	.spi_w = PWRAP_MAN_CMD_SPI_WRITE,
++	.wdt_src = PWRAP_WDT_SRC_MASK_ALL,
++	.caps = PWRAP_CAP_ARB,
++	.init_reg_clock = pwrap_common_init_reg_clock,
++	.init_soc_specific = NULL,
++};
++
+ static const struct pmic_wrapper_type pwrap_mt6795 = {
+ 	.regs = mt6795_regs,
+ 	.type = PWRAP_MT6795,
+@@ -2448,6 +2463,7 @@ static const struct of_device_id of_pwrap_match_tbl[] = {
+ 	{ .compatible = "mediatek,mt2701-pwrap", .data = &pwrap_mt2701 },
+ 	{ .compatible = "mediatek,mt6765-pwrap", .data = &pwrap_mt6765 },
+ 	{ .compatible = "mediatek,mt6779-pwrap", .data = &pwrap_mt6779 },
++	{ .compatible = "mediatek,mt6789-pwrap", .data = &pwrap_mt6789 },
+ 	{ .compatible = "mediatek,mt6795-pwrap", .data = &pwrap_mt6795 },
+ 	{ .compatible = "mediatek,mt6797-pwrap", .data = &pwrap_mt6797 },
+ 	{ .compatible = "mediatek,mt6873-pwrap", .data = &pwrap_mt6873 },
+-- 
+2.55.0
+

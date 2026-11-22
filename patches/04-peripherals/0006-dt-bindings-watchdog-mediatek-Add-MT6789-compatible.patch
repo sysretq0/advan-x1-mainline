@@ -1,0 +1,28 @@
+From 89053abc5fee501c0688b5d440d0dd30540407a5 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 04:29:42 +0000
+Subject: [PATCH 06/11] dt-bindings: watchdog: mediatek: Add MT6789 compatible
+
+Document the mediatek,mt6789-wdt compatible string in
+mediatek,mtk-wdt.yaml.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ Documentation/devicetree/bindings/watchdog/mediatek,mtk-wdt.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/watchdog/mediatek,mtk-wdt.yaml b/Documentation/devicetree/bindings/watchdog/mediatek,mtk-wdt.yaml
+index f9b725592..b317d089b 100644
+--- a/Documentation/devicetree/bindings/watchdog/mediatek,mtk-wdt.yaml
++++ b/Documentation/devicetree/bindings/watchdog/mediatek,mtk-wdt.yaml
+@@ -37,6 +37,7 @@ properties:
+               - mediatek,mt2701-wdt
+               - mediatek,mt6572-wdt
+               - mediatek,mt6582-wdt
++              - mediatek,mt6789-wdt
+               - mediatek,mt6797-wdt
+               - mediatek,mt7622-wdt
+               - mediatek,mt7623-wdt
+-- 
+2.55.0
+

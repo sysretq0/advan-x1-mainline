@@ -1,0 +1,30 @@
+From 2b9143285573216e2e4cabc94c08c41c84cac30b Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 04:29:33 +0000
+Subject: [PATCH 05/11] soc: mediatek: regulator-coupler: Add MT6789 support
+
+Add mediatek,mt6789 to the MediaTek voltage regulator coupler match
+list so coupled GPU/SRAM rails track voltage constraints properly.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/soc/mediatek/mtk-regulator-coupler.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/soc/mediatek/mtk-regulator-coupler.c b/drivers/soc/mediatek/mtk-regulator-coupler.c
+index 1109e3d9a..7dee80baf 100644
+--- a/drivers/soc/mediatek/mtk-regulator-coupler.c
++++ b/drivers/soc/mediatek/mtk-regulator-coupler.c
+@@ -145,7 +145,8 @@ static struct mediatek_regulator_coupler mediatek_coupler = {
+ 
+ static int mediatek_regulator_coupler_init(void)
+ {
+-	if (!of_machine_is_compatible("mediatek,mt8183") &&
++	if (!of_machine_is_compatible("mediatek,mt6789") &&
++	    !of_machine_is_compatible("mediatek,mt8183") &&
+ 	    !of_machine_is_compatible("mediatek,mt8186") &&
+ 	    !of_machine_is_compatible("mediatek,mt8188") &&
+ 	    !of_machine_is_compatible("mediatek,mt8189") &&
+-- 
+2.55.0
+

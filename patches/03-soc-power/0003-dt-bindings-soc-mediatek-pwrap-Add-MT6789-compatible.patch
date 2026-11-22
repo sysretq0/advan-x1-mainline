@@ -1,0 +1,37 @@
+From f9d23c877f42dce0dfc723edfafed894e77d9179 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 04:29:32 +0000
+Subject: [PATCH 03/11] dt-bindings: soc: mediatek: pwrap: Add MT6789
+ compatible
+
+Document the mediatek,mt6789-pwrap compatible string in the MediaTek
+PMIC wrapper devicetree binding.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ .../devicetree/bindings/soc/mediatek/mediatek,pwrap.yaml        | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/soc/mediatek/mediatek,pwrap.yaml b/Documentation/devicetree/bindings/soc/mediatek/mediatek,pwrap.yaml
+index 79b755858..530b617ff 100644
+--- a/Documentation/devicetree/bindings/soc/mediatek/mediatek,pwrap.yaml
++++ b/Documentation/devicetree/bindings/soc/mediatek/mediatek,pwrap.yaml
+@@ -33,6 +33,7 @@ properties:
+               - mediatek,mt2701-pwrap
+               - mediatek,mt6765-pwrap
+               - mediatek,mt6779-pwrap
++              - mediatek,mt6789-pwrap
+               - mediatek,mt6795-pwrap
+               - mediatek,mt6797-pwrap
+               - mediatek,mt6873-pwrap
+@@ -46,6 +47,7 @@ properties:
+               - mediatek,mt8516-pwrap
+       - items:
+           - enum:
++              - mediatek,mt6789-pwrap
+               - mediatek,mt8186-pwrap
+               - mediatek,mt8195-pwrap
+           - const: syscon
+-- 
+2.55.0
+

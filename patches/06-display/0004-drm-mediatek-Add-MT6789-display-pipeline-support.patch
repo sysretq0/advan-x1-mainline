@@ -1,0 +1,238 @@
+From 56e057c72fbd3105632c0d87b36e9acf2631ee70 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 04:29:55 +0000
+Subject: [PATCH 4/7] drm/mediatek: Add MT6789 display pipeline support
+
+Add MediaTek MT6789 display subsystem match data across mtk_drm_drv
+and the DDP subdrivers (OVL, RDMA, COLOR, CCORR, AAL, GAMMA).
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/gpu/drm/mediatek/mtk_disp_aal.c   |  1 +
+ drivers/gpu/drm/mediatek/mtk_disp_ccorr.c |  2 +
+ drivers/gpu/drm/mediatek/mtk_disp_color.c |  2 +
+ drivers/gpu/drm/mediatek/mtk_disp_gamma.c |  2 +
+ drivers/gpu/drm/mediatek/mtk_disp_ovl.c   |  2 +
+ drivers/gpu/drm/mediatek/mtk_disp_rdma.c  |  2 +
+ drivers/gpu/drm/mediatek/mtk_drm_drv.c    | 45 +++++++++++++++++++++++
+ 7 files changed, 56 insertions(+)
+
+diff --git a/drivers/gpu/drm/mediatek/mtk_disp_aal.c b/drivers/gpu/drm/mediatek/mtk_disp_aal.c
+index 192c1a7d5..6790d747a 100644
+--- a/drivers/gpu/drm/mediatek/mtk_disp_aal.c
++++ b/drivers/gpu/drm/mediatek/mtk_disp_aal.c
+@@ -210,6 +210,7 @@ static const struct mtk_disp_aal_data mt8173_aal_driver_data = {
+ };
+ 
+ static const struct of_device_id mtk_disp_aal_driver_dt_match[] = {
++	{ .compatible = "mediatek,mt6789-disp-aal" },
+ 	{ .compatible = "mediatek,mt8173-disp-aal", .data = &mt8173_aal_driver_data },
+ 	{ .compatible = "mediatek,mt8183-disp-aal" },
+ 	{ /* sentinel */ }
+diff --git a/drivers/gpu/drm/mediatek/mtk_disp_ccorr.c b/drivers/gpu/drm/mediatek/mtk_disp_ccorr.c
+index 5f64a0a6e..631c8bbcc 100644
+--- a/drivers/gpu/drm/mediatek/mtk_disp_ccorr.c
++++ b/drivers/gpu/drm/mediatek/mtk_disp_ccorr.c
+@@ -178,6 +178,8 @@ static const struct mtk_disp_ccorr_data mt8192_ccorr_driver_data = {
+ };
+ 
+ static const struct of_device_id mtk_disp_ccorr_driver_dt_match[] = {
++	{ .compatible = "mediatek,mt6789-disp-ccorr",
++	  .data = &mt8192_ccorr_driver_data},
+ 	{ .compatible = "mediatek,mt8183-disp-ccorr",
+ 	  .data = &mt8183_ccorr_driver_data},
+ 	{ .compatible = "mediatek,mt8192-disp-ccorr",
+diff --git a/drivers/gpu/drm/mediatek/mtk_disp_color.c b/drivers/gpu/drm/mediatek/mtk_disp_color.c
+index 7af9966c0..5d3ca9fc7 100644
+--- a/drivers/gpu/drm/mediatek/mtk_disp_color.c
++++ b/drivers/gpu/drm/mediatek/mtk_disp_color.c
+@@ -147,6 +147,8 @@ static const struct mtk_disp_color_data mt8173_color_driver_data = {
+ static const struct of_device_id mtk_disp_color_driver_dt_match[] = {
+ 	{ .compatible = "mediatek,mt2701-disp-color",
+ 	  .data = &mt2701_color_driver_data},
++	{ .compatible = "mediatek,mt6789-disp-color",
++	  .data = &mt8173_color_driver_data},
+ 	{ .compatible = "mediatek,mt8167-disp-color",
+ 	  .data = &mt8167_color_driver_data},
+ 	{ .compatible = "mediatek,mt8173-disp-color",
+diff --git a/drivers/gpu/drm/mediatek/mtk_disp_gamma.c b/drivers/gpu/drm/mediatek/mtk_disp_gamma.c
+index 787f68e7d..739f263dd 100644
+--- a/drivers/gpu/drm/mediatek/mtk_disp_gamma.c
++++ b/drivers/gpu/drm/mediatek/mtk_disp_gamma.c
+@@ -315,6 +315,8 @@ static const struct mtk_disp_gamma_data mt8195_gamma_driver_data = {
+ };
+ 
+ static const struct of_device_id mtk_disp_gamma_driver_dt_match[] = {
++	{ .compatible = "mediatek,mt6789-disp-gamma",
++	  .data = &mt8195_gamma_driver_data},
+ 	{ .compatible = "mediatek,mt8173-disp-gamma",
+ 	  .data = &mt8173_gamma_driver_data},
+ 	{ .compatible = "mediatek,mt8183-disp-gamma",
+diff --git a/drivers/gpu/drm/mediatek/mtk_disp_ovl.c b/drivers/gpu/drm/mediatek/mtk_disp_ovl.c
+index 544587071..3b6d484df 100644
+--- a/drivers/gpu/drm/mediatek/mtk_disp_ovl.c
++++ b/drivers/gpu/drm/mediatek/mtk_disp_ovl.c
+@@ -752,6 +752,8 @@ static const struct mtk_disp_ovl_data mt8195_ovl_driver_data = {
+ static const struct of_device_id mtk_disp_ovl_driver_dt_match[] = {
+ 	{ .compatible = "mediatek,mt2701-disp-ovl",
+ 	  .data = &mt2701_ovl_driver_data},
++	{ .compatible = "mediatek,mt6789-disp-ovl",
++	  .data = &mt8192_ovl_driver_data},
+ 	{ .compatible = "mediatek,mt8167-disp-ovl",
+ 	  .data = &mt8167_ovl_driver_data},
+ 	{ .compatible = "mediatek,mt8173-disp-ovl",
+diff --git a/drivers/gpu/drm/mediatek/mtk_disp_rdma.c b/drivers/gpu/drm/mediatek/mtk_disp_rdma.c
+index 67bd9e1ca..75f4adcb5 100644
+--- a/drivers/gpu/drm/mediatek/mtk_disp_rdma.c
++++ b/drivers/gpu/drm/mediatek/mtk_disp_rdma.c
+@@ -403,6 +403,8 @@ static const struct mtk_disp_rdma_data mt8195_rdma_driver_data = {
+ static const struct of_device_id mtk_disp_rdma_driver_dt_match[] = {
+ 	{ .compatible = "mediatek,mt2701-disp-rdma",
+ 	  .data = &mt2701_rdma_driver_data},
++	{ .compatible = "mediatek,mt6789-disp-rdma",
++	  .data = &mt8183_rdma_driver_data},
+ 	{ .compatible = "mediatek,mt8173-disp-rdma",
+ 	  .data = &mt8173_rdma_driver_data},
+ 	{ .compatible = "mediatek,mt8183-disp-rdma",
+diff --git a/drivers/gpu/drm/mediatek/mtk_drm_drv.c b/drivers/gpu/drm/mediatek/mtk_drm_drv.c
+index a8bf06907..7b00c5149 100644
+--- a/drivers/gpu/drm/mediatek/mtk_drm_drv.c
++++ b/drivers/gpu/drm/mediatek/mtk_drm_drv.c
+@@ -159,6 +159,19 @@ static const unsigned int mt8183_mtk_ddp_ext[] = {
+ 	DDP_COMPONENT_DPI0,
+ };
+ 
++static const unsigned int mt6789_mtk_ddp_main[] = {
++	DDP_COMPONENT_OVL0,
++	DDP_COMPONENT_RDMA0,
++	DDP_COMPONENT_COLOR0,
++	DDP_COMPONENT_CCORR,
++	DDP_COMPONENT_AAL0,
++	DDP_COMPONENT_GAMMA,
++	DDP_COMPONENT_POSTMASK0,
++	DDP_COMPONENT_DITHER0,
++	DDP_COMPONENT_DSC0,
++	DDP_COMPONENT_DSI0,
++};
++
+ static const unsigned int mt8186_mtk_ddp_main[] = {
+ 	DDP_COMPONENT_OVL0,
+ 	DDP_COMPONENT_RDMA0,
+@@ -289,6 +302,12 @@ static const struct mtk_mmsys_driver_data mt8186_mmsys_driver_data = {
+ 	.mmsys_dev_num = 1,
+ };
+ 
++static const struct mtk_mmsys_driver_data mt6789_mmsys_driver_data = {
++	.main_path = mt6789_mtk_ddp_main,
++	.main_len = ARRAY_SIZE(mt6789_mtk_ddp_main),
++	.mmsys_dev_num = 1,
++};
++
+ static const struct mtk_mmsys_driver_data mt8188_vdosys0_driver_data = {
+ 	.main_path = mt8188_mtk_ddp_main,
+ 	.main_len = ARRAY_SIZE(mt8188_mtk_ddp_main),
+@@ -346,6 +365,8 @@ static const struct of_device_id mtk_drm_of_ids[] = {
+ 	  .data = &mt8183_mmsys_driver_data},
+ 	{ .compatible = "mediatek,mt8186-mmsys",
+ 	  .data = &mt8186_mmsys_driver_data},
++	{ .compatible = "mediatek,mt6789-mmsys",
++	  .data = &mt6789_mmsys_driver_data},
+ 	{ .compatible = "mediatek,mt8188-vdosys0",
+ 	  .data = &mt8188_vdosys0_driver_data},
+ 	{ .compatible = "mediatek,mt8188-vdosys1",
+@@ -704,6 +725,8 @@ static const struct component_master_ops mtk_drm_ops = {
+ };
+ 
+ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
++	{ .compatible = "mediatek,mt6789-disp-aal",
++	  .data = (void *)MTK_DISP_AAL },
+ 	{ .compatible = "mediatek,mt8167-disp-aal",
+ 	  .data = (void *)MTK_DISP_AAL},
+ 	{ .compatible = "mediatek,mt8173-disp-aal",
+@@ -712,6 +735,8 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
+ 	  .data = (void *)MTK_DISP_AAL},
+ 	{ .compatible = "mediatek,mt8192-disp-aal",
+ 	  .data = (void *)MTK_DISP_AAL},
++	{ .compatible = "mediatek,mt6789-disp-ccorr",
++	  .data = (void *)MTK_DISP_CCORR },
+ 	{ .compatible = "mediatek,mt8167-disp-ccorr",
+ 	  .data = (void *)MTK_DISP_CCORR },
+ 	{ .compatible = "mediatek,mt8183-disp-ccorr",
+@@ -720,16 +745,24 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
+ 	  .data = (void *)MTK_DISP_CCORR },
+ 	{ .compatible = "mediatek,mt2701-disp-color",
+ 	  .data = (void *)MTK_DISP_COLOR },
++	{ .compatible = "mediatek,mt6789-disp-color",
++	  .data = (void *)MTK_DISP_COLOR },
+ 	{ .compatible = "mediatek,mt8167-disp-color",
+ 	  .data = (void *)MTK_DISP_COLOR },
+ 	{ .compatible = "mediatek,mt8173-disp-color",
+ 	  .data = (void *)MTK_DISP_COLOR },
++	{ .compatible = "mediatek,mt6789-disp-dither",
++	  .data = (void *)MTK_DISP_DITHER },
+ 	{ .compatible = "mediatek,mt8167-disp-dither",
+ 	  .data = (void *)MTK_DISP_DITHER },
+ 	{ .compatible = "mediatek,mt8183-disp-dither",
+ 	  .data = (void *)MTK_DISP_DITHER },
++	{ .compatible = "mediatek,mt6789-disp-dsc",
++	  .data = (void *)MTK_DISP_DSC },
+ 	{ .compatible = "mediatek,mt8195-disp-dsc",
+ 	  .data = (void *)MTK_DISP_DSC },
++	{ .compatible = "mediatek,mt6789-disp-gamma",
++	  .data = (void *)MTK_DISP_GAMMA, },
+ 	{ .compatible = "mediatek,mt8167-disp-gamma",
+ 	  .data = (void *)MTK_DISP_GAMMA, },
+ 	{ .compatible = "mediatek,mt8173-disp-gamma",
+@@ -744,6 +777,8 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
+ 	  .data = (void *)MTK_DISP_MUTEX },
+ 	{ .compatible = "mediatek,mt2712-disp-mutex",
+ 	  .data = (void *)MTK_DISP_MUTEX },
++	{ .compatible = "mediatek,mt6789-disp-mutex",
++	  .data = (void *)MTK_DISP_MUTEX },
+ 	{ .compatible = "mediatek,mt8167-disp-mutex",
+ 	  .data = (void *)MTK_DISP_MUTEX },
+ 	{ .compatible = "mediatek,mt8173-disp-mutex",
+@@ -764,6 +799,8 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
+ 	  .data = (void *)MTK_DISP_OD },
+ 	{ .compatible = "mediatek,mt2701-disp-ovl",
+ 	  .data = (void *)MTK_DISP_OVL },
++	{ .compatible = "mediatek,mt6789-disp-ovl",
++	  .data = (void *)MTK_DISP_OVL },
+ 	{ .compatible = "mediatek,mt8167-disp-ovl",
+ 	  .data = (void *)MTK_DISP_OVL },
+ 	{ .compatible = "mediatek,mt8173-disp-ovl",
+@@ -778,16 +815,22 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
+ 	  .data = (void *)MTK_DISP_OVL_2L },
+ 	{ .compatible = "mediatek,mt8192-disp-ovl-2l",
+ 	  .data = (void *)MTK_DISP_OVL_2L },
++	{ .compatible = "mediatek,mt6789-disp-postmask",
++	  .data = (void *)MTK_DISP_POSTMASK },
+ 	{ .compatible = "mediatek,mt8192-disp-postmask",
+ 	  .data = (void *)MTK_DISP_POSTMASK },
+ 	{ .compatible = "mediatek,mt2701-disp-pwm",
+ 	  .data = (void *)MTK_DISP_BLS },
++	{ .compatible = "mediatek,mt6789-disp-pwm",
++	  .data = (void *)MTK_DISP_PWM },
+ 	{ .compatible = "mediatek,mt8167-disp-pwm",
+ 	  .data = (void *)MTK_DISP_PWM },
+ 	{ .compatible = "mediatek,mt8173-disp-pwm",
+ 	  .data = (void *)MTK_DISP_PWM },
+ 	{ .compatible = "mediatek,mt2701-disp-rdma",
+ 	  .data = (void *)MTK_DISP_RDMA },
++	{ .compatible = "mediatek,mt6789-disp-rdma",
++	  .data = (void *)MTK_DISP_RDMA },
+ 	{ .compatible = "mediatek,mt8167-disp-rdma",
+ 	  .data = (void *)MTK_DISP_RDMA },
+ 	{ .compatible = "mediatek,mt8173-disp-rdma",
+@@ -820,6 +863,8 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
+ 	  .data = (void *)MTK_DPI },
+ 	{ .compatible = "mediatek,mt2701-dsi",
+ 	  .data = (void *)MTK_DSI },
++	{ .compatible = "mediatek,mt6789-dsi",
++	  .data = (void *)MTK_DSI },
+ 	{ .compatible = "mediatek,mt8173-dsi",
+ 	  .data = (void *)MTK_DSI },
+ 	{ .compatible = "mediatek,mt8183-dsi",
+-- 
+2.55.0
+

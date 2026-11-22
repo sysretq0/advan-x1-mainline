@@ -141,8 +141,9 @@ jobs:
           cd "$GITHUB_WORKSPACE/linux"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          for p in "$GITHUB_WORKSPACE"/patches/*.patch; do
-            echo "Applying $(basename "$p")..."
+          for p in "$GITHUB_WORKSPACE"/patches/*/*.patch "$GITHUB_WORKSPACE"/patches/*.patch; do
+            [ -e "$p" ] || continue
+            echo "Applying ${p#"$GITHUB_WORKSPACE"/}..."
             git apply --whitespace=nowarn "$p"
           done
 
@@ -185,7 +186,7 @@ jobs:
             -I "$GITHUB_WORKSPACE/linux/include" \
             -I "$GITHUB_WORKSPACE/linux/include/dt-bindings" \
             -I "$GITHUB_WORKSPACE/linux/arch/arm64/boot/dts" \
-            "$GITHUB_WORKSPACE"/dts/mt6789-advan-x1.dts -o "$PDTB"
+            "$GITHUB_WORKSPACE"/linux/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts -o "$PDTB"
           dtc -I dts -O dtb -o "$GITHUB_WORKSPACE/build/mt6789-advan-x1.dtb" "$PDTB"
           rm -f "$PDTB"
 
