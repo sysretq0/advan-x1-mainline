@@ -76,6 +76,16 @@ mount -t debugfs none /sys/kernel/debug 2>/dev/null || true
 [ -d /sys/class/i2c-adapter ] && log "I2C adapters: $(ls -d /sys/class/i2c-adapter/* 2>/dev/null | tr '\n' ' ')"
 [ -d /sys/class/spi_master ] && log "SPI masters: $(ls -d /sys/class/spi_master/* 2>/dev/null | tr '\n' ' ')"
 [ -d /sys/bus/platform/drivers/panfrost ] && log "GPU driver: Panfrost active"
+if [ -d /sys/class/thermal ]; then
+    TZ_SUMMARY=""
+    for tz in /sys/class/thermal/thermal_zone*; do
+        [ -d "$tz" ] || continue
+        TZ_TYPE=$(cat "$tz/type" 2>/dev/null || echo "?")
+        TZ_TEMP=$(cat "$tz/temp" 2>/dev/null || echo "err")
+        TZ_SUMMARY="$TZ_SUMMARY ${TZ_TYPE}=${TZ_TEMP}"
+    done
+    [ -n "$TZ_SUMMARY" ] && log "Thermal zones:$TZ_SUMMARY"
+fi
 
 # Keep UFS host controller active during early boot
 for ufs_pwr in /sys/bus/platform/devices/*.ufshci/power/control; do

@@ -8,17 +8,22 @@ MT6789 SoC (4 controllers, 13 sensors in filtered mode).
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- drivers/thermal/mediatek/lvts_thermal.c | 73 +++++++++++++++++++++++++
- 1 file changed, 73 insertions(+)
+ drivers/thermal/mediatek/lvts_thermal.c | 78 +++++++++++++++++++++++++
+ 1 file changed, 78 insertions(+)
 
 diff --git a/drivers/thermal/mediatek/lvts_thermal.c b/drivers/thermal/mediatek/lvts_thermal.c
 index 16caaf4b3..4e0a6bebc 100644
 --- a/drivers/thermal/mediatek/lvts_thermal.c
 +++ b/drivers/thermal/mediatek/lvts_thermal.c
-@@ -1626,6 +1626,63 @@ static const u32 mt7988_init_cmds[] = {
+@@ -1626,6 +1626,68 @@ static const u32 mt7988_init_cmds[] = {
   *
   * Hence the rather confusing offsets provided below.
   */
++static const u32 mt6789_init_cmds[] = {
++	0xC1030300, 0xC1030420, 0xC1030500, 0xC10307A6, 0xC1030CFC,
++	0xC1030A8C, 0xC103098D, 0xC10308F1, 0xC1030E01, 0xC10306B8
++};
++
 +static const struct lvts_ctrl_data mt6789_lvts_data_ctrl[] = {
 +	{
 +		.lvts_sensor = {
@@ -79,17 +84,17 @@ index 16caaf4b3..4e0a6bebc 100644
  static const struct lvts_ctrl_data mt8186_lvts_data_ctrl[] = {
  	{
  		.lvts_sensor = {
-@@ -2037,6 +2094,21 @@ static const struct lvts_data mt7988_lvts_ap_data = {
+@@ -2037,6 +2099,21 @@ static const struct lvts_data mt7988_lvts_ap_data = {
  	.ops = &lvts_platform_ops_mt7988,
  };
  
 +static const struct lvts_data mt6789_lvts_data = {
 +	.lvts_ctrl	= mt6789_lvts_data_ctrl,
-+	.conn_cmd	= default_conn_cmds,
-+	.init_cmd	= default_init_cmds,
++	.conn_cmd	= mt7988_conn_cmds,
++	.init_cmd	= mt6789_init_cmds,
 +	.num_lvts_ctrl	= ARRAY_SIZE(mt6789_lvts_data_ctrl),
-+	.num_conn_cmd	= ARRAY_SIZE(default_conn_cmds),
-+	.num_init_cmd	= ARRAY_SIZE(default_init_cmds),
++	.num_conn_cmd	= ARRAY_SIZE(mt7988_conn_cmds),
++	.num_init_cmd	= ARRAY_SIZE(mt6789_init_cmds),
 +	.temp_factor	= LVTS_COEFF_A_MT8195,
 +	.temp_offset	= LVTS_COEFF_B_MT8195,
 +	.gt_calib_bit_offset = 24,
@@ -101,7 +106,7 @@ index 16caaf4b3..4e0a6bebc 100644
  static const struct lvts_data mt8186_lvts_data = {
  	.lvts_ctrl	= mt8186_lvts_data_ctrl,
  	.conn_cmd	= default_conn_cmds,
-@@ -2167,6 +2239,7 @@ static const struct lvts_data mt8196_lvts_ap_data = {
+@@ -2167,6 +2244,7 @@ static const struct lvts_data mt8196_lvts_ap_data = {
  };
  
  static const struct of_device_id lvts_of_match[] = {

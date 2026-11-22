@@ -10,16 +10,16 @@ Mali-G57 GPU, SMI, MMSYS, DISP PWM, and display pipeline.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- arch/arm64/boot/dts/mediatek/mt6789.dtsi | 1281 ++++++++++++++++++++++
- 1 file changed, 1281 insertions(+)
+ arch/arm64/boot/dts/mediatek/mt6789.dtsi | 1311 ++++++++++++++++++++++
+ 1 file changed, 1311 insertions(+)
  create mode 100644 arch/arm64/boot/dts/mediatek/mt6789.dtsi
 
 diff --git a/arch/arm64/boot/dts/mediatek/mt6789.dtsi b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
 new file mode 100644
-index 000000000..549c00c28
+index 000000000..cdd9758e5
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
-@@ -0,0 +1,1281 @@
+@@ -0,0 +1,1311 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * MediaTek MT6789 (Helio G99) SoC base device tree — mainline shape.
@@ -567,8 +567,8 @@ index 000000000..549c00c28
 +			interrupts = <GIC_SPI 201 IRQ_TYPE_LEVEL_HIGH>;
 +			clocks = <&infracfg_ao CLK_IFRAO_THERM>;
 +			resets = <&infracfg_ao MT6789_INFRA_RST0_THERM_CTRL_SWRST>;
-+			nvmem-cells = <&lvts_e_data1>, <&lvts_e_data2>;
-+			nvmem-cell-names = "lvts-calib-data-1", "lvts-calib-data-2";
++			nvmem-cells = <&lvts_e_data>;
++			nvmem-cell-names = "lvts-calib-data-1";
 +			#thermal-sensor-cells = <1>;
 +		};
 +
@@ -703,12 +703,8 @@ index 000000000..549c00c28
 +			#address-cells = <1>;
 +			#size-cells = <1>;
 +
-+			lvts_e_data1: data1@1b4 {
-+				reg = <0x1b4 0x2c>;
-+			};
-+
-+			lvts_e_data2: data2@2f8 {
-+				reg = <0x2f8 0x08>;
++			lvts_e_data: lvts-calib@1a4 {
++				reg = <0x1a4 0x34>;
 +			};
 +		};
 +
@@ -1073,8 +1069,8 @@ index 000000000..549c00c28
 +				};
 +
 +				cpu0_crit: trip-crit {
-+					temperature = <125000>;
-+					hysteresis = <0>;
++					temperature = <113500>;
++					hysteresis = <2000>;
 +					type = "critical";
 +				};
 +			};
@@ -1093,8 +1089,8 @@ index 000000000..549c00c28
 +				};
 +
 +				cpu1_crit: trip-crit {
-+					temperature = <125000>;
-+					hysteresis = <0>;
++					temperature = <113500>;
++					hysteresis = <2000>;
 +					type = "critical";
 +				};
 +			};
@@ -1113,8 +1109,8 @@ index 000000000..549c00c28
 +				};
 +
 +				cpu2_crit: trip-crit {
-+					temperature = <125000>;
-+					hysteresis = <0>;
++					temperature = <113500>;
++					hysteresis = <2000>;
 +					type = "critical";
 +				};
 +			};
@@ -1133,8 +1129,8 @@ index 000000000..549c00c28
 +				};
 +
 +				cpu3_crit: trip-crit {
-+					temperature = <125000>;
-+					hysteresis = <0>;
++					temperature = <113500>;
++					hysteresis = <2000>;
 +					type = "critical";
 +				};
 +			};
@@ -1153,8 +1149,8 @@ index 000000000..549c00c28
 +				};
 +
 +				cpu4_crit: trip-crit {
-+					temperature = <125000>;
-+					hysteresis = <0>;
++					temperature = <113500>;
++					hysteresis = <2000>;
 +					type = "critical";
 +				};
 +			};
@@ -1173,8 +1169,8 @@ index 000000000..549c00c28
 +				};
 +
 +				cpu5_crit: trip-crit {
-+					temperature = <125000>;
-+					hysteresis = <0>;
++					temperature = <113500>;
++					hysteresis = <2000>;
 +					type = "critical";
 +				};
 +			};
@@ -1193,8 +1189,8 @@ index 000000000..549c00c28
 +				};
 +
 +				cpu6_crit: trip-crit {
-+					temperature = <125000>;
-+					hysteresis = <0>;
++					temperature = <113500>;
++					hysteresis = <2000>;
 +					type = "critical";
 +				};
 +			};
@@ -1213,8 +1209,8 @@ index 000000000..549c00c28
 +				};
 +
 +				cpu7_crit: trip-crit {
-+					temperature = <125000>;
-+					hysteresis = <0>;
++					temperature = <113500>;
++					hysteresis = <2000>;
 +					type = "critical";
 +				};
 +			};
@@ -1233,9 +1229,16 @@ index 000000000..549c00c28
 +				};
 +
 +				gpu1_crit: trip-crit {
-+					temperature = <125000>;
-+					hysteresis = <0>;
++					temperature = <113500>;
++					hysteresis = <2000>;
 +					type = "critical";
++				};
++			};
++
++			cooling-maps {
++				map0 {
++					trip = <&gpu1_alert>;
++					cooling-device = <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 +				};
 +			};
 +		};
@@ -1253,9 +1256,16 @@ index 000000000..549c00c28
 +				};
 +
 +				gpu2_crit: trip-crit {
-+					temperature = <125000>;
-+					hysteresis = <0>;
++					temperature = <113500>;
++					hysteresis = <2000>;
 +					type = "critical";
++				};
++			};
++
++			cooling-maps {
++				map0 {
++					trip = <&gpu2_alert>;
++					cooling-device = <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 +				};
 +			};
 +		};
@@ -1273,8 +1283,8 @@ index 000000000..549c00c28
 +				};
 +
 +				soc1_crit: trip-crit {
-+					temperature = <125000>;
-+					hysteresis = <0>;
++					temperature = <113500>;
++					hysteresis = <2000>;
 +					type = "critical";
 +				};
 +			};
@@ -1293,8 +1303,28 @@ index 000000000..549c00c28
 +				};
 +
 +				soc2_crit: trip-crit {
-+					temperature = <125000>;
-+					hysteresis = <0>;
++					temperature = <113500>;
++					hysteresis = <2000>;
++					type = "critical";
++				};
++			};
++		};
++
++		md-thermal {
++			polling-delay = <1000>;
++			polling-delay-passive = <150>;
++			thermal-sensors = <&lvts MT6789_MD>;
++
++			trips {
++				md_alert: trip-alert {
++					temperature = <85000>;
++					hysteresis = <2000>;
++					type = "passive";
++				};
++
++				md_crit: trip-crit {
++					temperature = <113500>;
++					hysteresis = <2000>;
 +					type = "critical";
 +				};
 +			};
@@ -1303,4 +1333,3 @@ index 000000000..549c00c28
 +};
 -- 
 2.55.0
-
