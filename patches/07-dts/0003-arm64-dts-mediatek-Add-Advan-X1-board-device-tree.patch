@@ -9,8 +9,8 @@ MT6366 PMIC, TPS65132 display bias, and Chipone ICNL9922C DSI panel).
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  arch/arm64/boot/dts/mediatek/Makefile         |   1 +
- .../boot/dts/mediatek/mt6789-advan-x1.dts     | 563 ++++++++++++++++++
- 2 files changed, 564 insertions(+)
+ .../boot/dts/mediatek/mt6789-advan-x1.dts     | 565 ++++++++++++++++++
+ 2 files changed, 566 insertions(+)
  create mode 100644 arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
 
 diff --git a/arch/arm64/boot/dts/mediatek/Makefile b/arch/arm64/boot/dts/mediatek/Makefile
@@ -26,10 +26,10 @@ index a86fb313b..3dfbb4bb4 100644
  dtb-$(CONFIG_ARCH_MEDIATEK) += mt6795-evb.dtb
 diff --git a/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
 new file mode 100644
-index 000000000..5d19a7c0c
+index 000000000..8029f0e56
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
-@@ -0,0 +1,563 @@
+@@ -0,0 +1,565 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Device Tree Source for the Advan X1 smartphone (MediaTek MT6789).
@@ -116,6 +116,7 @@ index 000000000..5d19a7c0c
 +};
 +
 +&ufshci {
++	vcc-supply = <&mt6366_vemc_reg>;
 +	status = "okay";
 +};
 +
@@ -511,6 +512,7 @@ index 000000000..5d19a7c0c
 +
 +		mt6358keys: keys {
 +			compatible = "mediatek,mt6358-keys";
++			mediatek,long-press-mode = <1>;
 +			power-off-time-sec = <0>;
 +
 +			powerkey {
@@ -595,4 +597,3 @@ index 000000000..5d19a7c0c
 +};
 -- 
 2.55.0
-

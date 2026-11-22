@@ -84,6 +84,7 @@
 };
 
 &ufshci {
+	vcc-supply = <&mt6366_vemc_reg>;
 	status = "okay";
 };
 
@@ -479,6 +480,7 @@
 
 		mt6358keys: keys {
 			compatible = "mediatek,mt6358-keys";
+			mediatek,long-press-mode = <1>;
 			power-off-time-sec = <0>;
 
 			powerkey {
