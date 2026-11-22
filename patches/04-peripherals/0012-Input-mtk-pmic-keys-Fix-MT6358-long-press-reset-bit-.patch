@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Sun, 22 Nov 2026 17:55:00 +0000
+Subject: [PATCH 12/12] Input: mtk-pmic-keys - Fix MT6358 long-press reset bit
+ positions
+
+On MT6358 and MT6366, TOP_RST_MISC (0x14c) places RG_PWRKEY_RST_EN at
+bit 9, RG_HOMEKEY_RST_EN at bit 8, and RG_PWRKEY_RST_TD (long-press
+duration) at bits [13:12], matching MT6331 rather than MT6397/MT6323
+(bits 6, 5, and [9:8]).
+
+Using the MT6397 bitmasks on MT6358/MT6366 causes
+mtk_pmic_keys_lp_reset_setup() to write the debounce duration into bits
+[9:8], clearing RG_PWRKEY_RST_EN when power-off-time-sec is 0 and
+inadvertently disabling hardware long-press reset.
+
+Use the correct bit positions for mt6358_regs.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/input/keyboard/mtk-pmic-keys.c | 10 +++++++---
+ 1 file changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/input/keyboard/mtk-pmic-keys.c b/drivers/input/keyboard/mtk-pmic-keys.c
+index 6f14318f3..422a1f429 100644
+--- a/drivers/input/keyboard/mtk-pmic-keys.c
++++ b/drivers/input/keyboard/mtk-pmic-keys.c
+@@ -29,6 +29,10 @@
+ #define MTK_PMIC_MT6331_PWRKEY_RST	BIT(9)
+ #define MTK_PMIC_MT6331_HOMEKEY_RST	BIT(8)
+ 
++#define MTK_PMIC_MT6358_RST_DU_MASK	GENMASK(13, 12)
++#define MTK_PMIC_MT6358_PWRKEY_RST	BIT(9)
++#define MTK_PMIC_MT6358_HOMEKEY_RST	BIT(8)
++
+ #define MTK_PMIC_PWRKEY_INDEX	0
+ #define MTK_PMIC_HOMEKEY_INDEX	1
+ #define MTK_PMIC_MAX_KEY_COUNT	2
+@@ -110,13 +114,13 @@ static const struct mtk_pmic_regs mt6358_regs = {
+ 	.keys_regs[MTK_PMIC_PWRKEY_INDEX] =
+ 		MTK_PMIC_KEYS_REGS(MT6358_TOPSTATUS,
+ 				   0x2, MT6358_PSC_TOP_INT_CON0, 0x5,
+-				   MTK_PMIC_PWRKEY_RST),
++				   MTK_PMIC_MT6358_PWRKEY_RST),
+ 	.keys_regs[MTK_PMIC_HOMEKEY_INDEX] =
+ 		MTK_PMIC_KEYS_REGS(MT6358_TOPSTATUS,
+ 				   0x8, MT6358_PSC_TOP_INT_CON0, 0xa,
+-				   MTK_PMIC_HOMEKEY_RST),
++				   MTK_PMIC_MT6358_HOMEKEY_RST),
+ 	.pmic_rst_reg = MT6358_TOP_RST_MISC,
+-	.rst_lprst_mask = MTK_PMIC_RST_DU_MASK,
++	.rst_lprst_mask = MTK_PMIC_MT6358_RST_DU_MASK,
+ 	.key_release_irq = true,
+ };
+ 
+-- 
+2.43.0

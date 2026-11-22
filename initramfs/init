@@ -87,6 +87,37 @@ if [ -d /sys/class/thermal ]; then
     [ -n "$TZ_SUMMARY" ] && log "Thermal zones:$TZ_SUMMARY"
 fi
 
+# Display pipeline & IRQ telemetry (read-only, strictly clock-gated)
+if [ -r /proc/interrupts ]; then
+    DISP_IRQS=$(grep -E 'ovl|rdma|dsi|mutex|lvts|ufshci|pmic' /proc/interrupts 2>/dev/null | tr '\n' '; ')
+    [ -n "$DISP_IRQS" ] && log "Key IRQs: $DISP_IRQS"
+fi
+if [ -d /sys/class/backlight/backlight ]; then
+    BL_B=$(cat /sys/class/backlight/backlight/brightness 2>/dev/null || echo "?")
+    BL_A=$(cat /sys/class/backlight/backlight/actual_brightness 2>/dev/null || echo "?")
+    BL_P=$(cat /sys/class/backlight/backlight/bl_power 2>/dev/null || echo "?")
+    log "Backlight: brightness=$BL_B actual=$BL_A power=$BL_P"
+fi
+if command -v devmem >/dev/null 2>&1; then
+    clk_on() {
+        local c="/sys/kernel/debug/clk/$1/clk_enable_count"
+        [ -r "$c" ] && [ "$(cat "$c" 2>/dev/null)" -gt 0 ] 2>/dev/null
+    }
+    if clk_on mm_apb_bus && clk_on mm_disp_mutex0; then
+        log "MMSYS/MUTEX: cg0=$(devmem 0x14000100 32) cg1=$(devmem 0x14000110 32) ovl_con=$(devmem 0x14000f04 32) rdma_sout=$(devmem 0x14000f0c 32) ovl_mout=$(devmem 0x14000f18 32) dith_mout=$(devmem 0x14000f20 32) rdma_sel=$(devmem 0x14000f28 32) dsi_sel=$(devmem 0x14000f30 32) dsc_mout=$(devmem 0x14000f38 32) mtx_en=$(devmem 0x14001020 32) mtx_sof=$(devmem 0x1400102c 32) mtx_mod0=$(devmem 0x14001030 32)"
+    fi
+    if clk_on mm_disp_ovl0 && clk_on mm_disp_rdma0; then
+        log "OVL0: sta=$(devmem 0x14005000 32) inten=$(devmem 0x14005004 32) intsta=$(devmem 0x14005008 32) en=$(devmem 0x1400500c 32) roi=$(devmem 0x14005020 32) dp=$(devmem 0x14005024 32) src=$(devmem 0x1400502c 32) l0con=$(devmem 0x14005030 32) l0sz=$(devmem 0x14005038 32) l0addr=$(devmem 0x14005f40 32)"
+        log "RDMA0: inten=$(devmem 0x14007000 32) ints=$(devmem 0x14007004 32) con=$(devmem 0x14007010 32) sz0=$(devmem 0x14007014 32) sz1=$(devmem 0x14007018 32) fifo=$(devmem 0x14007040 32) in_l=$(devmem 0x140070f4 32) out_l=$(devmem 0x140070fc 32)"
+    fi
+    if clk_on mm_disp_dsc_wrap0 && clk_on mm_dsi0; then
+        log "DSC0/DSI0: dsc_con=$(devmem 0x14012000 32) dsc_mode=$(devmem 0x14012030 32) dsc_shd=$(devmem 0x14012200 32) dsi_st=$(devmem 0x14013000 32) dsi_is=$(devmem 0x1401300c 32) dsi_con=$(devmem 0x14013010 32) dsi_md=$(devmem 0x14013014 32) dsi_tx=$(devmem 0x14013018 32) dsi_ps=$(devmem 0x1401301c 32) dsi_lc=$(devmem 0x14013104 32) dbg6=$(devmem 0x14013160 32) dbg7=$(devmem 0x14013164 32)"
+    fi
+    if clk_on mipi_tx0_pll; then
+        log "MIPITX: lane=$(devmem 0x11f6000c 32) con0=$(devmem 0x11f6002c 32) con1=$(devmem 0x11f60030 32) sw0=$(devmem 0x11f60110 32) ckmode=$(devmem 0x11f60210 32)"
+    fi
+fi
+
 # Keep UFS host controller active during early boot
 for ufs_pwr in /sys/bus/platform/devices/*.ufshci/power/control; do
     [ -e "$ufs_pwr" ] && echo on > "$ufs_pwr" 2>/dev/null || true
