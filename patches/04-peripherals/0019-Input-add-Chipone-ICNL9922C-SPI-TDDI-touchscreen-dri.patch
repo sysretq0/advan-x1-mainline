@@ -1,20 +1,21 @@
-From 00e28fcd1bb18a3c3bbd53c73485c7456b914254 Mon Sep 17 00:00:00 2001
+From d1127381a4046819525121d90428e8fbd298b786 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
-Date: Mon, 23 Nov 2026 16:18:54 +0000
+Date: Mon, 23 Nov 2026 16:52:39 +0000
 Subject: [PATCH] Input: add Chipone ICNL9922C SPI TDDI touchscreen driver
 
 Add a mainline SPI touchscreen driver for the Chipone ICNL9922C TDDI
-controller supporting both TCS normal-mode multitouch readout and DRW
-program-mode hardware ID verification (0x99c220) with asynchronous
-SRAM firmware loading (chipone/icnl9922c.bin via request_firmware_nowait)
-for flashless SPI TDDI modules.
+controller supporting TCS normal-mode multitouch readout, DRW
+program-mode hardware ID verification (0x99c220), SFCTRLv2 hardware
+SRAM CRC verification, asynchronous SRAM firmware loading
+(chipone/icnl9922c.bin), and drm_panel_follower synchronization so
+SRAM firmware is loaded after the shared TDDI display panel reset.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  drivers/input/touchscreen/Kconfig             |  14 +
  drivers/input/touchscreen/Makefile            |   1 +
- drivers/input/touchscreen/chipone_icnl9922c.c | 602 ++++++++++++++++++
- 3 files changed, 617 insertions(+)
+ drivers/input/touchscreen/chipone_icnl9922c.c | 809 ++++++++++++++++++
+ 3 files changed, 824 insertions(+)
  create mode 100644 drivers/input/touchscreen/chipone_icnl9922c.c
 
 diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
@@ -56,10 +57,10 @@ index bfd9de833..6b34656e8 100644
  obj-$(CONFIG_TOUCHSCREEN_CYTTSP_CORE)	+= cyttsp_core.o
 diff --git a/drivers/input/touchscreen/chipone_icnl9922c.c b/drivers/input/touchscreen/chipone_icnl9922c.c
 new file mode 100644
-index 000000000..48045073a
+index 000000000..f1f8fdd76
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_icnl9922c.c
-@@ -0,0 +1,602 @@
+@@ -0,0 +1,809 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Chipone ICNL9922C SPI TDDI touchscreen driver (TCS + DRW SRAM boot)
@@ -67,6 +68,7 @@ index 000000000..48045073a
 + * Copyright (C) 2026 sysretq0 <324514544+sysretq0@users.noreply.github.com>
 + */
 +
++#include <drm/drm_panel.h>
 +#include <linux/crc32.h>
 +#include <linux/delay.h>
 +#include <linux/firmware.h>
@@ -80,6 +82,7 @@ index 000000000..48045073a
 +#include <linux/of.h>
 +#include <linux/spi/spi.h>
 +#include <linux/unaligned.h>
++#include <linux/workqueue.h>
 +
 +#define ICNL9922C_TCS_WR_ADDR			0xf0
 +#define ICNL9922C_TCS_RD_ADDR			0xf1
@@ -94,6 +97,14 @@ index 000000000..48045073a
 +#define ICNL9922C_HW_REG_HWID			0x070000
 +#define ICNL9922C_HW_REG_BOOT_MODE		0x070010
 +#define ICNL9922C_BOOT_MODE_SRAM		0x03
++
++#define ICNL9922C_SFCTRL_BASE			0x074000
++#define ICNL9922C_SFCTRL_SRAM_ADDR		(ICNL9922C_SFCTRL_BASE + 0x08)
++#define ICNL9922C_SFCTRL_DATA_LEN		(ICNL9922C_SFCTRL_BASE + 0x0c)
++#define ICNL9922C_SFCTRL_CRC_RESULT		(ICNL9922C_SFCTRL_BASE + 0x1c)
++#define ICNL9922C_SFCTRL_SRAM_CRC_START		(ICNL9922C_SFCTRL_BASE + 0x20)
++#define ICNL9922C_SFCTRL_SF_BUSY		(ICNL9922C_SFCTRL_BASE + 0x24)
++
 +#define ICNL9922C_SRAM_CRC_MAGIC_ADDR		0x02bff0
 +#define ICNL9922C_SRAM_CRC_VAL_ADDR		0x02bff8
 +#define ICNL9922C_SRAM_CRC_LEN_ADDR		0x02bffc
@@ -105,7 +116,8 @@ index 000000000..48045073a
 +
 +#define ICNL9922C_MAX_TOUCH_POINTS		10
 +#define ICNL9922C_DEBUG_MSG_SIZE		40
-+#define ICNL9922C_DRW_CHUNK_SIZE		4096
++/* Keep DRW write (chunk + 18B overhead) within 1024B single SPI DMA packet */
++#define ICNL9922C_DRW_CHUNK_SIZE		1000
 +#define ICNL9922C_DRW_OVERHEAD			18
 +#define ICNL9922C_XFER_BUF_SIZE			(ICNL9922C_DRW_CHUNK_SIZE + 32)
 +
@@ -147,9 +159,15 @@ index 000000000..48045073a
 +	struct input_dev *input;
 +	struct gpio_desc *reset_gpio;
 +	struct touchscreen_properties prop;
-+	struct mutex lock; /* serializes SPI buffer access */
++	struct drm_panel_follower panel_follower;
++	struct work_struct fw_work;
++	struct mutex lock; /* serializes SPI buffer and firmware state */
 +	u8 *tx_buf;
 +	u8 *rx_buf;
++	u8 *fw_data;
++	size_t fw_size;
++	bool irq_enabled;
++	bool running;
 +};
 +
 +/* MSB-first CRC-16/BUYPASS (polynomial 0x8005, initial value 0x0000) */
@@ -183,11 +201,31 @@ index 000000000..48045073a
 +							  crc16)));
 +}
 +
++static int icnl9922c_verify_tcs_rx(const u8 *rx, size_t rlen, u16 cmd)
++{
++	const struct icnl9922c_rx_tail *tail;
++	size_t rxlen = rlen + sizeof(*tail);
++	u16 crc_recv, crc_calc;
++
++	tail = (const struct icnl9922c_rx_tail *)(rx + rlen);
++	crc_recv = le16_to_cpu(tail->crc16);
++	crc_calc = icnl9922c_crc16(rx, rxlen - 2);
++	if (crc_recv != crc_calc)
++		return -EIO;
++
++	if (tail->ecode != 0)
++		return -EIO;
++
++	if (le16_to_cpu(tail->cmd) != (cmd & ~ICNL9922C_TCS_WRITE_BIT))
++		return -EIO;
++
++	return 0;
++}
++
 +static int icnl9922c_tcs_read(struct icnl9922c_ts *ts, u16 cmd,
 +			      u8 *rdata, size_t rlen)
 +{
 +	size_t rxlen = rlen + sizeof(struct icnl9922c_rx_tail);
-+	u16 crc_recv, crc_calc;
 +	int ret;
 +
 +	if (rxlen > ICNL9922C_XFER_BUF_SIZE)
@@ -207,10 +245,9 @@ index 000000000..48045073a
 +	if (ret)
 +		return ret;
 +
-+	crc_recv = get_unaligned_le16(ts->rx_buf + rxlen - 2);
-+	crc_calc = icnl9922c_crc16(ts->rx_buf, rxlen - 2);
-+	if (crc_recv != crc_calc)
-+		return -EIO;
++	ret = icnl9922c_verify_tcs_rx(ts->rx_buf, rlen, cmd);
++	if (ret)
++		return ret;
 +
 +	memcpy(rdata, ts->rx_buf, rlen);
 +	usleep_range(100, 150);
@@ -227,7 +264,6 @@ index 000000000..48045073a
 +		.rx_buf = ts->rx_buf,
 +		.len = max(sizeof(struct icnl9922c_tx_hdr), rxlen),
 +	};
-+	u16 crc_recv, crc_calc;
 +	int ret;
 +
 +	if (xfer.len > ICNL9922C_XFER_BUF_SIZE)
@@ -241,14 +277,26 @@ index 000000000..48045073a
 +	if (ret)
 +		return ret;
 +
-+	crc_recv = get_unaligned_le16(ts->rx_buf + rxlen - 2);
-+	crc_calc = icnl9922c_crc16(ts->rx_buf, rxlen - 2);
-+	if (crc_recv != crc_calc)
-+		return -EIO;
++	ret = icnl9922c_verify_tcs_rx(ts->rx_buf, rlen, cmd);
++	if (ret)
++		return ret;
 +
 +	memcpy(rdata, ts->rx_buf, rlen);
 +
 +	return 0;
++}
++
++static void icnl9922c_hw_reset(struct icnl9922c_ts *ts)
++{
++	if (!ts->reset_gpio)
++		return;
++
++	gpiod_set_value_cansleep(ts->reset_gpio, 0);
++	usleep_range(1000, 1100);
++	gpiod_set_value_cansleep(ts->reset_gpio, 1);
++	usleep_range(10000, 11000);
++	gpiod_set_value_cansleep(ts->reset_gpio, 0);
++	msleep(40);
 +}
 +
 +static int icnl9922c_enter_prog_mode(struct icnl9922c_ts *ts)
@@ -261,7 +309,7 @@ index 000000000..48045073a
 +	if (ret)
 +		return ret;
 +
-+	usleep_range(1000, 1500);
++	usleep_range(5000, 6000);
 +	return 0;
 +}
 +
@@ -331,11 +379,57 @@ index 000000000..48045073a
 +	return 0;
 +}
 +
++static int icnl9922c_prog_writeb(struct icnl9922c_ts *ts, u32 addr, u8 val)
++{
++	return icnl9922c_prog_write(ts, addr, &val, sizeof(val));
++}
++
 +static int icnl9922c_prog_writel(struct icnl9922c_ts *ts, u32 addr, u32 val)
 +{
 +	__le32 le = cpu_to_le32(val);
 +
 +	return icnl9922c_prog_write(ts, addr, (const u8 *)&le, sizeof(le));
++}
++
++static int icnl9922c_calc_sram_crc(struct icnl9922c_ts *ts, size_t size,
++				   u32 *crc)
++{
++	u8 busy = 1;
++	u8 buf[4];
++	int ret, retries;
++
++	ret = icnl9922c_prog_writel(ts, ICNL9922C_SFCTRL_SRAM_ADDR, 0);
++	if (ret)
++		return ret;
++	usleep_range(1000, 1500);
++
++	ret = icnl9922c_prog_writel(ts, ICNL9922C_SFCTRL_DATA_LEN, size);
++	if (ret)
++		return ret;
++	usleep_range(1000, 1500);
++
++	ret = icnl9922c_prog_writeb(ts, ICNL9922C_SFCTRL_SRAM_CRC_START, 1);
++	if (ret)
++		return ret;
++	usleep_range(10000, 11000);
++
++	for (retries = 0; retries < 50; retries++) {
++		ret = icnl9922c_prog_read(ts, ICNL9922C_SFCTRL_SF_BUSY,
++					  &busy, sizeof(busy));
++		if (!ret && !busy)
++			break;
++		usleep_range(10000, 11000);
++	}
++	if (ret || busy)
++		return ret ? ret : -ETIMEDOUT;
++
++	ret = icnl9922c_prog_read(ts, ICNL9922C_SFCTRL_CRC_RESULT,
++				  buf, sizeof(buf));
++	if (ret)
++		return ret;
++
++	*crc = get_unaligned_le32(buf);
++	return 0;
 +}
 +
 +static irqreturn_t icnl9922c_irq_handler(int irq, void *dev_id)
@@ -345,6 +439,10 @@ index 000000000..48045073a
 +	int ret, i;
 +
 +	mutex_lock(&ts->lock);
++	if (!ts->running) {
++		mutex_unlock(&ts->lock);
++		return IRQ_HANDLED;
++	}
 +	ret = icnl9922c_tcs_read_1cs(ts, ICNL9922C_CMD_TP_DATA_COORDINATES_RO,
 +				     (u8 *)&info, sizeof(info));
 +	mutex_unlock(&ts->lock);
@@ -383,21 +481,14 @@ index 000000000..48045073a
 +	return IRQ_HANDLED;
 +}
 +
-+static int icnl9922c_register_input(struct icnl9922c_ts *ts, u16 fwid)
++static int icnl9922c_ensure_input(struct icnl9922c_ts *ts, u16 fwid, u16 fwver,
++				  u16 res_x, u16 res_y)
 +{
 +	struct device *dev = &ts->spi->dev;
-+	u8 buf[10];
-+	u16 fwver = 0, res_x = 0, res_y = 0;
 +	int ret;
 +
-+	if (!icnl9922c_tcs_read(ts, ICNL9922C_CMD_INFO_FW_VER_RO, buf, 4))
-+		fwver = get_unaligned_le16(buf);
-+
-+	if (!icnl9922c_tcs_read(ts, ICNL9922C_CMD_INFO_TOUCH_XY_INFO_RO,
-+				buf, sizeof(buf))) {
-+		res_x = get_unaligned_le16(buf);
-+		res_y = get_unaligned_le16(buf + 2);
-+	}
++	if (ts->input)
++		return 0;
 +
 +	ts->input = devm_input_allocate_device(dev);
 +	if (!ts->input)
@@ -422,21 +513,25 @@ index 000000000..48045073a
 +				  INPUT_MT_DIRECT | INPUT_MT_DROP_UNUSED);
 +	if (ret) {
 +		dev_err(dev, "failed to init MT slots: %d\n", ret);
++		ts->input = NULL;
 +		return ret;
 +	}
 +
 +	ret = devm_request_threaded_irq(dev, ts->spi->irq, NULL,
 +					icnl9922c_irq_handler,
-+					IRQF_ONESHOT, dev_name(dev), ts);
++					IRQF_ONESHOT | IRQF_NO_AUTOEN,
++					dev_name(dev), ts);
 +	if (ret) {
 +		dev_err(dev, "failed to request IRQ %d: %d\n",
 +			ts->spi->irq, ret);
++		ts->input = NULL;
 +		return ret;
 +	}
 +
 +	ret = input_register_device(ts->input);
 +	if (ret) {
 +		dev_err(dev, "failed to register input device: %d\n", ret);
++		ts->input = NULL;
 +		return ret;
 +	}
 +
@@ -446,58 +541,123 @@ index 000000000..48045073a
 +	return 0;
 +}
 +
-+static void icnl9922c_fw_cb(const struct firmware *fw, void *context)
++static int icnl9922c_upload_sram(struct icnl9922c_ts *ts, const u8 *data,
++				 size_t size)
 +{
-+	struct icnl9922c_ts *ts = context;
 +	struct device *dev = &ts->spi->dev;
++	u32 fw_crc = crc32_be(0, data, size);
++	u32 sram_crc = 0;
 +	u8 buf[4];
-+	u8 boot_mode = ICNL9922C_BOOT_MODE_SRAM;
-+	size_t offset = 0;
-+	u32 crc;
-+	u16 fwid = 0;
-+	int ret, retries;
++	u32 hwid = 0;
++	int attempt, ret;
 +
-+	if (!fw) {
-+		dev_info(dev, "firmware %s not available; touchscreen idle in bootrom\n",
-+			 ICNL9922C_FW_NAME);
-+		return;
-+	}
++	for (attempt = 0; attempt < 3; attempt++) {
++		size_t offset = 0;
 +
-+	mutex_lock(&ts->lock);
-+	ret = icnl9922c_enter_prog_mode(ts);
-+	if (ret) {
-+		dev_err(dev, "failed to enter program mode: %d\n", ret);
-+		goto out_release;
-+	}
++		if (attempt > 0)
++			icnl9922c_hw_reset(ts);
 +
-+	while (offset < fw->size) {
-+		size_t chunk = min_t(size_t, ICNL9922C_DRW_CHUNK_SIZE,
-+				     fw->size - offset);
++		ret = icnl9922c_enter_prog_mode(ts);
++		if (ret)
++			continue;
 +
-+		ret = icnl9922c_prog_write(ts, offset, fw->data + offset, chunk);
++		ret = icnl9922c_prog_read(ts, ICNL9922C_HW_REG_HWID,
++					  buf, sizeof(buf));
++		if (ret)
++			continue;
++
++		hwid = get_unaligned_le32(buf) & ICNL9922C_HWID_MASK;
++		if (hwid != ICNL9922C_HWID) {
++			ret = -ENODEV;
++			continue;
++		}
++
++		while (offset < size) {
++			size_t chunk = min_t(size_t, ICNL9922C_DRW_CHUNK_SIZE,
++					     size - offset);
++
++			ret = icnl9922c_prog_write(ts, offset, data + offset,
++						   chunk);
++			if (ret)
++				break;
++			offset += chunk;
++		}
 +		if (ret) {
 +			dev_err(dev, "SRAM write failed at 0x%zx: %d\n",
 +				offset, ret);
-+			goto out_release;
++			continue;
 +		}
-+		offset += chunk;
++
++		ret = icnl9922c_calc_sram_crc(ts, size, &sram_crc);
++		if (ret) {
++			dev_err(dev, "HW SRAM CRC read failed: %d\n", ret);
++			continue;
++		}
++		if (sram_crc != fw_crc) {
++			dev_err(dev,
++				"SRAM CRC mismatch: hw=0x%08x != fw=0x%08x (try %d)\n",
++				sram_crc, fw_crc, attempt + 1);
++			ret = -EIO;
++			continue;
++		}
++
++		ret = icnl9922c_prog_writel(ts, ICNL9922C_SRAM_CRC_MAGIC_ADDR,
++					    ICNL9922C_SRAM_CRC_MAGIC);
++		if (!ret)
++			ret = icnl9922c_prog_writel(ts,
++						    ICNL9922C_SRAM_CRC_VAL_ADDR,
++						    fw_crc);
++		if (!ret)
++			ret = icnl9922c_prog_writel(ts,
++						    ICNL9922C_SRAM_CRC_LEN_ADDR,
++						    size);
++		if (!ret)
++			ret = icnl9922c_prog_writeb(ts,
++						    ICNL9922C_HW_REG_BOOT_MODE,
++						    ICNL9922C_BOOT_MODE_SRAM);
++		if (!ret)
++			return 0;
 +	}
 +
-+	crc = crc32_be(0, fw->data, fw->size);
-+	ret = icnl9922c_prog_writel(ts, ICNL9922C_SRAM_CRC_MAGIC_ADDR,
-+				    ICNL9922C_SRAM_CRC_MAGIC);
-+	if (!ret)
-+		ret = icnl9922c_prog_writel(ts, ICNL9922C_SRAM_CRC_VAL_ADDR,
-+					    crc);
-+	if (!ret)
-+		ret = icnl9922c_prog_writel(ts, ICNL9922C_SRAM_CRC_LEN_ADDR,
-+					    fw->size);
-+	if (!ret)
-+		ret = icnl9922c_prog_write(ts, ICNL9922C_HW_REG_BOOT_MODE,
-+					   &boot_mode, sizeof(boot_mode));
++	return ret ? ret : -EIO;
++}
++
++static void icnl9922c_fw_work(struct work_struct *work)
++{
++	struct icnl9922c_ts *ts = container_of(work, struct icnl9922c_ts,
++					       fw_work);
++	struct device *dev = &ts->spi->dev;
++	u8 buf[10];
++	u16 fwid = 0, fwver = 0, res_x = 0, res_y = 0;
++	int ret, retries;
++
++	mutex_lock(&ts->lock);
++
++	if (!ts->fw_data) {
++		const struct firmware *fw;
++
++		ret = request_firmware(&fw, ICNL9922C_FW_NAME, dev);
++		if (ret) {
++			dev_info(dev, "firmware %s not available (%d); idle\n",
++				 ICNL9922C_FW_NAME, ret);
++			mutex_unlock(&ts->lock);
++			return;
++		}
++
++		ts->fw_data = devm_kmemdup(dev, fw->data, fw->size, GFP_KERNEL);
++		ts->fw_size = fw->size;
++		release_firmware(fw);
++		if (!ts->fw_data) {
++			mutex_unlock(&ts->lock);
++			return;
++		}
++	}
++
++	ret = icnl9922c_upload_sram(ts, ts->fw_data, ts->fw_size);
 +	if (ret) {
-+		dev_err(dev, "failed to boot SRAM firmware: %d\n", ret);
-+		goto out_release;
++		dev_err(dev, "failed to upload SRAM firmware: %d\n", ret);
++		mutex_unlock(&ts->lock);
++		return;
 +	}
 +
 +	msleep(40);
@@ -513,18 +673,71 @@ index 000000000..48045073a
 +	}
 +
 +	if (!fwid || fwid == 0xffff) {
-+		dev_err(dev, "SRAM firmware failed to boot into TCS normal mode\n");
-+		goto out_release;
++		dev_err(dev, "SRAM firmware failed to boot into TCS mode\n");
++		mutex_unlock(&ts->lock);
++		return;
 +	}
 +
-+	mutex_unlock(&ts->lock);
-+	icnl9922c_register_input(ts, fwid);
-+	release_firmware(fw);
-+	return;
++	if (!icnl9922c_tcs_read(ts, ICNL9922C_CMD_INFO_FW_VER_RO, buf, 4))
++		fwver = get_unaligned_le16(buf);
 +
-+out_release:
++	if (!icnl9922c_tcs_read(ts, ICNL9922C_CMD_INFO_TOUCH_XY_INFO_RO,
++				buf, sizeof(buf))) {
++		res_x = get_unaligned_le16(buf);
++		res_y = get_unaligned_le16(buf + 2);
++	}
++
++	ts->running = true;
 +	mutex_unlock(&ts->lock);
-+	release_firmware(fw);
++
++	ret = icnl9922c_ensure_input(ts, fwid, fwver, res_x, res_y);
++	if (ret)
++		return;
++
++	mutex_lock(&ts->lock);
++	if (ts->running && !ts->irq_enabled) {
++		enable_irq(ts->spi->irq);
++		ts->irq_enabled = true;
++	}
++	mutex_unlock(&ts->lock);
++}
++
++static int icnl9922c_panel_prepared(struct drm_panel_follower *follower)
++{
++	struct icnl9922c_ts *ts = container_of(follower, struct icnl9922c_ts,
++					       panel_follower);
++
++	schedule_work(&ts->fw_work);
++	return 0;
++}
++
++static int icnl9922c_panel_unpreparing(struct drm_panel_follower *follower)
++{
++	struct icnl9922c_ts *ts = container_of(follower, struct icnl9922c_ts,
++					       panel_follower);
++
++	cancel_work_sync(&ts->fw_work);
++	mutex_lock(&ts->lock);
++	ts->running = false;
++	if (ts->irq_enabled) {
++		disable_irq(ts->spi->irq);
++		ts->irq_enabled = false;
++	}
++	mutex_unlock(&ts->lock);
++
++	return 0;
++}
++
++static const struct drm_panel_follower_funcs icnl9922c_panel_follower_funcs = {
++	.panel_prepared = icnl9922c_panel_prepared,
++	.panel_unpreparing = icnl9922c_panel_unpreparing,
++};
++
++static void icnl9922c_cancel_work(void *data)
++{
++	struct icnl9922c_ts *ts = data;
++
++	cancel_work_sync(&ts->fw_work);
 +}
 +
 +static int icnl9922c_probe(struct spi_device *spi)
@@ -533,7 +746,6 @@ index 000000000..48045073a
 +	struct icnl9922c_ts *ts;
 +	u8 buf[4];
 +	u32 hwid = 0;
-+	u16 fwid = 0;
 +	int ret, retries;
 +
 +	if (spi->irq <= 0)
@@ -557,40 +769,35 @@ index 000000000..48045073a
 +		return -ENOMEM;
 +
 +	mutex_init(&ts->lock);
++	INIT_WORK(&ts->fw_work, icnl9922c_fw_work);
 +	ts->spi = spi;
 +	spi_set_drvdata(spi, ts);
++
++	ret = devm_add_action_or_reset(dev, icnl9922c_cancel_work, ts);
++	if (ret)
++		return ret;
 +
 +	ts->reset_gpio = devm_gpiod_get_optional(dev, "reset", GPIOD_OUT_LOW);
 +	if (IS_ERR(ts->reset_gpio))
 +		return dev_err_probe(dev, PTR_ERR(ts->reset_gpio),
 +				     "failed to get reset GPIO\n");
 +
-+	/*
-+	 * Reset pulse using active-low gpiod semantics: deassert (HIGH) ->
-+	 * assert (LOW, 10 ms) -> deassert (HIGH, 40 ms settle).
-+	 */
-+	if (ts->reset_gpio) {
-+		gpiod_set_value_cansleep(ts->reset_gpio, 0);
-+		usleep_range(1000, 1100);
-+		gpiod_set_value_cansleep(ts->reset_gpio, 1);
-+		usleep_range(10000, 11000);
-+		gpiod_set_value_cansleep(ts->reset_gpio, 0);
-+		msleep(40);
++	if (drm_is_panel_follower(dev)) {
++		ts->panel_follower.funcs = &icnl9922c_panel_follower_funcs;
++		ret = devm_drm_panel_add_follower(dev, &ts->panel_follower);
++		if (ret)
++			return dev_err_probe(dev, ret,
++					     "failed to register panel follower\n");
++		return 0;
 +	}
 +
-+	/* Check if firmware is already running in TCS normal mode */
-+	if (!icnl9922c_tcs_read(ts, ICNL9922C_CMD_INFO_CHIP_FW_ID_RO, buf, 4)) {
-+		fwid = get_unaligned_le16(buf);
-+		if (fwid && fwid != 0xffff)
-+			return icnl9922c_register_input(ts, fwid);
-+	}
++	icnl9922c_hw_reset(ts);
 +
-+	/* Flashless TDDI wakes in bootrom; verify HWID via DRW program mode */
 +	for (retries = 0; retries < 3; retries++) {
 +		ret = icnl9922c_enter_prog_mode(ts);
 +		if (!ret)
 +			ret = icnl9922c_prog_read(ts, ICNL9922C_HW_REG_HWID,
-+						  buf, 4);
++						  buf, sizeof(buf));
 +		if (!ret) {
 +			hwid = get_unaligned_le32(buf) & ICNL9922C_HWID_MASK;
 +			if (hwid == ICNL9922C_HWID)
@@ -605,11 +812,8 @@ index 000000000..48045073a
 +				     "failed to detect ICNL9922C (hwid=0x%06x)\n",
 +				     hwid);
 +
-+	dev_info(dev, "Chipone ICNL9922C detected (hwid=0x%06x), requesting %s\n",
-+		 hwid, ICNL9922C_FW_NAME);
-+
-+	return request_firmware_nowait(THIS_MODULE, true, ICNL9922C_FW_NAME,
-+				       dev, GFP_KERNEL, ts, icnl9922c_fw_cb);
++	schedule_work(&ts->fw_work);
++	return 0;
 +}
 +
 +static ssize_t fw_ver_show(struct device *dev, struct device_attribute *attr,
@@ -620,6 +824,10 @@ index 000000000..48045073a
 +	int ret;
 +
 +	mutex_lock(&ts->lock);
++	if (!ts->running) {
++		mutex_unlock(&ts->lock);
++		return -ENODEV;
++	}
 +	ret = icnl9922c_tcs_read(ts, ICNL9922C_CMD_INFO_FW_VER_RO,
 +				 raw, sizeof(raw));
 +	mutex_unlock(&ts->lock);
@@ -662,3 +870,6 @@ index 000000000..48045073a
 +MODULE_AUTHOR("sysretq0 <324514544+sysretq0@users.noreply.github.com>");
 +MODULE_DESCRIPTION("Chipone ICNL9922C SPI TDDI Touchscreen Driver");
 +MODULE_LICENSE("GPL");
+-- 
+2.55.0
+

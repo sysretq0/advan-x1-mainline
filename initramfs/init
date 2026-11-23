@@ -138,10 +138,6 @@ if [ -d /sys/class/input ]; then
     done
     [ -n "$INP_SUMMARY" ] && log "Input:$INP_SUMMARY"
 fi
-if [ -r /sys/bus/spi/devices/spi0.0/fw_ver ]; then
-    TP_VER=$(cat /sys/bus/spi/devices/spi0.0/fw_ver 2>/dev/null || echo "err")
-    log "Touch: spi0.0 fw_ver=${TP_VER}"
-fi
 if [ -d /sys/devices/soc0 ]; then
     SOC_FAM=$(cat /sys/devices/soc0/family 2>/dev/null || echo "?")
     SOC_ID=$(cat /sys/devices/soc0/soc_id 2>/dev/null || echo "?")
@@ -193,6 +189,15 @@ fi
 if [ -r /proc/asound/cards ]; then
     ALSA_SUMMARY=$(tr '\n' ' ' < /proc/asound/cards | sed 's/  */ /g')
     [ -n "$ALSA_SUMMARY" ] && log "ALSA: $ALSA_SUMMARY"
+fi
+if [ -r /sys/bus/spi/devices/spi0.0/fw_ver ]; then
+    TP_VER="err"
+    for _tp_try in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+        TP_VER=$(cat /sys/bus/spi/devices/spi0.0/fw_ver 2>/dev/null || echo "err")
+        [ "$TP_VER" != "err" ] && break
+        sleep 0.1 2>/dev/null || usleep 100000 2>/dev/null || sleep 1
+    done
+    log "Touch: spi0.0 fw_ver=${TP_VER}"
 fi
 
 # Keep UFS host controller active during early boot

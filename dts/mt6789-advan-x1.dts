@@ -218,6 +218,7 @@
 		spi-max-frequency = <3000000>;
 		spi-cpha;
 		spi-cpol;
+		panel = <&display_panel>;
 		reset-gpios = <&pio 107 GPIO_ACTIVE_LOW>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&touch_pins>;
@@ -940,7 +941,7 @@
 	#address-cells = <1>;
 	#size-cells = <0>;
 
-	panel@0 {
+	display_panel: panel@0 {
 		compatible = "chipone,icnl9922c";
 		reg = <0>;
 		pinctrl-names = "default";
