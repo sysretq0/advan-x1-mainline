@@ -10,9 +10,9 @@ driver.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- drivers/pmdomain/mediatek/mt6789-pm-domains.h | 309 ++++++++++++++++++
+ drivers/pmdomain/mediatek/mt6789-pm-domains.h | 344 ++++++++++++++++++
  drivers/pmdomain/mediatek/mtk-pm-domains.c    |   5 +
- 2 files changed, 314 insertions(+)
+ 2 files changed, 349 insertions(+)
  create mode 100644 drivers/pmdomain/mediatek/mt6789-pm-domains.h
 
 diff --git a/drivers/pmdomain/mediatek/mt6789-pm-domains.h b/drivers/pmdomain/mediatek/mt6789-pm-domains.h
@@ -20,7 +20,7 @@ new file mode 100644
 index 000000000..e28c54a46
 --- /dev/null
 +++ b/drivers/pmdomain/mediatek/mt6789-pm-domains.h
-@@ -0,0 +1,309 @@
+@@ -0,0 +1,344 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +/*
 + * Copyright (c) 2022 MediaTek Inc.
