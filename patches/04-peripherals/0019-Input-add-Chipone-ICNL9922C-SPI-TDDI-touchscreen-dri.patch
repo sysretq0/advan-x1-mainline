@@ -14,8 +14,8 @@ Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  drivers/input/touchscreen/Kconfig             |  14 +
  drivers/input/touchscreen/Makefile            |   1 +
- drivers/input/touchscreen/chipone_icnl9922c.c | 882 ++++++++++++++++++
- 3 files changed, 897 insertions(+)
+ drivers/input/touchscreen/chipone_icnl9922c.c | 885 ++++++++++++++++++
+ 3 files changed, 900 insertions(+)
  create mode 100644 drivers/input/touchscreen/chipone_icnl9922c.c
 
 diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
@@ -60,7 +60,7 @@ new file mode 100644
 index 000000000..1e3371dac
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_icnl9922c.c
-@@ -0,0 +1,882 @@
+@@ -0,0 +1,885 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Chipone ICNL9922C SPI TDDI touchscreen driver (TCS + DRW SRAM boot)
@@ -96,9 +96,11 @@ index 000000000..1e3371dac
 +#define ICNL9922C_PROG_SPI_ADDR			0x60
 +#define ICNL9922C_HW_REG_HWID			0x070000
 +#define ICNL9922C_HW_REG_BOOT_MODE		0x070010
++#define ICNL9922C_HW_REG_CURRENT_MODE		0x070011
 +#define ICNL9922C_BOOT_MODE_TCH_PRG		0x02
 +#define ICNL9922C_BOOT_MODE_SRAM		0x03
 +#define ICNL9922C_BOOT_MODE_SPI_PRG		0x05
++#define ICNL9922C_BOOT_MODE_MASK		0x07
 +
 +#define ICNL9922C_SFCTRL_BASE			0x074000
 +#define ICNL9922C_SFCTRL_SRAM_ADDR		(ICNL9922C_SFCTRL_BASE + 0x08)
@@ -372,11 +374,12 @@ index 000000000..1e3371dac
 +
 +	usleep_range(5000, 6000);
 +
-+	ret = icnl9922c_prog_read(ts, ICNL9922C_HW_REG_BOOT_MODE,
++	ret = icnl9922c_prog_read(ts, ICNL9922C_HW_REG_CURRENT_MODE,
 +				  &boot_mode, sizeof(boot_mode));
 +	if (ret)
 +		return ret;
 +
++	boot_mode &= ICNL9922C_BOOT_MODE_MASK;
 +	if (boot_mode != ICNL9922C_BOOT_MODE_TCH_PRG &&
 +	    boot_mode != ICNL9922C_BOOT_MODE_SPI_PRG) {
 +		dev_err(&ts->spi->dev, "unexpected boot_mode=0x%02x in prog mode\n",
