@@ -4,13 +4,14 @@ Date: Sun, 22 Nov 2026 04:30:00 +0000
 Subject: [PATCH 3/3] arm64: dts: mediatek: Add Advan X1 board device tree
 
 Add board device tree for the Advan X1 smartphone (MediaTek MT6789,
-MT6366 PMIC, TPS65132 display bias, and Chipone ICNL9922C DSI panel).
+MT6366 PMIC with AUXADC/RTC/codec/keys/regulators, hardware keypad,
+vibrator, TPS65132 display bias, and Chipone ICNL9922C DSI panel).
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  arch/arm64/boot/dts/mediatek/Makefile         |   1 +
- .../boot/dts/mediatek/mt6789-advan-x1.dts     | 565 ++++++++++++++++++
- 2 files changed, 566 insertions(+)
+ .../boot/dts/mediatek/mt6789-advan-x1.dts     | 599 ++++++++++++++++++
+ 2 files changed, 600 insertions(+)
  create mode 100644 arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
 
 diff --git a/arch/arm64/boot/dts/mediatek/Makefile b/arch/arm64/boot/dts/mediatek/Makefile
@@ -26,10 +27,10 @@ index a86fb313b..3dfbb4bb4 100644
  dtb-$(CONFIG_ARCH_MEDIATEK) += mt6795-evb.dtb
 diff --git a/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
 new file mode 100644
-index 000000000..8029f0e56
+index 000000000..3be4b220b
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
-@@ -0,0 +1,565 @@
+@@ -0,0 +1,599 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Device Tree Source for the Advan X1 smartphone (MediaTek MT6789).
@@ -61,6 +62,13 @@ index 000000000..8029f0e56
 +		brightness-levels = <0 1024 2048 4096 8192 16384 32768 65535>;
 +		default-brightness-level = <5>;
 +		status = "okay";
++	};
++
++	vibrator {
++		compatible = "regulator-haptic";
++		haptic-supply = <&mt6366_vibr_reg>;
++		min-microvolt = <3000000>;
++		max-microvolt = <3300000>;
 +	};
 +
 +	reserved-memory {
@@ -112,6 +120,14 @@ index 000000000..8029f0e56
 +};
 +
 +&uart0 {
++	status = "okay";
++};
++
++&keyboard {
++	keypad,num-rows = <1>;
++	keypad,num-columns = <1>;
++	linux,keymap = <MATRIX_KEY(0x00, 0x00, KEY_VOLUMEDOWN)>;
++	wakeup-source;
 +	status = "okay";
 +};
 +
@@ -208,6 +224,21 @@ index 000000000..8029f0e56
 +		interrupt-controller;
 +		#interrupt-cells = <2>;
 +
++		pmic_adc: adc {
++			compatible = "mediatek,mt6358-auxadc";
++			#io-channel-cells = <1>;
++		};
++
++		mt6358codec: audio-codec {
++			compatible = "mediatek,mt6366-sound", "mediatek,mt6358-sound";
++			Avdd-supply = <&mt6366_vaud28_reg>;
++			mediatek,dmic-mode = <0>;
++		};
++
++		mt6358rtc: rtc {
++			compatible = "mediatek,mt6366-rtc", "mediatek,mt6358-rtc";
++		};
++
 +		mt6366regulator: regulators {
 +			compatible = "mediatek,mt6366-regulator", "mediatek,mt6358-regulator";
 +
@@ -236,11 +267,13 @@ index 000000000..8029f0e56
 +			mt6366_vgpu_reg: vgpu {
 +				regulator-name = "vgpu";
 +				regulator-min-microvolt = <500000>;
-+				regulator-max-microvolt = <1293750>;
++				regulator-max-microvolt = <950000>;
 +				regulator-ramp-delay = <6250>;
 +				regulator-enable-ramp-delay = <200>;
 +				regulator-allowed-modes = <MT6397_BUCK_MODE_AUTO
 +							   MT6397_BUCK_MODE_FORCE_PWM>;
++				regulator-coupled-with = <&mt6366_vsram_gpu_reg>;
++				regulator-coupled-max-spread = <100000>;
 +				regulator-boot-on;
 +			};
 +
@@ -466,10 +499,12 @@ index 000000000..8029f0e56
 +
 +			mt6366_vsram_gpu_reg: vsram-gpu {
 +				regulator-name = "vsram-gpu";
-+				regulator-min-microvolt = <500000>;
-+				regulator-max-microvolt = <1293750>;
++				regulator-min-microvolt = <750000>;
++				regulator-max-microvolt = <1050000>;
 +				regulator-ramp-delay = <6250>;
 +				regulator-enable-ramp-delay = <240>;
++				regulator-coupled-with = <&mt6366_vgpu_reg>;
++				regulator-coupled-max-spread = <100000>;
 +				regulator-boot-on;
 +			};
 +
@@ -521,7 +556,7 @@ index 000000000..8029f0e56
 +			};
 +
 +			homekey {
-+				linux,keycodes = <KEY_HOME>;
++				linux,keycodes = <KEY_VOLUMEUP>;
 +				wakeup-source;
 +			};
 +		};

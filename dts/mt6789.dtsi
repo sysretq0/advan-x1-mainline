@@ -62,6 +62,8 @@
 			reg = <0x000>;
 			enable-method = "psci";
 			capacity-dmips-mhz = <383>;
+			performance-domains = <&performance 0>;
+			#cooling-cells = <2>;
 		};
 
 		cpu1: cpu@100 {
@@ -70,6 +72,8 @@
 			reg = <0x100>;
 			enable-method = "psci";
 			capacity-dmips-mhz = <383>;
+			performance-domains = <&performance 0>;
+			#cooling-cells = <2>;
 		};
 
 		cpu2: cpu@200 {
@@ -78,6 +82,8 @@
 			reg = <0x200>;
 			enable-method = "psci";
 			capacity-dmips-mhz = <383>;
+			performance-domains = <&performance 0>;
+			#cooling-cells = <2>;
 		};
 
 		cpu3: cpu@300 {
@@ -86,6 +92,8 @@
 			reg = <0x300>;
 			enable-method = "psci";
 			capacity-dmips-mhz = <383>;
+			performance-domains = <&performance 0>;
+			#cooling-cells = <2>;
 		};
 
 		cpu4: cpu@400 {
@@ -94,6 +102,8 @@
 			reg = <0x400>;
 			enable-method = "psci";
 			capacity-dmips-mhz = <383>;
+			performance-domains = <&performance 0>;
+			#cooling-cells = <2>;
 		};
 
 		cpu5: cpu@500 {
@@ -102,6 +112,8 @@
 			reg = <0x500>;
 			enable-method = "psci";
 			capacity-dmips-mhz = <383>;
+			performance-domains = <&performance 0>;
+			#cooling-cells = <2>;
 		};
 
 		cpu6: cpu@600 {
@@ -110,6 +122,8 @@
 			reg = <0x600>;
 			enable-method = "psci";
 			capacity-dmips-mhz = <1024>;
+			performance-domains = <&performance 1>;
+			#cooling-cells = <2>;
 		};
 
 		cpu7: cpu@700 {
@@ -118,6 +132,8 @@
 			reg = <0x700>;
 			enable-method = "psci";
 			capacity-dmips-mhz = <1024>;
+			performance-domains = <&performance 1>;
+			#cooling-cells = <2>;
 		};
 
 		cpu-map {
@@ -225,6 +241,13 @@
 		#address-cells = <2>;
 		#size-cells = <2>;
 		ranges;
+
+		performance: performance-controller@11bc10 {
+			compatible = "mediatek,cpufreq-hw";
+			reg = <0x00 0x0011bc10 0x00 0x120>,
+			      <0x00 0x0011bd30 0x00 0x120>;
+			#performance-domain-cells = <1>;
+		};
 
 		gic: interrupt-controller@c000000 {
 			compatible = "arm,gic-v3";
@@ -503,6 +526,15 @@
 			compatible = "mediatek,mt6789-wdt", "mediatek,mt6589-wdt";
 			reg = <0x00 0x10007000 0x00 0x100>;
 			#reset-cells = <1>;
+		};
+
+		keyboard: keyboard@10010000 {
+			compatible = "mediatek,mt6779-keypad";
+			reg = <0x00 0x10010000 0x00 0x1000>;
+			interrupts = <GIC_SPI 106 IRQ_TYPE_EDGE_RISING>;
+			clocks = <&clk26m>;
+			clock-names = "kpd";
+			status = "disabled";
 		};
 
 		pwrap: pwrap@10026000 {
@@ -994,7 +1026,6 @@
 			reg = <0x00 0x1400e000 0x00 0x1000>;
 			clocks = <&mmsys CLK_MM_DISP_POSTMASK0>;
 			interrupts = <GIC_SPI 296 IRQ_TYPE_LEVEL_HIGH>;
-			power-domains = <&spm MT6789_POWER_DOMAIN_DISP>;
 		};
 
 		dither0: dither@1400f000 {
@@ -1002,7 +1033,6 @@
 			reg = <0x00 0x1400f000 0x00 0x1000>;
 			clocks = <&mmsys CLK_MM_DISP_DITHER0>;
 			interrupts = <GIC_SPI 297 IRQ_TYPE_LEVEL_HIGH>;
-			power-domains = <&spm MT6789_POWER_DOMAIN_DISP>;
 		};
 
 		dsc0: dsc@14012000 {
@@ -1010,7 +1040,6 @@
 			reg = <0x00 0x14012000 0x00 0x1000>;
 			clocks = <&mmsys CLK_MM_DISP_DSC_WRAP0>;
 			interrupts = <GIC_SPI 300 IRQ_TYPE_LEVEL_HIGH>;
-			power-domains = <&spm MT6789_POWER_DOMAIN_DISP>;
 		};
 
 		dsi0: dsi@14013000 {
@@ -1052,6 +1081,18 @@
 					type = "critical";
 				};
 			};
+
+			cooling-maps {
+				map0 {
+					trip = <&cpu0_alert>;
+					cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu4 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu5 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+			};
 		};
 
 		cpu1-thermal {
@@ -1070,6 +1111,18 @@
 					temperature = <113500>;
 					hysteresis = <2000>;
 					type = "critical";
+				};
+			};
+
+			cooling-maps {
+				map0 {
+					trip = <&cpu1_alert>;
+					cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu4 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu5 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 				};
 			};
 		};
@@ -1092,6 +1145,18 @@
 					type = "critical";
 				};
 			};
+
+			cooling-maps {
+				map0 {
+					trip = <&cpu2_alert>;
+					cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu4 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu5 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+			};
 		};
 
 		cpu3-thermal {
@@ -1110,6 +1175,18 @@
 					temperature = <113500>;
 					hysteresis = <2000>;
 					type = "critical";
+				};
+			};
+
+			cooling-maps {
+				map0 {
+					trip = <&cpu3_alert>;
+					cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu4 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu5 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 				};
 			};
 		};
@@ -1132,6 +1209,14 @@
 					type = "critical";
 				};
 			};
+
+			cooling-maps {
+				map0 {
+					trip = <&cpu4_alert>;
+					cooling-device = <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu7 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+			};
 		};
 
 		cpu5-thermal {
@@ -1150,6 +1235,14 @@
 					temperature = <113500>;
 					hysteresis = <2000>;
 					type = "critical";
+				};
+			};
+
+			cooling-maps {
+				map0 {
+					trip = <&cpu5_alert>;
+					cooling-device = <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu7 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 				};
 			};
 		};
@@ -1172,6 +1265,14 @@
 					type = "critical";
 				};
 			};
+
+			cooling-maps {
+				map0 {
+					trip = <&cpu6_alert>;
+					cooling-device = <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu7 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+			};
 		};
 
 		cpu7-thermal {
@@ -1190,6 +1291,14 @@
 					temperature = <113500>;
 					hysteresis = <2000>;
 					type = "critical";
+				};
+			};
+
+			cooling-maps {
+				map0 {
+					trip = <&cpu7_alert>;
+					cooling-device = <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+							 <&cpu7 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 				};
 			};
 		};

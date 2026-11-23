@@ -31,6 +31,13 @@
 		status = "okay";
 	};
 
+	vibrator {
+		compatible = "regulator-haptic";
+		haptic-supply = <&mt6366_vibr_reg>;
+		min-microvolt = <3000000>;
+		max-microvolt = <3300000>;
+	};
+
 	reserved-memory {
 		#address-cells = <2>;
 		#size-cells = <2>;
@@ -80,6 +87,14 @@
 };
 
 &uart0 {
+	status = "okay";
+};
+
+&keyboard {
+	keypad,num-rows = <1>;
+	keypad,num-columns = <1>;
+	linux,keymap = <MATRIX_KEY(0x00, 0x00, KEY_VOLUMEDOWN)>;
+	wakeup-source;
 	status = "okay";
 };
 
@@ -176,6 +191,21 @@
 		interrupt-controller;
 		#interrupt-cells = <2>;
 
+		pmic_adc: adc {
+			compatible = "mediatek,mt6358-auxadc";
+			#io-channel-cells = <1>;
+		};
+
+		mt6358codec: audio-codec {
+			compatible = "mediatek,mt6366-sound", "mediatek,mt6358-sound";
+			Avdd-supply = <&mt6366_vaud28_reg>;
+			mediatek,dmic-mode = <0>;
+		};
+
+		mt6358rtc: rtc {
+			compatible = "mediatek,mt6366-rtc", "mediatek,mt6358-rtc";
+		};
+
 		mt6366regulator: regulators {
 			compatible = "mediatek,mt6366-regulator", "mediatek,mt6358-regulator";
 
@@ -204,11 +234,13 @@
 			mt6366_vgpu_reg: vgpu {
 				regulator-name = "vgpu";
 				regulator-min-microvolt = <500000>;
-				regulator-max-microvolt = <1293750>;
+				regulator-max-microvolt = <950000>;
 				regulator-ramp-delay = <6250>;
 				regulator-enable-ramp-delay = <200>;
 				regulator-allowed-modes = <MT6397_BUCK_MODE_AUTO
 							   MT6397_BUCK_MODE_FORCE_PWM>;
+				regulator-coupled-with = <&mt6366_vsram_gpu_reg>;
+				regulator-coupled-max-spread = <100000>;
 				regulator-boot-on;
 			};
 
@@ -434,10 +466,12 @@
 
 			mt6366_vsram_gpu_reg: vsram-gpu {
 				regulator-name = "vsram-gpu";
-				regulator-min-microvolt = <500000>;
-				regulator-max-microvolt = <1293750>;
+				regulator-min-microvolt = <750000>;
+				regulator-max-microvolt = <1050000>;
 				regulator-ramp-delay = <6250>;
 				regulator-enable-ramp-delay = <240>;
+				regulator-coupled-with = <&mt6366_vgpu_reg>;
+				regulator-coupled-max-spread = <100000>;
 				regulator-boot-on;
 			};
 
@@ -489,7 +523,7 @@
 			};
 
 			homekey {
-				linux,keycodes = <KEY_HOME>;
+				linux,keycodes = <KEY_VOLUMEUP>;
 				wakeup-source;
 			};
 		};

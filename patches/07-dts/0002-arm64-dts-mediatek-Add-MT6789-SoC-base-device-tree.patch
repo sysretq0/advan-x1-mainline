@@ -4,22 +4,23 @@ Date: Sun, 22 Nov 2026 04:29:59 +0000
 Subject: [PATCH 2/3] arm64: dts: mediatek: Add MT6789 SoC base device tree
 
 Add base device tree include (mt6789.dtsi) for the MediaTek MT6789
-(Helio G99) SoC describing CPUs, GIC, clocks, pinctrl, SCPSYS power
-domains, PMIC wrapper, UART, SPI, I2C, UFS, USB, LVTS thermal,
-Mali-G57 GPU, SMI, MMSYS, DISP PWM, and display pipeline.
+(Helio G99) SoC describing CPUs, cpufreq-hw, GIC, clocks, pinctrl,
+SCPSYS power domains, keypad, PMIC wrapper, UART, SPI, I2C, UFS, USB,
+LVTS thermal with CPU/GPU cooling, Mali-G57 GPU, SMI, MMSYS, DISP PWM,
+and display pipeline.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- arch/arm64/boot/dts/mediatek/mt6789.dtsi | 1311 ++++++++++++++++++++++
- 1 file changed, 1311 insertions(+)
+ arch/arm64/boot/dts/mediatek/mt6789.dtsi | 1420 ++++++++++++++++++++++
+ 1 file changed, 1420 insertions(+)
  create mode 100644 arch/arm64/boot/dts/mediatek/mt6789.dtsi
 
 diff --git a/arch/arm64/boot/dts/mediatek/mt6789.dtsi b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
 new file mode 100644
-index 000000000..cdd9758e5
+index 000000000..8726902e1
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
-@@ -0,0 +1,1311 @@
+@@ -0,0 +1,1420 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * MediaTek MT6789 (Helio G99) SoC base device tree — mainline shape.
@@ -84,6 +85,8 @@ index 000000000..cdd9758e5
 +			reg = <0x000>;
 +			enable-method = "psci";
 +			capacity-dmips-mhz = <383>;
++			performance-domains = <&performance 0>;
++			#cooling-cells = <2>;
 +		};
 +
 +		cpu1: cpu@100 {
@@ -92,6 +95,8 @@ index 000000000..cdd9758e5
 +			reg = <0x100>;
 +			enable-method = "psci";
 +			capacity-dmips-mhz = <383>;
++			performance-domains = <&performance 0>;
++			#cooling-cells = <2>;
 +		};
 +
 +		cpu2: cpu@200 {
@@ -100,6 +105,8 @@ index 000000000..cdd9758e5
 +			reg = <0x200>;
 +			enable-method = "psci";
 +			capacity-dmips-mhz = <383>;
++			performance-domains = <&performance 0>;
++			#cooling-cells = <2>;
 +		};
 +
 +		cpu3: cpu@300 {
@@ -108,6 +115,8 @@ index 000000000..cdd9758e5
 +			reg = <0x300>;
 +			enable-method = "psci";
 +			capacity-dmips-mhz = <383>;
++			performance-domains = <&performance 0>;
++			#cooling-cells = <2>;
 +		};
 +
 +		cpu4: cpu@400 {
@@ -116,6 +125,8 @@ index 000000000..cdd9758e5
 +			reg = <0x400>;
 +			enable-method = "psci";
 +			capacity-dmips-mhz = <383>;
++			performance-domains = <&performance 0>;
++			#cooling-cells = <2>;
 +		};
 +
 +		cpu5: cpu@500 {
@@ -124,6 +135,8 @@ index 000000000..cdd9758e5
 +			reg = <0x500>;
 +			enable-method = "psci";
 +			capacity-dmips-mhz = <383>;
++			performance-domains = <&performance 0>;
++			#cooling-cells = <2>;
 +		};
 +
 +		cpu6: cpu@600 {
@@ -132,6 +145,8 @@ index 000000000..cdd9758e5
 +			reg = <0x600>;
 +			enable-method = "psci";
 +			capacity-dmips-mhz = <1024>;
++			performance-domains = <&performance 1>;
++			#cooling-cells = <2>;
 +		};
 +
 +		cpu7: cpu@700 {
@@ -140,6 +155,8 @@ index 000000000..cdd9758e5
 +			reg = <0x700>;
 +			enable-method = "psci";
 +			capacity-dmips-mhz = <1024>;
++			performance-domains = <&performance 1>;
++			#cooling-cells = <2>;
 +		};
 +
 +		cpu-map {
@@ -247,6 +264,13 @@ index 000000000..cdd9758e5
 +		#address-cells = <2>;
 +		#size-cells = <2>;
 +		ranges;
++
++		performance: performance-controller@11bc10 {
++			compatible = "mediatek,cpufreq-hw";
++			reg = <0x00 0x0011bc10 0x00 0x120>,
++			      <0x00 0x0011bd30 0x00 0x120>;
++			#performance-domain-cells = <1>;
++		};
 +
 +		gic: interrupt-controller@c000000 {
 +			compatible = "arm,gic-v3";
@@ -525,6 +549,15 @@ index 000000000..cdd9758e5
 +			compatible = "mediatek,mt6789-wdt", "mediatek,mt6589-wdt";
 +			reg = <0x00 0x10007000 0x00 0x100>;
 +			#reset-cells = <1>;
++		};
++
++		keyboard: keyboard@10010000 {
++			compatible = "mediatek,mt6779-keypad";
++			reg = <0x00 0x10010000 0x00 0x1000>;
++			interrupts = <GIC_SPI 106 IRQ_TYPE_EDGE_RISING>;
++			clocks = <&clk26m>;
++			clock-names = "kpd";
++			status = "disabled";
 +		};
 +
 +		pwrap: pwrap@10026000 {
@@ -1016,7 +1049,6 @@ index 000000000..cdd9758e5
 +			reg = <0x00 0x1400e000 0x00 0x1000>;
 +			clocks = <&mmsys CLK_MM_DISP_POSTMASK0>;
 +			interrupts = <GIC_SPI 296 IRQ_TYPE_LEVEL_HIGH>;
-+			power-domains = <&spm MT6789_POWER_DOMAIN_DISP>;
 +		};
 +
 +		dither0: dither@1400f000 {
@@ -1024,7 +1056,6 @@ index 000000000..cdd9758e5
 +			reg = <0x00 0x1400f000 0x00 0x1000>;
 +			clocks = <&mmsys CLK_MM_DISP_DITHER0>;
 +			interrupts = <GIC_SPI 297 IRQ_TYPE_LEVEL_HIGH>;
-+			power-domains = <&spm MT6789_POWER_DOMAIN_DISP>;
 +		};
 +
 +		dsc0: dsc@14012000 {
@@ -1032,7 +1063,6 @@ index 000000000..cdd9758e5
 +			reg = <0x00 0x14012000 0x00 0x1000>;
 +			clocks = <&mmsys CLK_MM_DISP_DSC_WRAP0>;
 +			interrupts = <GIC_SPI 300 IRQ_TYPE_LEVEL_HIGH>;
-+			power-domains = <&spm MT6789_POWER_DOMAIN_DISP>;
 +		};
 +
 +		dsi0: dsi@14013000 {
@@ -1074,6 +1104,18 @@ index 000000000..cdd9758e5
 +					type = "critical";
 +				};
 +			};
++
++			cooling-maps {
++				map0 {
++					trip = <&cpu0_alert>;
++					cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu4 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu5 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
++				};
++			};
 +		};
 +
 +		cpu1-thermal {
@@ -1092,6 +1134,18 @@ index 000000000..cdd9758e5
 +					temperature = <113500>;
 +					hysteresis = <2000>;
 +					type = "critical";
++				};
++			};
++
++			cooling-maps {
++				map0 {
++					trip = <&cpu1_alert>;
++					cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu4 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu5 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 +				};
 +			};
 +		};
@@ -1114,6 +1168,18 @@ index 000000000..cdd9758e5
 +					type = "critical";
 +				};
 +			};
++
++			cooling-maps {
++				map0 {
++					trip = <&cpu2_alert>;
++					cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu4 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu5 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
++				};
++			};
 +		};
 +
 +		cpu3-thermal {
@@ -1132,6 +1198,18 @@ index 000000000..cdd9758e5
 +					temperature = <113500>;
 +					hysteresis = <2000>;
 +					type = "critical";
++				};
++			};
++
++			cooling-maps {
++				map0 {
++					trip = <&cpu3_alert>;
++					cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu4 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu5 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 +				};
 +			};
 +		};
@@ -1154,6 +1232,14 @@ index 000000000..cdd9758e5
 +					type = "critical";
 +				};
 +			};
++
++			cooling-maps {
++				map0 {
++					trip = <&cpu4_alert>;
++					cooling-device = <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu7 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
++				};
++			};
 +		};
 +
 +		cpu5-thermal {
@@ -1172,6 +1258,14 @@ index 000000000..cdd9758e5
 +					temperature = <113500>;
 +					hysteresis = <2000>;
 +					type = "critical";
++				};
++			};
++
++			cooling-maps {
++				map0 {
++					trip = <&cpu5_alert>;
++					cooling-device = <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu7 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 +				};
 +			};
 +		};
@@ -1194,6 +1288,14 @@ index 000000000..cdd9758e5
 +					type = "critical";
 +				};
 +			};
++
++			cooling-maps {
++				map0 {
++					trip = <&cpu6_alert>;
++					cooling-device = <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu7 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
++				};
++			};
 +		};
 +
 +		cpu7-thermal {
@@ -1212,6 +1314,14 @@ index 000000000..cdd9758e5
 +					temperature = <113500>;
 +					hysteresis = <2000>;
 +					type = "critical";
++				};
++			};
++
++			cooling-maps {
++				map0 {
++					trip = <&cpu7_alert>;
++					cooling-device = <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu7 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
 +				};
 +			};
 +		};

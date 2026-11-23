@@ -98,24 +98,45 @@ if [ -d /sys/class/backlight/backlight ]; then
     BL_P=$(cat /sys/class/backlight/backlight/bl_power 2>/dev/null || echo "?")
     log "Backlight: brightness=$BL_B actual=$BL_A power=$BL_P"
 fi
-if command -v devmem >/dev/null 2>&1; then
-    clk_on() {
-        local c="/sys/kernel/debug/clk/$1/clk_enable_count"
-        [ -r "$c" ] && [ "$(cat "$c" 2>/dev/null)" -gt 0 ] 2>/dev/null
-    }
-    if clk_on mm_apb_bus && clk_on mm_disp_mutex0; then
-        log "MMSYS/MUTEX: cg0=$(devmem 0x14000100 32) cg1=$(devmem 0x140001a0 32) dl_v0=$(devmem 0x14000e9c 32) dl_v1=$(devmem 0x14000ea0 32) dl_r0=$(devmem 0x14000ea8 32) dl_r1=$(devmem 0x14000eac 32) mtx_en=$(devmem 0x14001020 32) mtx_sof=$(devmem 0x1400102c 32) mtx_mod0=$(devmem 0x14001030 32)"
-    fi
-    if clk_on mm_disp_ovl0 && clk_on mm_disp_rdma0; then
-        log "OVL0: sta=$(devmem 0x14005000 32) inten=$(devmem 0x14005004 32) intsta=$(devmem 0x14005008 32) en=$(devmem 0x1400500c 32) dp=$(devmem 0x14005024 32) src=$(devmem 0x1400502c 32) l0addr=$(devmem 0x14005f40 32) flow=$(devmem 0x14005240 32)"
-        log "RDMA0: inten=$(devmem 0x14007000 32) ints=$(devmem 0x14007004 32) con=$(devmem 0x14007010 32) fifo=$(devmem 0x14007040 32) shd=$(devmem 0x140070bc 32) in_l=$(devmem 0x140070f4 32) out_l=$(devmem 0x140070fc 32) dbg=$(devmem 0x14007100 32)"
-    fi
-    if clk_on mm_disp_dsc_wrap0 && clk_on mm_dsi0; then
-        log "DSC0/DSI0: dsc_con=$(devmem 0x14012000 32) dsc_mode=$(devmem 0x14012030 32) dsc_shd=$(devmem 0x14012200 32) dsi_st=$(devmem 0x14013000 32) dsi_is=$(devmem 0x1401300c 32) dsi_con=$(devmem 0x14013010 32) dsi_md=$(devmem 0x14013014 32) dsi_tx=$(devmem 0x14013018 32) dsi_ps=$(devmem 0x1401301c 32) dsi_lc=$(devmem 0x14013104 32) dbg6=$(devmem 0x14013160 32) dbg7=$(devmem 0x14013164 32)"
-    fi
-    if clk_on mipi_tx0_pll; then
-        log "MIPITX: lane=$(devmem 0x11f6000c 32) con0=$(devmem 0x11f6002c 32) con1=$(devmem 0x11f60030 32) sw0=$(devmem 0x11f60110 32) ckmode=$(devmem 0x11f60210 32)"
-    fi
+if [ -d /sys/devices/system/cpu/cpufreq ]; then
+    CPUF_SUMMARY=""
+    for p in /sys/devices/system/cpu/cpufreq/policy*; do
+        [ -d "$p" ] || continue
+        P_NAME=$(basename "$p")
+        P_DRV=$(cat "$p/scaling_driver" 2>/dev/null || echo "?")
+        P_CUR=$(cat "$p/scaling_cur_freq" 2>/dev/null || echo "?")
+        P_MIN=$(cat "$p/cpuinfo_min_freq" 2>/dev/null || echo "?")
+        P_MAX=$(cat "$p/cpuinfo_max_freq" 2>/dev/null || echo "?")
+        CPUF_SUMMARY="$CPUF_SUMMARY ${P_NAME}=${P_DRV}(${P_CUR}/${P_MIN}-${P_MAX})"
+    done
+    [ -n "$CPUF_SUMMARY" ] && log "CPUfreq:$CPUF_SUMMARY"
+fi
+if [ -d /sys/class/rtc ]; then
+    RTC_SUMMARY=""
+    for r in /sys/class/rtc/rtc*; do
+        [ -d "$r" ] || continue
+        R_NAME=$(cat "$r/name" 2>/dev/null || echo "?")
+        R_DATE=$(cat "$r/date" 2>/dev/null || echo "?")
+        R_TIME=$(cat "$r/time" 2>/dev/null || echo "?")
+        RTC_SUMMARY="$RTC_SUMMARY $(basename "$r")=${R_NAME}(${R_DATE}T${R_TIME})"
+    done
+    [ -n "$RTC_SUMMARY" ] && log "RTC:$RTC_SUMMARY"
+fi
+if [ -d /sys/bus/iio/devices ]; then
+    IIO_SUMMARY=""
+    for d in /sys/bus/iio/devices/iio:device*; do
+        [ -d "$d" ] || continue
+        IIO_SUMMARY="$IIO_SUMMARY $(basename "$d")=$(cat "$d/name" 2>/dev/null || echo "?")"
+    done
+    [ -n "$IIO_SUMMARY" ] && log "IIO:$IIO_SUMMARY"
+fi
+if [ -d /sys/class/input ]; then
+    INP_SUMMARY=""
+    for inp in /sys/class/input/input*; do
+        [ -f "$inp/name" ] || continue
+        INP_SUMMARY="$INP_SUMMARY $(basename "$inp")=$(cat "$inp/name" 2>/dev/null)"
+    done
+    [ -n "$INP_SUMMARY" ] && log "Input:$INP_SUMMARY"
 fi
 
 # Keep UFS host controller active during early boot
