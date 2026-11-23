@@ -9,13 +9,13 @@ and the DDP subdrivers (OVL, RDMA, COLOR, CCORR, AAL, GAMMA).
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  drivers/gpu/drm/mediatek/mtk_disp_aal.c   |  1 +
- drivers/gpu/drm/mediatek/mtk_disp_ccorr.c |  2 +
- drivers/gpu/drm/mediatek/mtk_disp_color.c |  2 +
- drivers/gpu/drm/mediatek/mtk_disp_gamma.c |  2 +
- drivers/gpu/drm/mediatek/mtk_disp_ovl.c   |  2 +
- drivers/gpu/drm/mediatek/mtk_disp_rdma.c  |  2 +
- drivers/gpu/drm/mediatek/mtk_drm_drv.c    | 45 +++++++++++++++++++++++
- 7 files changed, 56 insertions(+)
+ drivers/gpu/drm/mediatek/mtk_disp_ccorr.c |  2 ++
+ drivers/gpu/drm/mediatek/mtk_disp_color.c |  2 ++
+ drivers/gpu/drm/mediatek/mtk_disp_gamma.c |  2 ++
+ drivers/gpu/drm/mediatek/mtk_disp_ovl.c   |  2 ++
+ drivers/gpu/drm/mediatek/mtk_disp_rdma.c  |  8 ++++++
+ drivers/gpu/drm/mediatek/mtk_drm_drv.c    | 45 +++++++++++++++++++++++++++++++
+ 7 files changed, 62 insertions(+)
 
 diff --git a/drivers/gpu/drm/mediatek/mtk_disp_aal.c b/drivers/gpu/drm/mediatek/mtk_disp_aal.c
 index 192c1a7d5..6790d747a 100644
@@ -82,15 +82,28 @@ index 544587071..3b6d484df 100644
  	  .data = &mt8167_ovl_driver_data},
  	{ .compatible = "mediatek,mt8173-disp-ovl",
 diff --git a/drivers/gpu/drm/mediatek/mtk_disp_rdma.c b/drivers/gpu/drm/mediatek/mtk_disp_rdma.c
-index 67bd9e1ca..75f4adcb5 100644
+index 67bd9e1ca..4ffe4891c 100644
 --- a/drivers/gpu/drm/mediatek/mtk_disp_rdma.c
 +++ b/drivers/gpu/drm/mediatek/mtk_disp_rdma.c
-@@ -403,6 +403,8 @@ static const struct mtk_disp_rdma_data mt8195_rdma_driver_data = {
+@@ -382,6 +382,12 @@ static const struct mtk_disp_rdma_data mt2701_rdma_driver_data = {
+ 	.num_formats = ARRAY_SIZE(mt8173_formats),
+ };
+ 
++static const struct mtk_disp_rdma_data mt6789_rdma_driver_data = {
++	.fifo_size = SZ_16K * 3 + SZ_128 * 5,
++	.formats = mt8173_formats,
++	.num_formats = ARRAY_SIZE(mt8173_formats),
++};
++
+ static const struct mtk_disp_rdma_data mt8173_rdma_driver_data = {
+ 	.fifo_size = SZ_8K,
+ 	.formats = mt8173_formats,
+@@ -403,6 +409,8 @@ static const struct mtk_disp_rdma_data mt8195_rdma_driver_data = {
  static const struct of_device_id mtk_disp_rdma_driver_dt_match[] = {
  	{ .compatible = "mediatek,mt2701-disp-rdma",
  	  .data = &mt2701_rdma_driver_data},
 +	{ .compatible = "mediatek,mt6789-disp-rdma",
-+	  .data = &mt8183_rdma_driver_data},
++	  .data = &mt6789_rdma_driver_data},
  	{ .compatible = "mediatek,mt8173-disp-rdma",
  	  .data = &mt8173_rdma_driver_data},
  	{ .compatible = "mediatek,mt8183-disp-rdma",
@@ -234,5 +247,4 @@ index a8bf06907..7b00c5149 100644
  	  .data = (void *)MTK_DSI },
  	{ .compatible = "mediatek,mt8183-dsi",
 -- 
-2.55.0
-
+2.43.0
