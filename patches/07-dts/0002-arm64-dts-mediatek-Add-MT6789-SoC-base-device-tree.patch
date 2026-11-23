@@ -750,7 +750,7 @@ index 000000000..a17c0737a
 +				 <&topckgen CLK_TOP_APLL12_CK_DIV4>,
 +				 <&topckgen CLK_TOP_APLL12_CK_DIV5>,
 +				 <&topckgen CLK_TOP_AUDIO_H_SEL>,
-+				 <&clk26m>;
++				 <&topckgen CLK_TOP_TCK_26M_MX9>;
 +			clock-names = "aud_infra_clk",
 +				      "mtkaif_26m_clk",
 +				      "top_mux_audio",
