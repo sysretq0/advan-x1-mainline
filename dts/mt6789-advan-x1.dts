@@ -218,6 +218,7 @@
 		spi-max-frequency = <3000000>;
 		spi-cpha;
 		spi-cpol;
+		reset-gpios = <&pio 107 GPIO_ACTIVE_LOW>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&touch_pins>;
 		interrupt-parent = <&pio>;
@@ -794,6 +795,10 @@
 			pinmux = <PINMUX_GPIO9__FUNC_GPIO9>;
 			input-enable;
 			bias-pull-up;
+		};
+		pins-reset {
+			pinmux = <PINMUX_GPIO107__FUNC_GPIO107>;
+			output-high;
 		};
 	};
 

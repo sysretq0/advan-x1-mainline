@@ -18,7 +18,7 @@ new file mode 100644
 index 000000000..e28c54a46
 --- /dev/null
 +++ b/drivers/pmdomain/mediatek/mt6789-pm-domains.h
-@@ -0,0 +1,116 @@
+@@ -0,0 +1,132 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +/*
 + * Copyright (c) 2022 MediaTek Inc.
@@ -123,6 +123,22 @@ index 000000000..e28c54a46
 +					MT8192_TOP_AXI_PROT_EN_SET,
 +					MT8192_TOP_AXI_PROT_EN_CLR,
 +					MT8192_TOP_AXI_PROT_EN_STA1),
++		},
++	},
++	[MT6789_POWER_DOMAIN_AUDIO] = {
++		.name = "audio",
++		.sta_mask = BIT(22),
++		.ctl_offs = 0x358,
++		.pwr_sta_offs = 0x16C,
++		.pwr_sta2nd_offs = 0x170,
++		.sram_pdn_bits = BIT(8),
++		.sram_pdn_ack_bits = BIT(12),
++		.bp_cfg = {
++			BUS_PROT_WR_IGN(INFRA,
++					MT8192_TOP_AXI_PROT_EN_2_AUDIO,
++					MT8192_TOP_AXI_PROT_EN_2_SET,
++					MT8192_TOP_AXI_PROT_EN_2_CLR,
++					MT8192_TOP_AXI_PROT_EN_2_STA1),
 +		},
 +	},
 +};

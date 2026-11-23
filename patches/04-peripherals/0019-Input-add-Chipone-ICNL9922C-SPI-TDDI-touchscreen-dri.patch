@@ -59,7 +59,7 @@ new file mode 100644
 index 000000000..57384ce56
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_icnl9922c.c
-@@ -0,0 +1,354 @@
+@@ -0,0 +1,362 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Chipone ICNL9922C SPI TDDI touchscreen driver (TCS protocol)
@@ -316,11 +316,17 @@ index 000000000..57384ce56
 +		return dev_err_probe(dev, PTR_ERR(ts->reset_gpio),
 +				     "failed to get reset GPIO\n");
 +
++	/*
++	 * Reset pulse using active-low gpiod semantics: deassert (HIGH) ->
++	 * assert (LOW, 10 ms) -> deassert (HIGH, 40 ms settle).
++	 */
 +	if (ts->reset_gpio) {
-+		gpiod_set_value_cansleep(ts->reset_gpio, 1);
-+		msleep(20);
 +		gpiod_set_value_cansleep(ts->reset_gpio, 0);
-+		msleep(60);
++		usleep_range(1000, 1100);
++		gpiod_set_value_cansleep(ts->reset_gpio, 1);
++		usleep_range(10000, 11000);
++		gpiod_set_value_cansleep(ts->reset_gpio, 0);
++		msleep(40);
 +	}
 +
 +	for (retries = 0; retries < 3; retries++) {
@@ -332,6 +338,8 @@ index 000000000..57384ce56
 +				break;
 +			ret = -ENODEV;
 +		}
++		dev_warn(dev, "fwid read attempt %d failed (%d), rx=%9ph\n",
++			 retries, ret, ts->rx_buf);
 +		msleep(50);
 +	}
 +	if (ret)
