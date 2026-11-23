@@ -9,8 +9,8 @@ vibrator, TPS65132 display bias, and Chipone ICNL9922C DSI panel).
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- .../boot/dts/mediatek/mt6789-advan-x1.dts     | 976 ++++++++++++++++++
- 1 file changed, 976 insertions(+)
+ .../boot/dts/mediatek/mt6789-advan-x1.dts     | 979 ++++++++++++++++++
+ 1 file changed, 979 insertions(+)
  create mode 100644 arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
 
 diff --git a/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
@@ -18,7 +18,7 @@ new file mode 100644
 index 000000000..fdd336677
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
-@@ -0,0 +1,976 @@
+@@ -0,0 +1,979 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Device Tree Source for the Advan X1 smartphone (MediaTek MT6789).
@@ -364,6 +364,7 @@ index 000000000..fdd336677
 +			regulator-name = "lcd_bias_outp";
 +			regulator-min-microvolt = <5800000>;
 +			regulator-max-microvolt = <5800000>;
++			regulator-boot-on;
 +			enable-gpios = <&pio 108 GPIO_ACTIVE_HIGH>;
 +		};
 +
@@ -371,6 +372,7 @@ index 000000000..fdd336677
 +			regulator-name = "lcd_bias_outn";
 +			regulator-min-microvolt = <5800000>;
 +			regulator-max-microvolt = <5800000>;
++			regulator-boot-on;
 +			enable-gpios = <&pio 109 GPIO_ACTIVE_HIGH>;
 +		};
 +	};
@@ -758,6 +760,7 @@ index 000000000..fdd336677
 +		pins-bias {
 +			pinmux = <PINMUX_GPIO108__FUNC_GPIO108>,
 +				 <PINMUX_GPIO109__FUNC_GPIO109>;
++			output-high;
 +		};
 +	};
 +

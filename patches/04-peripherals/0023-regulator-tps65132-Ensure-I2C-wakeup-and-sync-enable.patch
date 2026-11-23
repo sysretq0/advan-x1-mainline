@@ -1,0 +1,72 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Mon, 23 Nov 2026 21:10:00 +0000
+Subject: [PATCH] regulator: tps65132: Sync enable GPIO state and wait for I2C wakeup
+
+The TI TPS65132 (and pin-compatible LCD bias regulators) powers down its
+I2C interface whenever both ENP and ENN enable GPIOs are low. If a board
+boots with both enable GPIOs low, or pinctrl asserts them immediately
+before probe, devm_regulator_register() reads the voltage register before
+the I2C slave is awake and fails permanently with -ENXIO.
+
+- Wait 5-6 ms at probe entry so enable GPIOs asserted by pinctrl have time
+  to wake the TPS65132 I2C interface before regulator registration reads
+  TPS65132_REG_VPOS/VNEG.
+- Sync rpdata->ena_gpio_state from the actual hardware GPIO level in
+  tps65132_of_parse_cb() instead of always assuming 0.
+- If a rail is still low and marked regulator-boot-on or
+  regulator-always-on in DT, assert its enable GPIO and wait 5-6 ms before
+  machine_constraints_voltage() performs I2C register access.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/regulator/tps65132-regulator.c | 22 ++++++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+
+diff --git a/drivers/regulator/tps65132-regulator.c b/drivers/regulator/tps65132-regulator.c
+index 912db82..28a0ace 100644
+--- a/drivers/regulator/tps65132-regulator.c
++++ b/drivers/regulator/tps65132-regulator.c
+@@ -22,6 +22,7 @@
+ #include <linux/gpio/consumer.h>
+ #include <linux/i2c.h>
+ #include <linux/module.h>
++#include <linux/of.h>
+ #include <linux/regmap.h>
+ #include <linux/regulator/driver.h>
+ #include <linux/regulator/machine.h>
+@@ -148,6 +149,20 @@ static int tps65132_of_parse_cb(struct device_node *np,
+ 		return 0;
+ 	}
+ 
++	ret = gpiod_get_value_cansleep(rpdata->en_gpiod);
++	if (ret > 0)
++		rpdata->ena_gpio_state = 1;
++
++	if (!rpdata->ena_gpio_state &&
++	    (of_property_read_bool(np, "regulator-boot-on") ||
++	     of_property_read_bool(np, "regulator-always-on"))) {
++		ret = gpiod_direction_output(rpdata->en_gpiod, 1);
++		if (ret < 0)
++			return ret;
++		rpdata->ena_gpio_state = 1;
++		usleep_range(5000, 6000);
++	}
++
+ 	rpdata->act_dis_gpiod = devm_fwnode_gpiod_get(tps->dev,
+ 						      of_fwnode_handle(np),
+ 						      "active-discharge",
+@@ -244,6 +259,13 @@ static int tps65132_probe(struct i2c_client *client)
+ 	i2c_set_clientdata(client, tps);
+ 	tps->dev = dev;
+ 
++	/*
++	 * The TPS65132 I2C interface is disabled while both ENP and ENN are
++	 * low. Give the internal bias and I2C interface time to settle in case
++	 * pinctrl just asserted the enable GPIOs prior to probe.
++	 */
++	usleep_range(5000, 6000);
++
+ 	for (id = 0; id < TPS65132_MAX_REGULATORS; ++id) {
+ 		config.regmap = rmap;
+ 		config.dev = dev;

@@ -343,6 +343,7 @@
 			regulator-name = "lcd_bias_outp";
 			regulator-min-microvolt = <5800000>;
 			regulator-max-microvolt = <5800000>;
+			regulator-boot-on;
 			enable-gpios = <&pio 108 GPIO_ACTIVE_HIGH>;
 		};
 
@@ -350,6 +351,7 @@
 			regulator-name = "lcd_bias_outn";
 			regulator-min-microvolt = <5800000>;
 			regulator-max-microvolt = <5800000>;
+			regulator-boot-on;
 			enable-gpios = <&pio 109 GPIO_ACTIVE_HIGH>;
 		};
 	};
@@ -737,6 +739,7 @@
 		pins-bias {
 			pinmux = <PINMUX_GPIO108__FUNC_GPIO108>,
 				 <PINMUX_GPIO109__FUNC_GPIO109>;
+			output-high;
 		};
 	};
 
