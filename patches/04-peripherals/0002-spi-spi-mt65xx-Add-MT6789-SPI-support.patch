@@ -3,27 +3,74 @@ From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 04:29:38 +0000
 Subject: [PATCH 02/11] spi: spi-mt65xx: Add MT6789 SPI support
 
-Add mediatek,mt6789-spi match entry to spi-mt65xx.
+Add mediatek,mt6789-spi support to spi-mt65xx with a dedicated
+mt6789_compat descriptor enabling SPI_CONTROLLER_MUST_RX alongside
+SPI_CONTROLLER_MUST_TX.  Like other pre-IPM MediaTek SPI controllers,
+MT6789 requires RX DMA to be active during TX DMA transfers to prevent
+RX FIFO overflow and transfer corruption on large writes.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- drivers/spi/spi-mt65xx.c | 3 +++
- 1 file changed, 3 insertions(+)
+ drivers/spi/spi-mt65xx.c | 18 +++++++++++++++++-
+ 1 file changed, 17 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/spi/spi-mt65xx.c b/drivers/spi/spi-mt65xx.c
-index 8b4deef91..3d681d0ba 100644
+index 8b4deef91..9f3e7b6a1 100644
 --- a/drivers/spi/spi-mt65xx.c
 +++ b/drivers/spi/spi-mt65xx.c
-@@ -253,6 +253,9 @@ static const struct of_device_id mtk_spi_of_match[] = {
+@@ -115,6 +115,7 @@
+ /**
+  * struct mtk_spi_compatible - device data structure
+  * @need_pad_sel:	Enable pad (pins) selection in SPI controller
++ * @must_rx:		Must explicitly provide dummy RX buffer for TX only transfer
+  * @must_tx:		Must explicitly send dummy TX bytes to do RX only transfer
+  * @enhance_timing:	Enable adjusting cfg register to enhance time accuracy
+  * @dma_ext:		DMA address extension supported
+@@ -123,6 +124,7 @@
+  */
+ struct mtk_spi_compatible {
+ 	bool need_pad_sel;
++	bool must_rx;
+ 	bool must_tx;
+ 	bool enhance_timing;
+ 	bool dma_ext;
+@@ -196,6 +198,14 @@ static const struct mtk_spi_compatible mt6765_compat = {
+ 	.dma_ext = true,
+ };
+ 
++static const struct mtk_spi_compatible mt6789_compat = {
++	.need_pad_sel = true,
++	.must_rx = true,
++	.must_tx = true,
++	.enhance_timing = true,
++	.dma_ext = true,
++};
++
+ static const struct mtk_spi_compatible mt7622_compat = {
+ 	.must_tx = true,
+ 	.enhance_timing = true,
+@@ -253,6 +263,9 @@ static const struct of_device_id mtk_spi_of_match[] = {
  	{ .compatible = "mediatek,mt6765-spi",
  		.data = (void *)&mt6765_compat,
  	},
 +	{ .compatible = "mediatek,mt6789-spi",
-+		.data = (void *)&mt6765_compat,
++		.data = (void *)&mt6789_compat,
 +	},
  	{ .compatible = "mediatek,mt6991-spi",
  		.data = (void *)&mt6991_compat,
  	},
+@@ -1201,8 +1214,11 @@ static int mtk_spi_probe(struct platform_device *pdev)
+ 	if (mdata->dev_comp->enhance_timing)
+ 		host->mode_bits |= SPI_CS_HIGH;
+ 
++	if (mdata->dev_comp->must_rx)
++		host->flags |= SPI_CONTROLLER_MUST_RX;
++
+ 	if (mdata->dev_comp->must_tx)
+-		host->flags = SPI_CONTROLLER_MUST_TX;
++		host->flags |= SPI_CONTROLLER_MUST_TX;
+ 	if (mdata->dev_comp->ipm_design)
+ 		host->mode_bits |= SPI_LOOP | SPI_RX_DUAL | SPI_TX_DUAL |
+ 				   SPI_RX_QUAD | SPI_TX_QUAD;
 -- 
 2.55.0
-

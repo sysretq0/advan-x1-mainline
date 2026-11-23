@@ -384,6 +384,7 @@
 						 <PINMUX_GPIO31__FUNC_SPI0_CSB>,
 						 <PINMUX_GPIO32__FUNC_SPI0_MO>,
 						 <PINMUX_GPIO33__FUNC_SPI0_MI>;
+					drive-strength = <2>;
 					bias-disable;
 				};
 			};

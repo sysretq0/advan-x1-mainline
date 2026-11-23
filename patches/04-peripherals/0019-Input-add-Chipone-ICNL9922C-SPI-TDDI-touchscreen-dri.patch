@@ -14,8 +14,8 @@ Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  drivers/input/touchscreen/Kconfig             |  14 +
  drivers/input/touchscreen/Makefile            |   1 +
- drivers/input/touchscreen/chipone_icnl9922c.c | 814 ++++++++++++++++++
- 3 files changed, 829 insertions(+)
+ drivers/input/touchscreen/chipone_icnl9922c.c | 882 ++++++++++++++++++
+ 3 files changed, 897 insertions(+)
  create mode 100644 drivers/input/touchscreen/chipone_icnl9922c.c
 
 diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
@@ -60,7 +60,7 @@ new file mode 100644
 index 000000000..1e3371dac
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_icnl9922c.c
-@@ -0,0 +1,814 @@
+@@ -0,0 +1,882 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Chipone ICNL9922C SPI TDDI touchscreen driver (TCS + DRW SRAM boot)
@@ -96,7 +96,9 @@ index 000000000..1e3371dac
 +#define ICNL9922C_PROG_SPI_ADDR			0x60
 +#define ICNL9922C_HW_REG_HWID			0x070000
 +#define ICNL9922C_HW_REG_BOOT_MODE		0x070010
++#define ICNL9922C_BOOT_MODE_TCH_PRG		0x02
 +#define ICNL9922C_BOOT_MODE_SRAM		0x03
++#define ICNL9922C_BOOT_MODE_SPI_PRG		0x05
 +
 +#define ICNL9922C_SFCTRL_BASE			0x074000
 +#define ICNL9922C_SFCTRL_SRAM_ADDR		(ICNL9922C_SFCTRL_BASE + 0x08)
@@ -220,6 +222,10 @@ index 000000000..1e3371dac
 +	if (crc_recv != crc_calc)
 +		return -EIO;
 +
++	/* Reject all-zero MISO responses (crc16 == 0 and cmd_recv == 0) */
++	if (!cmd_recv && !crc_recv)
++		return -EIO;
++
 +	return 0;
 +}
 +
@@ -227,6 +233,16 @@ index 000000000..1e3371dac
 +			      u8 *rdata, size_t rlen)
 +{
 +	size_t rxlen = rlen + sizeof(struct icnl9922c_rx_tail);
++	struct spi_transfer tx_xfer = {
++		.tx_buf = ts->tx_buf,
++		.rx_buf = ts->rx_buf,
++		.len = sizeof(struct icnl9922c_tx_hdr),
++	};
++	struct spi_transfer rx_xfer = {
++		.tx_buf = ts->tx_buf,
++		.rx_buf = ts->rx_buf,
++		.len = rxlen,
++	};
 +	int ret;
 +
 +	if (rxlen > ICNL9922C_XFER_BUF_SIZE)
@@ -236,13 +252,14 @@ index 000000000..1e3371dac
 +	icnl9922c_pack_read_hdr((struct icnl9922c_tx_hdr *)ts->tx_buf,
 +				cmd, rlen);
 +
-+	ret = spi_write(ts->spi, ts->tx_buf, sizeof(struct icnl9922c_tx_hdr));
++	ret = spi_sync_transfer(ts->spi, &tx_xfer, 1);
 +	if (ret)
 +		return ret;
 +
 +	usleep_range(100, 150);
 +
-+	ret = spi_read(ts->spi, ts->rx_buf, rxlen);
++	memset(ts->tx_buf, 0, rxlen);
++	ret = spi_sync_transfer(ts->spi, &rx_xfer, 1);
 +	if (ret)
 +		return ret;
 +
@@ -300,20 +317,6 @@ index 000000000..1e3371dac
 +	msleep(40);
 +}
 +
-+static int icnl9922c_enter_prog_mode(struct icnl9922c_ts *ts)
-+{
-+	static const u8 magic[] = { 0xcc, 0x33, 0x55, 0x5a };
-+	int ret;
-+
-+	memcpy(ts->tx_buf, magic, sizeof(magic));
-+	ret = spi_write(ts->spi, ts->tx_buf, sizeof(magic));
-+	if (ret)
-+		return ret;
-+
-+	usleep_range(5000, 6000);
-+	return 0;
-+}
-+
 +static int icnl9922c_prog_read(struct icnl9922c_ts *ts, u32 addr,
 +			       u8 *rbuf, size_t rlen)
 +{
@@ -351,10 +354,48 @@ index 000000000..1e3371dac
 +	return 0;
 +}
 +
++static int icnl9922c_enter_prog_mode(struct icnl9922c_ts *ts)
++{
++	static const u8 magic[] = { 0xcc, 0x33, 0x55, 0x5a };
++	struct spi_transfer xfer = {
++		.tx_buf = ts->tx_buf,
++		.rx_buf = ts->rx_buf,
++		.len = sizeof(magic),
++	};
++	u8 boot_mode = 0;
++	int ret;
++
++	memcpy(ts->tx_buf, magic, sizeof(magic));
++	ret = spi_sync_transfer(ts->spi, &xfer, 1);
++	if (ret)
++		return ret;
++
++	usleep_range(5000, 6000);
++
++	ret = icnl9922c_prog_read(ts, ICNL9922C_HW_REG_BOOT_MODE,
++				  &boot_mode, sizeof(boot_mode));
++	if (ret)
++		return ret;
++
++	if (boot_mode != ICNL9922C_BOOT_MODE_TCH_PRG &&
++	    boot_mode != ICNL9922C_BOOT_MODE_SPI_PRG) {
++		dev_err(&ts->spi->dev, "unexpected boot_mode=0x%02x in prog mode\n",
++			boot_mode);
++		return -EIO;
++	}
++
++	return 0;
++}
++
 +static int icnl9922c_prog_write(struct icnl9922c_ts *ts, u32 addr,
 +				const u8 *wbuf, size_t wlen)
 +{
 +	size_t xfer_len = wlen + ICNL9922C_DRW_OVERHEAD;
++	struct spi_transfer xfer = {
++		.tx_buf = ts->tx_buf,
++		.rx_buf = ts->rx_buf,
++		.len = xfer_len,
++	};
 +	u16 crc_calc;
 +	int ret;
 +
@@ -372,7 +413,7 @@ index 000000000..1e3371dac
 +	put_unaligned_be16(~crc_calc, &ts->tx_buf[13 + wlen]);
 +	memset(&ts->tx_buf[15 + wlen], 0, 3);
 +
-+	ret = spi_write(ts->spi, ts->tx_buf, xfer_len);
++	ret = spi_sync_transfer(ts->spi, &xfer, 1);
 +	if (ret)
 +		return ret;
 +
@@ -446,6 +487,10 @@ index 000000000..1e3371dac
 +	}
 +	ret = icnl9922c_tcs_read_1cs(ts, ICNL9922C_CMD_TP_DATA_COORDINATES_RO,
 +				     (u8 *)&info, sizeof(info));
++	if (ret)
++		dev_err_ratelimited(&ts->spi->dev,
++				    "touch read failed: %d (rx=%*ph)\n",
++				    ret, 16, ts->rx_buf);
 +	mutex_unlock(&ts->lock);
 +	if (ret)
 +		return IRQ_HANDLED;
@@ -682,8 +727,19 @@ index 000000000..1e3371dac
 +		return;
 +	}
 +
-+	if (!icnl9922c_tcs_read(ts, ICNL9922C_CMD_INFO_FW_VER_RO, buf, 4))
-+		fwver = get_unaligned_le16(buf);
++	for (retries = 0; retries < 3; retries++) {
++		ret = icnl9922c_tcs_read(ts, ICNL9922C_CMD_INFO_FW_VER_RO,
++					 buf, 4);
++		if (!ret) {
++			fwver = get_unaligned_le16(buf);
++			break;
++		}
++		usleep_range(1000, 2000);
++	}
++	if (ret)
++		dev_warn(dev, "fw_ver read failed: %d (rx=%*ph)\n",
++			 ret, (int)(4 + sizeof(struct icnl9922c_rx_tail)),
++			 ts->rx_buf);
 +
 +	if (!icnl9922c_tcs_read(ts, ICNL9922C_CMD_INFO_TOUCH_XY_INFO_RO,
 +				buf, sizeof(buf))) {
@@ -759,6 +815,18 @@ index 000000000..1e3371dac
 +	spi->bits_per_word = 8;
 +	if (!spi->max_speed_hz)
 +		spi->max_speed_hz = 3000000;
++	if (!spi->cs_setup.value) {
++		spi->cs_setup.value = 350;
++		spi->cs_setup.unit = SPI_DELAY_UNIT_NSECS;
++	}
++	if (!spi->cs_hold.value) {
++		spi->cs_hold.value = 350;
++		spi->cs_hold.unit = SPI_DELAY_UNIT_NSECS;
++	}
++	if (!spi->cs_inactive.value) {
++		spi->cs_inactive.value = 350;
++		spi->cs_inactive.unit = SPI_DELAY_UNIT_NSECS;
++	}
 +
 +	ret = spi_setup(spi);
 +	if (ret)
