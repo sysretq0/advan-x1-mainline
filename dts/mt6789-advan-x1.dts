@@ -35,7 +35,7 @@
 
 	backlight_lcd: backlight {
 		compatible = "pwm-backlight";
-		pwms = <&disp_pwm0 0 500000>;
+		pwms = <&disp_pwm0 0 39385>;
 		brightness-levels = <0 1024 2048 4096 8192 16384 32768 65535>;
 		default-brightness-level = <5>;
 		status = "okay";
@@ -78,11 +78,6 @@
 			ecc-size = <0>;
 			no-map;
 		};
-	};
-
-	memory@48090000 {
-		device_type = "memory";
-		reg = <0x00 0x48090000 0x00 0x000e0000>;
 	};
 
 	memory@61000000 {
