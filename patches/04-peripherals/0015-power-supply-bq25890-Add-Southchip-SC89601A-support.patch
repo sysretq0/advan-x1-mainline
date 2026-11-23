@@ -7,13 +7,21 @@ The Southchip SC89601A switching battery charger shares the TI BQ25890
 register map (0x00..0x14) and reports part number ID 4 in REG14[5:3].
 Recognize SC89601A_ID and add its OF and I2C match entries.
 
+On boards where the SC89601A shares the USB D+/D- lines in parallel with
+the SoC USB2 PHY without a hardware disconnect switch, issuing REG_RST
+resets REG02 to its power-on defaults (AUTO_DPDM_EN=1, HVDCP_EN=1,
+MAXC_EN=1, ICO_EN=1) and initiates BC1.2/HVDCP detection on the live
+D+/D- lines, blocking USB gadget enumeration. Skip the destructive
+chip reset and explicitly clear ICO/HVDCP/MaxCharge/DPDM detection bits
+in REG02 during initialization for SC89601A.
+
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- drivers/power/supply/bq25890_charger.c | 13 ++++++++++++-
- 1 file changed, 12 insertions(+), 1 deletion(-)
+ drivers/power/supply/bq25890_charger.c | 36 +++++++++++++++++++++++--
+ 1 file changed, 34 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/power/supply/bq25890_charger.c b/drivers/power/supply/bq25890_charger.c
-index 6af181190..3276ad2af 100644
+index 6af1811..88c91cf 100644
 --- a/drivers/power/supply/bq25890_charger.c
 +++ b/drivers/power/supply/bq25890_charger.c
 @@ -21,11 +21,13 @@
@@ -56,7 +64,33 @@ index 6af181190..3276ad2af 100644
  		break;
  
  	case POWER_SUPPLY_PROP_MODEL_NAME:
-@@ -1318,6 +1323,10 @@ static int bq25890_get_chip_version(struct bq25890_device *bq)
+@@ -965,6 +970,25 @@ static int bq25890_hw_init(struct bq25890_device *bq)
+ 		return ret;
+ 	}
+ 
++	if (bq->chip_version == SC89601A) {
++		/*
++		 * Keep shared USB D+/D- lines clear of charger-initiated
++		 * BC1.2/HVDCP detection so the SoC USB2 PHY can enumerate.
++		 */
++		static const enum bq25890_fields sc89601a_dpdm_fields[] = {
++			F_ICO_EN, F_HVDCP_EN, F_MAXC_EN, F_FORCE_DPM,
++			F_AUTO_DPDM_EN,
++		};
++		int i;
++
++		for (i = 0; i < ARRAY_SIZE(sc89601a_dpdm_fields); i++) {
++			ret = bq25890_field_write(bq, sc89601a_dpdm_fields[i],
++						  0);
++			if (ret < 0)
++				return ret;
++		}
++	}
++
+ 	/* initialize currents/voltages and other parameters */
+ 	ret = bq25890_rw_init_data(bq);
+ 	if (ret)
+@@ -1318,6 +1342,10 @@ static int bq25890_get_chip_version(struct bq25890_device *bq)
  		bq->chip_version = BQ25895;
  		break;
  
@@ -67,7 +101,18 @@ index 6af181190..3276ad2af 100644
  	default:
  		dev_err(bq->dev, "Unknown chip ID %d\n", id);
  		return -ENODEV;
-@@ -1633,6 +1642,7 @@ static const struct i2c_device_id bq25890_i2c_ids[] = {
+@@ -1430,7 +1458,9 @@ static int bq25890_fw_probe(struct bq25890_device *bq)
+ 		bq->iinlim_percentage = 100;
+ 	}
+ 
+-	bq->skip_reset = device_property_read_bool(bq->dev, "linux,skip-reset");
++	bq->skip_reset =
++		device_property_read_bool(bq->dev, "linux,skip-reset") ||
++		bq->chip_version == SC89601A;
+ 	bq->read_back_init_data = device_property_read_bool(bq->dev,
+ 						"linux,read-back-settings");
+ 	if (bq->read_back_init_data)
+@@ -1633,6 +1663,7 @@ static const struct i2c_device_id bq25890_i2c_ids[] = {
  	{ .name = "bq25892" },
  	{ .name = "bq25895" },
  	{ .name = "bq25896" },
@@ -75,7 +120,7 @@ index 6af181190..3276ad2af 100644
  	{ }
  };
  MODULE_DEVICE_TABLE(i2c, bq25890_i2c_ids);
-@@ -1642,6 +1652,7 @@ static const struct of_device_id bq25890_of_match[] __maybe_unused = {
+@@ -1642,6 +1673,7 @@ static const struct of_device_id bq25890_of_match[] __maybe_unused = {
  	{ .compatible = "ti,bq25892", },
  	{ .compatible = "ti,bq25895", },
  	{ .compatible = "ti,bq25896", },

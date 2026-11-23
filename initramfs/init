@@ -343,6 +343,31 @@ if [ "$ROOT_MOUNTED" -eq 1 ]; then
         mkdir -p /sysroot/etc/systemd/system/getty.target.wants
         [ -e /sysroot/usr/lib/systemd/system/serial-getty@.service ] && \
             ln -sf /usr/lib/systemd/system/serial-getty@.service /sysroot/etc/systemd/system/getty.target.wants/serial-getty@ttyGS0.service 2>/dev/null || true
+        if [ -d /sys/class/udc ]; then
+            UDC_DIAG=""
+            for u in /sys/class/udc/*; do
+                [ -d "$u" ] || continue
+                U_ST=$(cat "$u/state" 2>/dev/null || echo "?")
+                U_SP=$(cat "$u/current_speed" 2>/dev/null || echo "?")
+                UDC_DIAG="$UDC_DIAG $(basename "$u")(state=${U_ST},speed=${U_SP})"
+            done
+            [ -n "$UDC_DIAG" ] && log "USB UDC:$UDC_DIAG"
+        fi
+        if [ -d /sys/class/typec ]; then
+            TC_DIAG=""
+            for tc in /sys/class/typec/port*; do
+                [ -d "$tc" ] || continue
+                TC_PR=$(cat "$tc/power_role" 2>/dev/null || echo "?")
+                TC_DR=$(cat "$tc/data_role" 2>/dev/null || echo "?")
+                TC_OR=$(cat "$tc/orientation" 2>/dev/null || echo "?")
+                TC_DIAG="$TC_DIAG $(basename "$tc")(pr=${TC_PR},dr=${TC_DR},ori=${TC_OR})"
+            done
+            [ -n "$TC_DIAG" ] && log "Type-C post-debounce:$TC_DIAG"
+        fi
+        if [ -r /proc/interrupts ]; then
+            USB_IRQS=$(grep -iE 'musb|rt1711|4-004e|bq25890|4-006a' /proc/interrupts 2>/dev/null | tr '\n' '; ')
+            [ -n "$USB_IRQS" ] && log "USB/TypeC IRQs: $USB_IRQS"
+        fi
         log "Executing switch_root to /sysroot /sbin/init (USB gadget active on /dev/ttyGS0)..."
         mkdir -p /sysroot/proc /sysroot/sys /sysroot/dev /sysroot/sys/kernel/config
         mount --move /sys/kernel/config /sysroot/sys/kernel/config 2>/dev/null || true
