@@ -566,6 +566,14 @@
 				regulator-always-on;
 			};
 
+			mt6366_vusb_reg: vusb {
+				regulator-name = "vusb";
+				regulator-min-microvolt = <3000000>;
+				regulator-max-microvolt = <3100000>;
+				regulator-enable-ramp-delay = <270>;
+				regulator-always-on;
+			};
+
 			mt6366_vio28_reg: vio28 {
 				regulator-name = "vio28";
 				regulator-min-microvolt = <2800000>;

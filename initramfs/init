@@ -368,6 +368,11 @@ if [ "$ROOT_MOUNTED" -eq 1 ]; then
             USB_IRQS=$(grep -iE 'musb|rt1711|4-004e|bq25890|4-006a' /proc/interrupts 2>/dev/null | tr '\n' '; ')
             [ -n "$USB_IRQS" ] && log "USB/TypeC IRQs: $USB_IRQS"
         fi
+        for mrd in /sys/kernel/debug/musb-hdrc.*/regdump; do
+            [ -r "$mrd" ] || continue
+            MUSB_REGS=$(grep -E '^(Power|DevCtl|IntrUSBE|FAddr)[[:space:]]*:' "$mrd" 2>/dev/null | tr -s ' ' | tr '\n' '; ')
+            [ -n "$MUSB_REGS" ] && log "MUSB regs: $MUSB_REGS"
+        done
         log "Executing switch_root to /sysroot /sbin/init (USB gadget active on /dev/ttyGS0)..."
         mkdir -p /sysroot/proc /sysroot/sys /sysroot/dev /sysroot/sys/kernel/config
         mount --move /sys/kernel/config /sysroot/sys/kernel/config 2>/dev/null || true

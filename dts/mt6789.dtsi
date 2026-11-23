@@ -829,6 +829,7 @@
 				mediatek,eye-vrt = <4>;
 				mediatek,eye-term = <4>;
 				mediatek,discth = <7>;
+				mediatek,pre-emphasis = <1>;
 			};
 		};
 
