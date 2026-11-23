@@ -1,7 +1,7 @@
-From 2342bac832721bbf26cc123fc263555107353a56 Mon Sep 17 00:00:00 2001
+From 82a62374870f302dc51235327cd8e75aef75c755 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 04:29:46 +0000
-Subject: [PATCH 09/11] thermal/drivers/mediatek/lvts: Add MT6789 support
+Subject: [PATCH] thermal/drivers/mediatek/lvts: Add MT6789 support
 
 Add LVTS thermal controller data, V5 manual RCK calibration, and OF match
 entry for the MediaTek MT6789 SoC (4 controllers, 13 sensors in filtered
@@ -9,10 +9,11 @@ mode).
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- drivers/thermal/mediatek/lvts_thermal.c | 174 +++++++++++++++++++++++
- 1 file changed, 173 insertions(+), 1 deletions(-)
+ drivers/thermal/mediatek/lvts_thermal.c | 199 +++++++++++++++++++++++-
+ 1 file changed, 198 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/thermal/mediatek/lvts_thermal.c b/drivers/thermal/mediatek/lvts_thermal.c
+index 5f45bc8..d784c2f 100644
 --- a/drivers/thermal/mediatek/lvts_thermal.c
 +++ b/drivers/thermal/mediatek/lvts_thermal.c
 @@ -57,6 +57,7 @@
@@ -44,7 +45,7 @@ diff --git a/drivers/thermal/mediatek/lvts_thermal.c b/drivers/thermal/mediatek/
  static int golden_temp = LVTS_GOLDEN_TEMP_DEFAULT;
  static int golden_temp_offset;
  
-@@ -125,6 +140,7 @@
+@@ -125,6 +140,7 @@ struct lvts_sensor_data {
  struct lvts_ctrl_data {
  	struct lvts_sensor_data lvts_sensor[LVTS_SENSOR_MAX];
  	u8 valid_sensor_mask;
@@ -52,7 +53,7 @@ diff --git a/drivers/thermal/mediatek/lvts_thermal.c b/drivers/thermal/mediatek/
  	int offset;
  	enum lvts_msr_mode mode;
  };
-@@ -176,6 +192,7 @@
+@@ -176,6 +192,7 @@ struct lvts_ctrl {
  	struct lvts_sensor sensors[LVTS_SENSOR_MAX];
  	const struct lvts_data *lvts_data;
  	u32 calibration[LVTS_SENSOR_MAX];
@@ -60,7 +61,7 @@ diff --git a/drivers/thermal/mediatek/lvts_thermal.c b/drivers/thermal/mediatek/
  	u8 valid_sensor_mask;
  	int mode;
  	void __iomem *base;
-@@ -867,6 +884,21 @@
+@@ -867,6 +884,21 @@ static int lvts_calibration_init(struct device *dev, struct lvts_ctrl *lvts_ctrl
  		}
  	}
  
@@ -82,7 +83,7 @@ diff --git a/drivers/thermal/mediatek/lvts_thermal.c b/drivers/thermal/mediatek/
  	return 0;
  }
  
-@@ -1146,6 +1178,86 @@
+@@ -1146,6 +1178,86 @@ static int lvts_ctrl_initialize(struct device *dev, struct lvts_ctrl *lvts_ctrl)
  	return 0;
  }
  
@@ -169,7 +170,7 @@ diff --git a/drivers/thermal/mediatek/lvts_thermal.c b/drivers/thermal/mediatek/
  static int lvts_ctrl_calibrate(struct device *dev, struct lvts_ctrl *lvts_ctrl)
  {
  	int i;
-@@ -1156,6 +1268,9 @@
+@@ -1156,6 +1268,9 @@ static int lvts_ctrl_calibrate(struct device *dev, struct lvts_ctrl *lvts_ctrl)
  		LVTS_EDATA03(lvts_ctrl->base)
  	};
  
@@ -179,7 +180,7 @@ diff --git a/drivers/thermal/mediatek/lvts_thermal.c b/drivers/thermal/mediatek/
  	/*
  	 * LVTS_EDATA0X : Efuse calibration reference value for sensor X
  	 *
-@@ -1200,8 +1315,8 @@
+@@ -1200,8 +1315,8 @@ static int lvts_ctrl_configure(struct device *dev, struct lvts_ctrl *lvts_ctrl)
  	/*
  	 * LVTS_CALSCALE : ADC voltage round
  	 */
@@ -189,7 +190,7 @@ diff --git a/drivers/thermal/mediatek/lvts_thermal.c b/drivers/thermal/mediatek/
  
  	/*
  	 * LVTS_MSRCTL0 : Sensor filtering strategy
-@@ -1626,6 +1741,72 @@
+@@ -1650,6 +1765,72 @@ static const u32 mt7988_init_cmds[] = {
   *
   * Hence the rather confusing offsets provided below.
   */
@@ -262,7 +263,7 @@ diff --git a/drivers/thermal/mediatek/lvts_thermal.c b/drivers/thermal/mediatek/
  static const struct lvts_ctrl_data mt8186_lvts_data_ctrl[] = {
  	{
  		.lvts_sensor = {
-@@ -2037,6 +2218,21 @@
+@@ -2061,6 +2242,21 @@ static const struct lvts_data mt7988_lvts_ap_data = {
  	.ops = &lvts_platform_ops_mt7988,
  };
  
@@ -284,7 +285,7 @@ diff --git a/drivers/thermal/mediatek/lvts_thermal.c b/drivers/thermal/mediatek/
  static const struct lvts_data mt8186_lvts_data = {
  	.lvts_ctrl	= mt8186_lvts_data_ctrl,
  	.conn_cmd	= default_conn_cmds,
-@@ -2167,6 +2363,7 @@
+@@ -2191,6 +2387,7 @@ static const struct lvts_data mt8196_lvts_ap_data = {
  };
  
  static const struct of_device_id lvts_of_match[] = {
@@ -294,3 +295,4 @@ diff --git a/drivers/thermal/mediatek/lvts_thermal.c b/drivers/thermal/mediatek/
  	{ .compatible = "mediatek,mt8186-lvts", .data = &mt8186_lvts_data },
 -- 
 2.55.0
+

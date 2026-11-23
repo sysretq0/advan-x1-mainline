@@ -1,4 +1,4 @@
-From bf461d1fca9987b6874384dbd8dabbb67553fac9 Mon Sep 17 00:00:00 2001
+From e150856df9de9c403a6aae2035e689544dfbc0bb Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Mon, 23 Nov 2026 16:49:36 +0000
 Subject: [PATCH] ASoC: mediatek: mt8186: Add MT6789 AFE and MT6366 sound card
@@ -10,23 +10,23 @@ AFE_AGENT_ON (0x1b00) for memory-interface enable bits and relying on
 the SCPSYS audio power domain instead of a mandatory TOPRGU reset.
 
 Add MT6789 SoC match data and a dedicated volatile register callback
-(keeping AFE_AUD_PAD_TOP cached so DAPM probe does not fail with -EBUSY
-while runtime-suspended) to mt8186-afe-pcm, and add a lightweight
-mt6789-mt6366 machine driver wiring the AFE ADDA/I2S DAIs to the
-integrated MT6366 (MT6358) PMIC audio codec.
+(marking AFE_AGENT_ON volatile while inheriting MT8186's volatile map
+including AFE_AUD_PAD_TOP) to mt8186-afe-pcm, and add the mt6789-mt6366
+machine driver with common FE playback/capture ops, PCM constraints,
+and AFE runtime PM resume across card registration.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- sound/soc/mediatek/Kconfig                 |  11 ++
+ sound/soc/mediatek/Kconfig                 |  11 +
  sound/soc/mediatek/mt8186/Makefile         |   1 +
- sound/soc/mediatek/mt8186/mt6789-mt6366.c  | 209 +++++++++++++++++++++
- sound/soc/mediatek/mt8186/mt8186-afe-pcm.c |  81 +++++++-
+ sound/soc/mediatek/mt8186/mt6789-mt6366.c  | 280 +++++++++++++++++++++
+ sound/soc/mediatek/mt8186/mt8186-afe-pcm.c |  79 +++++-
  sound/soc/mediatek/mt8186/mt8186-reg.h     |   5 +
- 5 files changed, 300 insertions(+), 7 deletions(-)
+ 5 files changed, 369 insertions(+), 7 deletions(-)
  create mode 100644 sound/soc/mediatek/mt8186/mt6789-mt6366.c
 
 diff --git a/sound/soc/mediatek/Kconfig b/sound/soc/mediatek/Kconfig
-index ff2869641..a0678f594 100644
+index ff28696..a0678f5 100644
 --- a/sound/soc/mediatek/Kconfig
 +++ b/sound/soc/mediatek/Kconfig
 @@ -241,6 +241,17 @@ config SND_SOC_MT8186_MT6366
@@ -48,7 +48,7 @@ index ff2869641..a0678f594 100644
  	tristate "ALSA BT SCO CVSD/MSBC Driver"
  	help
 diff --git a/sound/soc/mediatek/mt8186/Makefile b/sound/soc/mediatek/mt8186/Makefile
-index ab3f5b763..5423b2961 100644
+index ab3f5b7..5423b29 100644
 --- a/sound/soc/mediatek/mt8186/Makefile
 +++ b/sound/soc/mediatek/mt8186/Makefile
 @@ -19,3 +19,4 @@ snd-soc-mt8186-afe-y := \
@@ -58,10 +58,10 @@ index ab3f5b763..5423b2961 100644
 +obj-$(CONFIG_SND_SOC_MT6789_MT6366) += mt6789-mt6366.o
 diff --git a/sound/soc/mediatek/mt8186/mt6789-mt6366.c b/sound/soc/mediatek/mt8186/mt6789-mt6366.c
 new file mode 100644
-index 000000000..0c84fbccd
+index 0000000..94db35f
 --- /dev/null
 +++ b/sound/soc/mediatek/mt8186/mt6789-mt6366.c
-@@ -0,0 +1,209 @@
+@@ -0,0 +1,280 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * MediaTek MT6789 with MT6366 (MT6358) PMIC ASoC machine driver
@@ -71,7 +71,9 @@ index 000000000..0c84fbccd
 +
 +#include <linux/module.h>
 +#include <linux/of.h>
++#include <linux/of_platform.h>
 +#include <linux/platform_device.h>
++#include <linux/pm_runtime.h>
 +#include <sound/pcm_params.h>
 +#include <sound/soc.h>
 +
@@ -137,6 +139,7 @@ index 000000000..0c84fbccd
 +		.dpcm_merged_format = 1,
 +		.dpcm_merged_chan = 1,
 +		.dpcm_merged_rate = 1,
++		.ops = &mtk_soundcard_common_playback_ops,
 +		SND_SOC_DAILINK_REG(playback1),
 +	},
 +	{
@@ -149,6 +152,7 @@ index 000000000..0c84fbccd
 +		.dpcm_merged_format = 1,
 +		.dpcm_merged_chan = 1,
 +		.dpcm_merged_rate = 1,
++		.ops = &mtk_soundcard_common_playback_ops,
 +		SND_SOC_DAILINK_REG(playback2),
 +	},
 +	{
@@ -161,6 +165,7 @@ index 000000000..0c84fbccd
 +		.dpcm_merged_format = 1,
 +		.dpcm_merged_chan = 1,
 +		.dpcm_merged_rate = 1,
++		.ops = &mtk_soundcard_common_playback_ops,
 +		SND_SOC_DAILINK_REG(playback3),
 +	},
 +	{
@@ -173,6 +178,7 @@ index 000000000..0c84fbccd
 +		.dpcm_merged_format = 1,
 +		.dpcm_merged_chan = 1,
 +		.dpcm_merged_rate = 1,
++		.ops = &mtk_soundcard_common_capture_ops,
 +		SND_SOC_DAILINK_REG(capture1),
 +	},
 +	{
@@ -185,6 +191,7 @@ index 000000000..0c84fbccd
 +		.dpcm_merged_format = 1,
 +		.dpcm_merged_chan = 1,
 +		.dpcm_merged_rate = 1,
++		.ops = &mtk_soundcard_common_capture_ops,
 +		SND_SOC_DAILINK_REG(capture2),
 +	},
 +	/* Back End DAI links */
@@ -242,12 +249,76 @@ index 000000000..0c84fbccd
 +	return 0;
 +}
 +
++static const unsigned int mt6789_pcm_playback_channels[] = { 2 };
++static const unsigned int mt6789_pcm_capture_channels[] = { 1, 2 };
++static const unsigned int mt6789_pcm_rates[] = {
++	8000, 16000, 32000, 44100, 48000, 96000, 192000
++};
++
++static const struct snd_pcm_hw_constraint_list mt6789_rate_constraint = {
++	.list = mt6789_pcm_rates,
++	.count = ARRAY_SIZE(mt6789_pcm_rates),
++};
++
++static const struct mtk_pcm_constraints_data mt6789_pcm_constraints[MTK_CONSTRAINT_CAPTURE + 1] = {
++	[MTK_CONSTRAINT_PLAYBACK] = {
++		.channels = &(const struct snd_pcm_hw_constraint_list) {
++			.list = mt6789_pcm_playback_channels,
++			.count = ARRAY_SIZE(mt6789_pcm_playback_channels),
++		},
++		.rates = &mt6789_rate_constraint,
++	},
++	[MTK_CONSTRAINT_CAPTURE] = {
++		.channels = &(const struct snd_pcm_hw_constraint_list) {
++			.list = mt6789_pcm_capture_channels,
++			.count = ARRAY_SIZE(mt6789_pcm_capture_channels),
++		},
++		.rates = &mt6789_rate_constraint,
++	},
++};
++
 +static const struct mtk_soundcard_pdata mt6789_mt6366_pdata = {
 +	.card_data = &(struct mtk_platform_card_data) {
 +		.card = &mt6789_mt6366_soc_card,
++		.pcm_constraints = mt6789_pcm_constraints,
++		.num_pcm_constraints = ARRAY_SIZE(mt6789_pcm_constraints),
 +	},
 +	.soc_probe = mt6789_mt6366_soc_probe,
 +};
++
++static int mt6789_mt6366_platform_probe(struct platform_device *pdev)
++{
++	struct platform_device *afe_pdev;
++	struct device_node *platform_node;
++	int ret;
++
++	platform_node = of_parse_phandle(pdev->dev.of_node,
++					 "mediatek,platform", 0);
++	if (!platform_node)
++		return -EINVAL;
++
++	afe_pdev = of_find_device_by_node(platform_node);
++	of_node_put(platform_node);
++	if (!afe_pdev)
++		return -EPROBE_DEFER;
++
++	if (!pm_runtime_enabled(&afe_pdev->dev)) {
++		put_device(&afe_pdev->dev);
++		return -EPROBE_DEFER;
++	}
++
++	ret = pm_runtime_resume_and_get(&afe_pdev->dev);
++	if (ret < 0) {
++		put_device(&afe_pdev->dev);
++		return ret;
++	}
++
++	ret = mtk_soundcard_common_probe(pdev);
++
++	pm_runtime_put(&afe_pdev->dev);
++	put_device(&afe_pdev->dev);
++	return ret;
++}
 +
 +static const struct of_device_id mt6789_mt6366_dt_match[] = {
 +	{
@@ -264,7 +335,7 @@ index 000000000..0c84fbccd
 +		.of_match_table = mt6789_mt6366_dt_match,
 +		.pm = &snd_soc_pm_ops,
 +	},
-+	.probe = mtk_soundcard_common_probe,
++	.probe = mt6789_mt6366_platform_probe,
 +};
 +module_platform_driver(mt6789_mt6366_driver);
 +
@@ -272,7 +343,7 @@ index 000000000..0c84fbccd
 +MODULE_DESCRIPTION("MediaTek MT6789-MT6366 ALSA SoC machine driver");
 +MODULE_LICENSE("GPL");
 diff --git a/sound/soc/mediatek/mt8186/mt8186-afe-pcm.c b/sound/soc/mediatek/mt8186/mt8186-afe-pcm.c
-index 59e71d9d6..617449b2e 100644
+index 59e71d9..14468ba 100644
 --- a/sound/soc/mediatek/mt8186/mt8186-afe-pcm.c
 +++ b/sound/soc/mediatek/mt8186/mt8186-afe-pcm.c
 @@ -12,6 +12,7 @@
@@ -283,15 +354,13 @@ index 59e71d9d6..617449b2e 100644
  #include <linux/reset.h>
  #include <sound/soc.h>
  
-@@ -2630,6 +2631,31 @@ static const struct regmap_config mt8186_afe_regmap_config = {
+@@ -2630,6 +2631,29 @@ static const struct regmap_config mt8186_afe_regmap_config = {
  	.cache_type = REGCACHE_FLAT,
  };
  
 +static bool mt6789_is_volatile_reg(struct device *dev, unsigned int reg)
 +{
 +	switch (reg) {
-+	case AFE_AUD_PAD_TOP:
-+		return false;
 +	case AFE_AGENT_ON:
 +		return true;
 +	default:
@@ -315,7 +384,7 @@ index 59e71d9d6..617449b2e 100644
  static irqreturn_t mt8186_afe_irq_handler(int irq_id, void *dev)
  {
  	struct mtk_base_afe *afe = dev;
-@@ -2816,14 +2842,38 @@ static const dai_register_cb dai_register_cbs[] = {
+@@ -2816,14 +2840,38 @@ static const dai_register_cb dai_register_cbs[] = {
  	mt8186_dai_memif_register,
  };
  
@@ -354,7 +423,7 @@ index 59e71d9d6..617449b2e 100644
  	ret = dma_set_mask_and_coherent(dev, DMA_BIT_MASK(34));
  	if (ret)
  		return ret;
-@@ -2862,8 +2912,18 @@ static int mt8186_afe_pcm_dev_probe(struct platform_device *pdev)
+@@ -2862,8 +2910,18 @@ static int mt8186_afe_pcm_dev_probe(struct platform_device *pdev)
  	if (!afe->memif)
  		return -ENOMEM;
  
@@ -374,7 +443,7 @@ index 59e71d9d6..617449b2e 100644
  		afe->memif[i].irq_usage = memif_irq_usage[i];
  		afe->memif[i].const_irq = 1;
  	}
-@@ -2910,13 +2970,19 @@ static int mt8186_afe_pcm_dev_probe(struct platform_device *pdev)
+@@ -2910,13 +2968,19 @@ static int mt8186_afe_pcm_dev_probe(struct platform_device *pdev)
  		return dev_err_probe(dev, ret, "mtk_afe_combine_sub_dai fail\n");
  
  	/* reset controller to reset audio regs before regmap cache */
@@ -398,7 +467,7 @@ index 59e71d9d6..617449b2e 100644
  
  	/* enable clock for regcache get default value from hw */
  	afe_priv->pm_runtime_bypass_reg_ctl = true;
-@@ -2930,7 +2996,7 @@ static int mt8186_afe_pcm_dev_probe(struct platform_device *pdev)
+@@ -2930,7 +2994,7 @@ static int mt8186_afe_pcm_dev_probe(struct platform_device *pdev)
  		return dev_err_probe(dev, ret, "failed to resume device\n");
  
  	afe->regmap = devm_regmap_init_mmio(dev, afe->base_addr,
@@ -407,7 +476,7 @@ index 59e71d9d6..617449b2e 100644
  	if (IS_ERR(afe->regmap)) {
  		ret = PTR_ERR(afe->regmap);
  		goto err_pm_disable;
-@@ -2977,7 +3043,8 @@ static int mt8186_afe_pcm_dev_probe(struct platform_device *pdev)
+@@ -2977,7 +3041,8 @@ static int mt8186_afe_pcm_dev_probe(struct platform_device *pdev)
  }
  
  static const struct of_device_id mt8186_afe_pcm_dt_match[] = {
@@ -418,7 +487,7 @@ index 59e71d9d6..617449b2e 100644
  };
  MODULE_DEVICE_TABLE(of, mt8186_afe_pcm_dt_match);
 diff --git a/sound/soc/mediatek/mt8186/mt8186-reg.h b/sound/soc/mediatek/mt8186/mt8186-reg.h
-index 53c3eb728..b61e3c7ce 100644
+index 53c3eb7..b61e3c7 100644
 --- a/sound/soc/mediatek/mt8186/mt8186-reg.h
 +++ b/sound/soc/mediatek/mt8186/mt8186-reg.h
 @@ -2905,7 +2905,12 @@ enum {
