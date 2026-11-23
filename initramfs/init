@@ -200,6 +200,109 @@ if [ -r /sys/bus/spi/devices/spi0.0/fw_ver ]; then
     log "Touch: spi0.0 fw_ver=${TP_VER}"
 fi
 
+# Phase 4 (VP-4.1..VP-4.7) & Phase 1-2 read-only verification telemetry
+# VP-4.1 (D2.1/B2): Charger I2C 0x6a vs 0x6b + CW2217 profile state (D2.2/B1)
+if [ -L /sys/class/power_supply/bq25890-charger-0/device ]; then
+    CHG_DEV=$(basename "$(readlink /sys/class/power_supply/bq25890-charger-0/device 2>/dev/null)" 2>/dev/null)
+    CHG_BUS="${CHG_DEV%%-*}"
+    CHG_6A="no-i2cget"; CHG_6B="no-i2cget"; CHG_TS="no-i2cget"
+    if command -v i2cget >/dev/null 2>&1 && [ -c "/dev/i2c-${CHG_BUS}" ]; then
+        CHG_6A=$(i2cget -f -y "$CHG_BUS" 0x6a 0x14 2>/dev/null || echo "NACK")
+        CHG_6B=$(i2cget -f -y "$CHG_BUS" 0x6b 0x14 2>/dev/null || echo "NACK")
+        CHG_TS=$(i2cget -f -y "$CHG_BUS" 0x6a 0x10 2>/dev/null || echo "NACK")
+    fi
+    log "VP-4.1 Charger: dev=${CHG_DEV} reg14@0x6a=${CHG_6A} reg14@0x6b=${CHG_6B} tspct@0x10=${CHG_TS}"
+fi
+if [ -L /sys/class/power_supply/cw2217-battery/device ]; then
+    FG_DEV=$(basename "$(readlink /sys/class/power_supply/cw2217-battery/device 2>/dev/null)" 2>/dev/null)
+    FG_BUS="${FG_DEV%%-*}"
+    FG_MODE="n/a"; FG_UPD="n/a"; FG_STA="n/a"
+    if command -v i2cget >/dev/null 2>&1 && [ -c "/dev/i2c-${FG_BUS}" ]; then
+        FG_MODE=$(i2cget -f -y "$FG_BUS" 0x64 0x08 2>/dev/null || echo "err")
+        FG_UPD=$(i2cget -f -y "$FG_BUS" 0x64 0x0b 2>/dev/null || echo "err")
+        FG_STA=$(i2cget -f -y "$FG_BUS" 0x64 0xa7 2>/dev/null || echo "err")
+    fi
+    FG_CYC=$(cat /sys/class/power_supply/cw2217-battery/cycle_count 2>/dev/null || echo "-")
+    FG_DES=$(cat /sys/class/power_supply/cw2217-battery/charge_full_design 2>/dev/null || echo "-")
+    log "VP-4.1 CW2217: dev=${FG_DEV} mode=${FG_MODE} soc_alert=${FG_UPD} ic_state=${FG_STA} cyc=${FG_CYC} design=${FG_DES}"
+fi
+
+# VP-4.2 (D2.3/B3) & VP-4.3 (D2.4/B4): GPIO 7 (SD CD), GPIO 85 (panel rst), GPIO 107 (touch rst), GPIO 1/106 (NFC)
+if [ -r /sys/kernel/debug/gpio ]; then
+    GPIO_CD=$(grep -E 'gpio-7[[:space:]]' /sys/kernel/debug/gpio 2>/dev/null | tr -s ' ')
+    GPIO_RST=$(grep -E 'gpio-(85|107)[[:space:]]' /sys/kernel/debug/gpio 2>/dev/null | tr -s ' ' | tr '\n' '; ')
+    GPIO_NFC=$(grep -E 'gpio-(1|106)[[:space:]]' /sys/kernel/debug/gpio 2>/dev/null | tr -s ' ' | tr '\n' '; ')
+    MMC_BLKS=$(ls -d /sys/block/mmcblk* 2>/dev/null | tr '\n' ' ')
+    log "VP-4.2 SD-CD: ${GPIO_CD:-none} | mmcblk=${MMC_BLKS:-none}"
+    log "VP-4.3 Reset-GPIOs: ${GPIO_RST:-none}"
+    log "VP-4.5 NFC-GPIOs: ${GPIO_NFC:-none}"
+fi
+if [ -d /sys/class/drm/card0-DSI-1 ]; then
+    DRM_ST=$(cat /sys/class/drm/card0-DSI-1/status 2>/dev/null || echo "?")
+    DRM_EN=$(cat /sys/class/drm/card0-DSI-1/enabled 2>/dev/null || echo "?")
+    DRM_MD=$(head -n 1 /sys/class/drm/card0-DSI-1/modes 2>/dev/null || echo "?")
+    log "VP-4.3 DRM DSI-1: status=${DRM_ST} enabled=${DRM_EN} mode=${DRM_MD}"
+fi
+
+# VP-4.4 (D2.5/B5): Backlight PWM state (read-only)
+if [ -r /sys/kernel/debug/pwm ]; then
+    PWM_ST=$(grep -v '^$' /sys/kernel/debug/pwm 2>/dev/null | tr -s ' ' | tr '\n' '; ')
+    BL_MAX=$(cat /sys/class/backlight/backlight/max_brightness 2>/dev/null || echo "?")
+    log "VP-4.4 PWM: max_bl=${BL_MAX} | ${PWM_ST}"
+fi
+
+# VP-4.5 (D2.6/B8): NFC device binding & IRQ count
+if [ -d /sys/class/nfc/nfc0 ]; then
+    NFC_DEV=$(basename "$(readlink /sys/class/nfc/nfc0/device 2>/dev/null)" 2>/dev/null || echo "?")
+    NFC_IRQ=$(grep -iE 'nfc|st-nci|-0008' /proc/interrupts 2>/dev/null | tr -s ' ' | tr '\n' '; ')
+    log "VP-4.5 NFC: dev=${NFC_DEV} irq=${NFC_IRQ:-none}"
+fi
+
+# VP-4.6 (D2.7): Memory map, /firmware/devicetree memory*/reg, and pstore
+if [ -r /proc/iomem ]; then
+    MEM_IO=$(grep -iE '48090000|ramoops|pstore|System RAM' /proc/iomem 2>/dev/null | tr -s ' ' | tr '\n' '; ')
+    log "VP-4.6 iomem: ${MEM_IO}"
+fi
+DT_MEM=""
+for mf in /sys/firmware/devicetree/base/memory*/reg; do
+    [ -r "$mf" ] || continue
+    MNODE=$(basename "$(dirname "$mf")")
+    MHEX=$(hexdump -v -e '4/4 "%08x "' "$mf" 2>/dev/null | sed 's/ *$//')
+    DT_MEM="${DT_MEM} ${MNODE}=[${MHEX}]"
+done
+PSTORE_LS=$(ls /sys/fs/pstore 2>/dev/null | tr '\n' ' ')
+log "VP-4.6 DT-mem:${DT_MEM:- none} | pstore=${PSTORE_LS:-empty}"
+
+# VP-4.7 (D3/B6/B7): SPM PWR_STATUS, genpd summary, audit clocks, P1 pwrap IRQ, P3/P4 ALSA PCM
+if command -v devmem >/dev/null 2>&1; then
+    PWR_STA=$(devmem 0x1000616c 32 2>/dev/null || echo "err")
+    PWR_STA2=$(devmem 0x10006170 32 2>/dev/null || echo "err")
+    log "VP-4.7 SPM: PWR_STATUS(0x1000616c)=${PWR_STA} PWR_STATUS_2ND(0x10006170)=${PWR_STA2}"
+fi
+if [ -r /sys/kernel/debug/pm_genpd/pm_genpd_summary ]; then
+    GENPD_SUM=$(awk 'NR>2 && NF>=2 && $1 !~ /^\// && $1 !~ /^-/ {printf "%s=%s ", $1, $2}' /sys/kernel/debug/pm_genpd/pm_genpd_summary 2>/dev/null)
+    log "VP-4.7 genpd: ${GENPD_SUM}"
+fi
+if [ -r /sys/kernel/debug/clk/clk_summary ]; then
+    CLK_ON=$(awk 'NR>3 && $2>0 {c++} END {print c+0}' /sys/kernel/debug/clk/clk_summary 2>/dev/null)
+    CLK_AUD=$(awk 'NR>3 && $1 ~ /(pwrap|ulposc|atb|dpmaif|btif|ccif|debugsys|cldma)/ {printf "%s=%s(%s) ", $1, $2, $5}' /sys/kernel/debug/clk/clk_summary 2>/dev/null)
+    CLK_MFG=$(awk 'NR>3 && $1 ~ /(mfg|gpu)/ && $2>0 {printf "%s=%s(%s) ", $1, $2, $5}' /sys/kernel/debug/clk/clk_summary 2>/dev/null)
+    log "VP-4.7 clks: total_on=${CLK_ON} | audit: ${CLK_AUD:-none}"
+    log "VP-4.7 gpu-clks: ${CLK_MFG:-none}"
+fi
+if [ -r /proc/interrupts ]; then
+    PWRAP_IRQ=$(grep -iE 'pwrap|pmic|mt6358' /proc/interrupts 2>/dev/null | tr -s ' ' | tr '\n' '; ')
+    log "Smoke-P1 pwrap/pmic IRQs: ${PWRAP_IRQ:-none}"
+fi
+if [ -r /proc/asound/pcm ]; then
+    ALSA_PCM=$(tr '\n' '; ' < /proc/asound/pcm 2>/dev/null)
+    log "Smoke-P3/P4 ALSA PCM: ${ALSA_PCM:-none}"
+fi
+if [ -r /sys/kernel/debug/regulator/regulator_summary ]; then
+    REG_GPU=$(awk 'NR>2 && $1 ~ /(vgpu|vsram|vusb|disp|tps65132|vib|outp|outn)/ {printf "%s(use=%s,open=%s,V=%s) ", $1, $2, $3, $6}' /sys/kernel/debug/regulator/regulator_summary 2>/dev/null)
+    log "Smoke-Regulators: ${REG_GPU:-none}"
+fi
+
 # Keep UFS host controller active during early boot
 for ufs_pwr in /sys/bus/platform/devices/*.ufshci/power/control; do
     [ -e "$ufs_pwr" ] && echo on > "$ufs_pwr" 2>/dev/null || true
@@ -332,6 +435,12 @@ if [ "$ROOT_MOUNTED" -eq 1 ]; then
             mv /sysroot/var/log/boot-diag/early-init-dmesg.log /sysroot/var/log/boot-diag/early-init-dmesg.log.prev
         fi
         dmesg > /sysroot/var/log/boot-diag/early-init-dmesg.log
+        [ -r /sys/kernel/debug/clk/clk_summary ] && cat /sys/kernel/debug/clk/clk_summary > /sysroot/var/log/boot-diag/last-clk_summary.log 2>/dev/null || true
+        [ -r /sys/kernel/debug/pm_genpd/pm_genpd_summary ] && cat /sys/kernel/debug/pm_genpd/pm_genpd_summary > /sysroot/var/log/boot-diag/last-pm_genpd_summary.log 2>/dev/null || true
+        [ -r /sys/kernel/debug/regulator/regulator_summary ] && cat /sys/kernel/debug/regulator/regulator_summary > /sysroot/var/log/boot-diag/last-regulator_summary.log 2>/dev/null || true
+        [ -r /sys/kernel/debug/dri/0/state ] && cat /sys/kernel/debug/dri/0/state > /sysroot/var/log/boot-diag/last-dri-state.log 2>/dev/null || true
+        [ -r /sys/kernel/debug/gpio ] && cat /sys/kernel/debug/gpio > /sysroot/var/log/boot-diag/last-gpio.log 2>/dev/null || true
+        [ -r /sys/kernel/debug/pwm ] && cat /sys/kernel/debug/pwm > /sysroot/var/log/boot-diag/last-pwm.log 2>/dev/null || true
         sync
 
         mkdir -p /sysroot/etc/systemd/journald.conf.d
