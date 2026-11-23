@@ -1,24 +1,24 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From f2025cf9aa77a8f7f1075e62635dc4f0cc49d861 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Mon, 23 Nov 2026 12:19:32 +0000
-Subject: [PATCH 16/17] dt-bindings: power: supply: Add CellWise CW2217 fuel
- gauge binding
+Subject: [PATCH] dt-bindings: power: supply: Add CellWise CW2217 fuel gauge
+ binding
 
 Document Device Tree bindings for the CellWise CW2215/CW2217 I2C
 single-cell battery fuel gauge.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- .../power/supply/cellwise,cw2217.yaml         | 46 +++++++++++++++++++
- 1 file changed, 46 insertions(+)
+ .../power/supply/cellwise,cw2217.yaml         | 54 +++++++++++++++++++
+ 1 file changed, 54 insertions(+)
  create mode 100644 Documentation/devicetree/bindings/power/supply/cellwise,cw2217.yaml
 
 diff --git a/Documentation/devicetree/bindings/power/supply/cellwise,cw2217.yaml b/Documentation/devicetree/bindings/power/supply/cellwise,cw2217.yaml
 new file mode 100644
-index 000000000..5856d0729
+index 0000000..fb9efe3
 --- /dev/null
 +++ b/Documentation/devicetree/bindings/power/supply/cellwise,cw2217.yaml
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,54 @@
 +# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 +%YAML 1.2
 +---
@@ -46,6 +46,14 @@ index 000000000..5856d0729
 +    description: External current sense resistor value in micro-ohms.
 +    default: 10000
 +
++  cellwise,battery-profile:
++    $ref: /schemas/types.yaml#/definitions/uint8-array
++    minItems: 80
++    maxItems: 80
++    description:
++      80-byte board/battery characterization profile table written to
++      CW2217 registers 0x10..0x5f during gauge initialization.
++
 +required:
 +  - compatible
 +  - reg
@@ -65,3 +73,6 @@ index 000000000..5856d0729
 +        monitored-battery = <&battery>;
 +      };
 +    };
+-- 
+2.55.0
+

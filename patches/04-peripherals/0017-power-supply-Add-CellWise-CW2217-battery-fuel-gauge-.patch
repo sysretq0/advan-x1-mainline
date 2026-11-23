@@ -1,24 +1,26 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 4bdf73df435ab383656437e29833da585bb521b7 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Mon, 23 Nov 2026 12:19:33 +0000
-Subject: [PATCH 17/17] power: supply: Add CellWise CW2217 battery fuel gauge
- driver
+Subject: [PATCH] power: supply: Add CellWise CW2217 battery fuel gauge driver
 
 Add a regmap-based I2C power supply driver for the CellWise CW2215 and
 CW2217 single-cell fuel gauges, reporting voltage, current, state of
-charge, temperature, cycle count, and state of health without disturbing
-an active bootloader-calibrated battery profile.
+charge, temperature, cycle count, and state of health. Verify the
+optional 80-byte DT battery profile against gauge registers 0x10..0x5f
+and run the restart/sleep/program/active initialization sequence only
+when the IC is asleep, unconfigured, or mismatched, preserving warm
+reboot SOC tracking.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  drivers/power/supply/Kconfig          |  11 +
  drivers/power/supply/Makefile         |   1 +
- drivers/power/supply/cw2217_battery.c | 323 ++++++++++++++++++++++++++
- 3 files changed, 335 insertions(+)
+ drivers/power/supply/cw2217_battery.c | 468 ++++++++++++++++++++++++++
+ 3 files changed, 480 insertions(+)
  create mode 100644 drivers/power/supply/cw2217_battery.c
 
 diff --git a/drivers/power/supply/Kconfig b/drivers/power/supply/Kconfig
-index ee7dc5f26..0fa19df77 100644
+index ee7dc5f..0fa19df 100644
 --- a/drivers/power/supply/Kconfig
 +++ b/drivers/power/supply/Kconfig
 @@ -141,6 +141,17 @@ config BATTERY_CW2015
@@ -40,7 +42,7 @@ index ee7dc5f26..0fa19df77 100644
  	tristate "DS2760 battery driver (HP iPAQ & others)"
  	depends on W1
 diff --git a/drivers/power/supply/Makefile b/drivers/power/supply/Makefile
-index f3c0d1006..66e630388 100644
+index f3c0d10..66e6303 100644
 --- a/drivers/power/supply/Makefile
 +++ b/drivers/power/supply/Makefile
 @@ -27,6 +27,7 @@ obj-$(CONFIG_CHARGER_AXP20X)	+= axp20x_ac_power.o
@@ -53,10 +55,10 @@ index f3c0d1006..66e630388 100644
  obj-$(CONFIG_BATTERY_DS2781)	+= ds2781_battery.o
 diff --git a/drivers/power/supply/cw2217_battery.c b/drivers/power/supply/cw2217_battery.c
 new file mode 100644
-index 000000000..bfc23bdae
+index 0000000..b78d4bf
 --- /dev/null
 +++ b/drivers/power/supply/cw2217_battery.c
-@@ -0,0 +1,323 @@
+@@ -0,0 +1,468 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * CellWise CW2215/CW2217 Battery Fuel Gauge driver
@@ -72,6 +74,7 @@ index 000000000..bfc23bdae
 +#include <linux/power_supply.h>
 +#include <linux/property.h>
 +#include <linux/regmap.h>
++#include <linux/string.h>
 +#include <linux/unaligned.h>
 +
 +#define CW2217_REG_CHIP_ID		0x00
@@ -79,14 +82,22 @@ index 000000000..bfc23bdae
 +#define CW2217_REG_SOC_INT		0x04
 +#define CW2217_REG_TEMP			0x06
 +#define CW2217_REG_MODE_CONFIG		0x08
++#define CW2217_REG_GPIO_CONFIG		0x0a
++#define CW2217_REG_SOC_ALERT		0x0b
 +#define CW2217_REG_CURRENT_H		0x0e
++#define CW2217_REG_BAT_PROFILE		0x10
 +#define CW2217_REG_CYCLE_H		0xa4
 +#define CW2217_REG_SOH			0xa6
 +#define CW2217_REG_IC_STATE		0xa7
 +
 +#define CW2217_CHIP_ID			0xa0
 +#define CW2217_MODE_ACTIVE		0x00
++#define CW2217_MODE_RESTART		0x30
 +#define CW2217_MODE_SLEEP		0xf0
++#define CW2217_CONFIG_UPDATE_FLG	0x80
++#define CW2217_IC_READY_MARK		0x0c
++#define CW2217_PROFILE_SIZE		80
++#define CW2217_READY_POLL_COUNT		50
 +#define CW2217_VCELL_MASK		0x3fff
 +#define CW2217_DEFAULT_RSENSE_UOHM	10000
 +
@@ -96,6 +107,8 @@ index 000000000..bfc23bdae
 +	struct power_supply *psy;
 +	u32 rsense_uohm;
 +	u32 charge_full_design_uah;
++	u8 profile[CW2217_PROFILE_SIZE];
++	bool has_profile;
 +};
 +
 +static const struct regmap_config cw2217_regmap_config = {
@@ -290,6 +303,139 @@ index 000000000..bfc23bdae
 +	.get_property = cw2217_get_property,
 +};
 +
++static int cw2217_sleep(struct cw2217_battery *cw)
++{
++	int ret;
++
++	ret = regmap_write(cw->regmap, CW2217_REG_MODE_CONFIG,
++			   CW2217_MODE_RESTART);
++	if (ret)
++		return ret;
++	msleep(20);
++
++	ret = regmap_write(cw->regmap, CW2217_REG_MODE_CONFIG,
++			   CW2217_MODE_SLEEP);
++	if (ret)
++		return ret;
++	usleep_range(10000, 12000);
++
++	return 0;
++}
++
++static int cw2217_active(struct cw2217_battery *cw)
++{
++	int ret;
++
++	ret = regmap_write(cw->regmap, CW2217_REG_MODE_CONFIG,
++			   CW2217_MODE_RESTART);
++	if (ret)
++		return ret;
++	msleep(20);
++
++	ret = regmap_write(cw->regmap, CW2217_REG_MODE_CONFIG,
++			   CW2217_MODE_ACTIVE);
++	if (ret)
++		return ret;
++	usleep_range(10000, 12000);
++
++	return 0;
++}
++
++static int cw2217_get_state(struct cw2217_battery *cw, bool *need_update)
++{
++	u8 hw_profile[CW2217_PROFILE_SIZE];
++	unsigned int val;
++	int ret;
++
++	*need_update = false;
++
++	ret = regmap_read(cw->regmap, CW2217_REG_MODE_CONFIG, &val);
++	if (ret)
++		return ret;
++	if (val != CW2217_MODE_ACTIVE) {
++		*need_update = true;
++		return 0;
++	}
++
++	if (!cw->has_profile)
++		return 0;
++
++	ret = regmap_read(cw->regmap, CW2217_REG_SOC_ALERT, &val);
++	if (ret)
++		return ret;
++	if (!(val & CW2217_CONFIG_UPDATE_FLG)) {
++		*need_update = true;
++		return 0;
++	}
++
++	ret = regmap_bulk_read(cw->regmap, CW2217_REG_BAT_PROFILE,
++			       hw_profile, sizeof(hw_profile));
++	if (ret)
++		return ret;
++
++	if (memcmp(hw_profile, cw->profile, sizeof(hw_profile)))
++		*need_update = true;
++
++	return 0;
++}
++
++static int cw2217_config_start_ic(struct cw2217_battery *cw)
++{
++	unsigned int val;
++	int i, ret;
++
++	ret = cw2217_sleep(cw);
++	if (ret)
++		return ret;
++
++	if (cw->has_profile) {
++		ret = regmap_bulk_write(cw->regmap, CW2217_REG_BAT_PROFILE,
++					cw->profile, sizeof(cw->profile));
++		if (ret)
++			return ret;
++
++		ret = regmap_write(cw->regmap, CW2217_REG_SOC_ALERT,
++				   CW2217_CONFIG_UPDATE_FLG);
++		if (ret)
++			return ret;
++	}
++
++	ret = regmap_write(cw->regmap, CW2217_REG_GPIO_CONFIG, 0x00);
++	if (ret)
++		return ret;
++
++	ret = cw2217_active(cw);
++	if (ret)
++		return ret;
++
++	for (i = 0; i < CW2217_READY_POLL_COUNT; i++) {
++		ret = regmap_read(cw->regmap, CW2217_REG_IC_STATE, &val);
++		if (ret)
++			return ret;
++		if ((val & CW2217_IC_READY_MARK) == CW2217_IC_READY_MARK)
++			return 0;
++		msleep(100);
++	}
++
++	cw2217_sleep(cw);
++	return -ETIMEDOUT;
++}
++
++static int cw2217_init(struct cw2217_battery *cw)
++{
++	bool need_update;
++	int ret;
++
++	ret = cw2217_get_state(cw, &need_update);
++	if (ret)
++		return ret;
++
++	if (!need_update)
++		return 0;
++
++	return cw2217_config_start_ic(cw);
++}
++
 +static int cw2217_probe(struct i2c_client *client)
 +{
 +	struct power_supply_battery_info *info;
@@ -322,17 +468,18 @@ index 000000000..bfc23bdae
 +		return dev_err_probe(cw->dev, -ENODEV,
 +				     "unexpected chip ID 0x%02x\n", val);
 +
-+	/* Wake gauge only if asleep; preserve active firmware profile */
-+	ret = regmap_read(cw->regmap, CW2217_REG_MODE_CONFIG, &val);
++	ret = device_property_read_u8_array(cw->dev, "cellwise,battery-profile",
++					    cw->profile, sizeof(cw->profile));
++	if (!ret)
++		cw->has_profile = true;
++	else if (ret != -EINVAL)
++		return dev_err_probe(cw->dev, ret,
++				     "invalid cellwise,battery-profile\n");
++
++	ret = cw2217_init(cw);
 +	if (ret)
-+		return ret;
-+	if (val == CW2217_MODE_SLEEP) {
-+		ret = regmap_write(cw->regmap, CW2217_REG_MODE_CONFIG,
-+				   CW2217_MODE_ACTIVE);
-+		if (ret)
-+			return ret;
-+		msleep(20);
-+	}
++		return dev_err_probe(cw->dev, ret,
++				     "failed to initialize fuel gauge\n");
 +
 +	psy_cfg.fwnode = dev_fwnode(cw->dev);
 +	psy_cfg.drv_data = cw;
@@ -380,3 +527,6 @@ index 000000000..bfc23bdae
 +MODULE_AUTHOR("sysretq0 <324514544+sysretq0@users.noreply.github.com>");
 +MODULE_DESCRIPTION("CellWise CW2215/CW2217 Battery Fuel Gauge driver");
 +MODULE_LICENSE("GPL");
+-- 
+2.55.0
+
