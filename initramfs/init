@@ -138,6 +138,46 @@ if [ -d /sys/class/input ]; then
     done
     [ -n "$INP_SUMMARY" ] && log "Input:$INP_SUMMARY"
 fi
+if [ -d /sys/devices/soc0 ]; then
+    SOC_FAM=$(cat /sys/devices/soc0/family 2>/dev/null || echo "?")
+    SOC_ID=$(cat /sys/devices/soc0/soc_id 2>/dev/null || echo "?")
+    SOC_MACH=$(cat /sys/devices/soc0/machine 2>/dev/null || echo "?")
+    log "SoC: family=${SOC_FAM} soc_id=${SOC_ID} machine=${SOC_MACH}"
+fi
+if [ -d /sys/class/mmc_host ]; then
+    MMC_SUMMARY=""
+    for mh in /sys/class/mmc_host/mmc*; do
+        [ -d "$mh" ] || continue
+        MMC_SUMMARY="$MMC_SUMMARY $(basename "$mh")=$(basename "$(readlink "$mh/device" 2>/dev/null)" 2>/dev/null)"
+    done
+    [ -n "$MMC_SUMMARY" ] && log "MMC:$MMC_SUMMARY"
+fi
+if [ -d /sys/class/power_supply ]; then
+    PSY_SUMMARY=""
+    for ps in /sys/class/power_supply/*; do
+        [ -d "$ps" ] || continue
+        PS_NAME=$(basename "$ps")
+        PS_TYPE=$(cat "$ps/type" 2>/dev/null || echo "?")
+        PS_STAT=$(cat "$ps/status" 2>/dev/null || echo "?")
+        PS_V=$(cat "$ps/voltage_now" 2>/dev/null || echo "-")
+        PS_I=$(cat "$ps/current_now" 2>/dev/null || echo "-")
+        PS_CAP=$(cat "$ps/capacity" 2>/dev/null || echo "-")
+        PS_T=$(cat "$ps/temp" 2>/dev/null || echo "-")
+        PSY_SUMMARY="$PSY_SUMMARY ${PS_NAME}(${PS_TYPE},${PS_STAT},V=${PS_V},I=${PS_I},C=${PS_CAP},T=${PS_T})"
+    done
+    [ -n "$PSY_SUMMARY" ] && log "Power:$PSY_SUMMARY"
+fi
+if [ -d /sys/class/typec ]; then
+    TC_SUMMARY=""
+    for tc in /sys/class/typec/port*; do
+        [ -d "$tc" ] || continue
+        TC_PR=$(cat "$tc/power_role" 2>/dev/null || echo "?")
+        TC_DR=$(cat "$tc/data_role" 2>/dev/null || echo "?")
+        TC_OR=$(cat "$tc/orientation" 2>/dev/null || echo "?")
+        TC_SUMMARY="$TC_SUMMARY $(basename "$tc")(pr=${TC_PR},dr=${TC_DR},ori=${TC_OR})"
+    done
+    [ -n "$TC_SUMMARY" ] && log "Type-C:$TC_SUMMARY"
+fi
 
 # Keep UFS host controller active during early boot
 for ufs_pwr in /sys/bus/platform/devices/*.ufshci/power/control; do

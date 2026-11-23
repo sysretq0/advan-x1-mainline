@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Mon, 23 Nov 2026 12:19:26 +0000
+Subject: [PATCH 12/12] soc: mediatek: socinfo: Add MT6789 SoC support
+
+Add MediaTek MT6789 (Helio G99) entry to the socinfo lookup table
+matching the non-secure eFuse words at offsets 0x4c and 0x50.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/soc/mediatek/mtk-socinfo.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/soc/mediatek/mtk-socinfo.c b/drivers/soc/mediatek/mtk-socinfo.c
+index cd14706c2..1b6018f60 100644
+--- a/drivers/soc/mediatek/mtk-socinfo.c
++++ b/drivers/soc/mediatek/mtk-socinfo.c
+@@ -43,6 +43,7 @@ struct socinfo_data {
+ static const char *cell_names[MAX_CELLS] = {"socinfo-data1", "socinfo-data2"};
+ 
+ static struct socinfo_data socinfo_data_table[] = {
++	MTK_SOCINFO_ENTRY("MT6789", "MT6789V/CD", "Helio G99", 0x00000102, 0x00000001),
+ 	MTK_SOCINFO_ENTRY("MT8173", "MT8173V/AC", "MT8173", 0x6CA20004, 0x10000000),
+ 	MTK_SOCINFO_ENTRY("MT8183", "MT8183V/AZA", "Kompanio 500", 0x00010043, 0x00000840),
+ 	MTK_SOCINFO_ENTRY("MT8183", "MT8183V/AZA", "Kompanio 500", 0x00010043, 0x00000940),

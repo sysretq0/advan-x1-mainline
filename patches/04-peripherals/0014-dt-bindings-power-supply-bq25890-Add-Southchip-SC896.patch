@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Mon, 23 Nov 2026 12:19:29 +0000
+Subject: [PATCH 14/17] dt-bindings: power: supply: bq25890: Add Southchip
+ SC89601A compatible
+
+Add the Southchip vendor prefix and document the register-compatible
+Southchip SC89601A battery charger in the BQ25890 binding.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ Documentation/devicetree/bindings/power/supply/bq25890.yaml | 1 +
+ Documentation/devicetree/bindings/vendor-prefixes.yaml      | 2 ++
+ 2 files changed, 3 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/power/supply/bq25890.yaml b/Documentation/devicetree/bindings/power/supply/bq25890.yaml
+index 0ad302ab2..cac61f128 100644
+--- a/Documentation/devicetree/bindings/power/supply/bq25890.yaml
++++ b/Documentation/devicetree/bindings/power/supply/bq25890.yaml
+@@ -20,6 +20,7 @@ properties:
+           - ti,bq25890
+       - items:
+           - enum:
++              - southchip,sc89601a
+               - ti,bq25892
+               - ti,bq25895
+               - ti,bq25896
+diff --git a/Documentation/devicetree/bindings/vendor-prefixes.yaml b/Documentation/devicetree/bindings/vendor-prefixes.yaml
+index 5471a06f9..a0193e014 100644
+--- a/Documentation/devicetree/bindings/vendor-prefixes.yaml
++++ b/Documentation/devicetree/bindings/vendor-prefixes.yaml
+@@ -1617,6 +1617,8 @@ patternProperties:
+     description: Sophos Ltd.
+   "^sourceparts,.*":
+     description: Source Parts Inc.
++  "^southchip,.*":
++    description: Southchip Semiconductor Technology (Shanghai) Co., Ltd.
+   "^spacemit,.*":
+     description: SpacemiT (Hangzhou) Technology Co. Ltd
+   "^spansion,.*":

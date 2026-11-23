@@ -1,0 +1,85 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Mon, 23 Nov 2026 12:19:31 +0000
+Subject: [PATCH 15/17] power: supply: bq25890: Add Southchip SC89601A support
+
+The Southchip SC89601A switching battery charger shares the TI BQ25890
+register map (0x00..0x14) and reports part number ID 4 in REG14[5:3].
+Recognize SC89601A_ID and add its OF and I2C match entries.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/power/supply/bq25890_charger.c | 13 ++++++++++++-
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/power/supply/bq25890_charger.c b/drivers/power/supply/bq25890_charger.c
+index 6af181190..3276ad2af 100644
+--- a/drivers/power/supply/bq25890_charger.c
++++ b/drivers/power/supply/bq25890_charger.c
+@@ -21,11 +21,13 @@
+ #include <linux/of.h>
+ 
+ #define BQ25890_MANUFACTURER		"Texas Instruments"
++#define SC89601A_MANUFACTURER		"Southchip"
+ #define BQ25890_IRQ_PIN			"bq25890_irq"
+ 
+ #define BQ25890_ID			3
+ #define BQ25895_ID			7
+ #define BQ25896_ID			0
++#define SC89601A_ID			4
+ 
+ #define PUMP_EXPRESS_START_DELAY	(5 * HZ)
+ #define PUMP_EXPRESS_MAX_TRIES		6
+@@ -36,6 +38,7 @@ enum bq25890_chip_version {
+ 	BQ25892,
+ 	BQ25895,
+ 	BQ25896,
++	SC89601A,
+ };
+ 
+ static const char *const bq25890_chip_name[] = {
+@@ -43,6 +46,7 @@ static const char *const bq25890_chip_name[] = {
+ 	"BQ25892",
+ 	"BQ25895",
+ 	"BQ25896",
++	"SC89601A",
+ };
+ 
+ enum bq25890_fields {
+@@ -525,7 +529,8 @@ static int bq25890_power_supply_get_property(struct power_supply *psy,
+ 		break;
+ 
+ 	case POWER_SUPPLY_PROP_MANUFACTURER:
+-		val->strval = BQ25890_MANUFACTURER;
++		val->strval = bq->chip_version == SC89601A ?
++			      SC89601A_MANUFACTURER : BQ25890_MANUFACTURER;
+ 		break;
+ 
+ 	case POWER_SUPPLY_PROP_MODEL_NAME:
+@@ -1318,6 +1323,10 @@ static int bq25890_get_chip_version(struct bq25890_device *bq)
+ 		bq->chip_version = BQ25895;
+ 		break;
+ 
++	case SC89601A_ID:
++		bq->chip_version = SC89601A;
++		break;
++
+ 	default:
+ 		dev_err(bq->dev, "Unknown chip ID %d\n", id);
+ 		return -ENODEV;
+@@ -1633,6 +1642,7 @@ static const struct i2c_device_id bq25890_i2c_ids[] = {
+ 	{ .name = "bq25892" },
+ 	{ .name = "bq25895" },
+ 	{ .name = "bq25896" },
++	{ .name = "sc89601a" },
+ 	{ }
+ };
+ MODULE_DEVICE_TABLE(i2c, bq25890_i2c_ids);
+@@ -1642,6 +1652,7 @@ static const struct of_device_id bq25890_of_match[] __maybe_unused = {
+ 	{ .compatible = "ti,bq25892", },
+ 	{ .compatible = "ti,bq25895", },
+ 	{ .compatible = "ti,bq25896", },
++	{ .compatible = "southchip,sc89601a", },
+ 	{ },
+ };
+ MODULE_DEVICE_TABLE(of, bq25890_of_match);

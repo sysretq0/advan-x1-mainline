@@ -1,0 +1,382 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Mon, 23 Nov 2026 12:19:33 +0000
+Subject: [PATCH 17/17] power: supply: Add CellWise CW2217 battery fuel gauge
+ driver
+
+Add a regmap-based I2C power supply driver for the CellWise CW2215 and
+CW2217 single-cell fuel gauges, reporting voltage, current, state of
+charge, temperature, cycle count, and state of health without disturbing
+an active bootloader-calibrated battery profile.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/power/supply/Kconfig          |  11 +
+ drivers/power/supply/Makefile         |   1 +
+ drivers/power/supply/cw2217_battery.c | 323 ++++++++++++++++++++++++++
+ 3 files changed, 335 insertions(+)
+ create mode 100644 drivers/power/supply/cw2217_battery.c
+
+diff --git a/drivers/power/supply/Kconfig b/drivers/power/supply/Kconfig
+index ee7dc5f26..0fa19df77 100644
+--- a/drivers/power/supply/Kconfig
++++ b/drivers/power/supply/Kconfig
+@@ -141,6 +141,17 @@ config BATTERY_CW2015
+ 	  This driver can also be built as a module. If so, the module will be
+ 	  called cw2015_battery.
+ 
++config BATTERY_CW2217
++	tristate "CellWise CW2215/CW2217 battery fuel gauge driver"
++	depends on I2C
++	select REGMAP_I2C
++	help
++	  Say Y here to enable support for the CellWise CW2215 and CW2217
++	  I2C single-cell battery fuel gauges.
++
++	  This driver can also be built as a module. If so, the module will be
++	  called cw2217_battery.
++
+ config BATTERY_DS2760
+ 	tristate "DS2760 battery driver (HP iPAQ & others)"
+ 	depends on W1
+diff --git a/drivers/power/supply/Makefile b/drivers/power/supply/Makefile
+index f3c0d1006..66e630388 100644
+--- a/drivers/power/supply/Makefile
++++ b/drivers/power/supply/Makefile
+@@ -27,6 +27,7 @@ obj-$(CONFIG_CHARGER_AXP20X)	+= axp20x_ac_power.o
+ obj-$(CONFIG_BATTERY_CHAGALL)	+= chagall-battery.o
+ obj-$(CONFIG_BATTERY_CPCAP)	+= cpcap-battery.o
+ obj-$(CONFIG_BATTERY_CW2015)	+= cw2015_battery.o
++obj-$(CONFIG_BATTERY_CW2217)	+= cw2217_battery.o
+ obj-$(CONFIG_BATTERY_DS2760)	+= ds2760_battery.o
+ obj-$(CONFIG_BATTERY_DS2780)	+= ds2780_battery.o
+ obj-$(CONFIG_BATTERY_DS2781)	+= ds2781_battery.o
+diff --git a/drivers/power/supply/cw2217_battery.c b/drivers/power/supply/cw2217_battery.c
+new file mode 100644
+index 000000000..bfc23bdae
+--- /dev/null
++++ b/drivers/power/supply/cw2217_battery.c
+@@ -0,0 +1,323 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * CellWise CW2215/CW2217 Battery Fuel Gauge driver
++ *
++ * Copyright (c) 2026 sysretq0 <324514544+sysretq0@users.noreply.github.com>
++ */
++
++#include <linux/delay.h>
++#include <linux/i2c.h>
++#include <linux/math64.h>
++#include <linux/mod_devicetable.h>
++#include <linux/module.h>
++#include <linux/power_supply.h>
++#include <linux/property.h>
++#include <linux/regmap.h>
++#include <linux/unaligned.h>
++
++#define CW2217_REG_CHIP_ID		0x00
++#define CW2217_REG_VCELL_H		0x02
++#define CW2217_REG_SOC_INT		0x04
++#define CW2217_REG_TEMP			0x06
++#define CW2217_REG_MODE_CONFIG		0x08
++#define CW2217_REG_CURRENT_H		0x0e
++#define CW2217_REG_CYCLE_H		0xa4
++#define CW2217_REG_SOH			0xa6
++#define CW2217_REG_IC_STATE		0xa7
++
++#define CW2217_CHIP_ID			0xa0
++#define CW2217_MODE_ACTIVE		0x00
++#define CW2217_MODE_SLEEP		0xf0
++#define CW2217_VCELL_MASK		0x3fff
++#define CW2217_DEFAULT_RSENSE_UOHM	10000
++
++struct cw2217_battery {
++	struct device *dev;
++	struct regmap *regmap;
++	struct power_supply *psy;
++	u32 rsense_uohm;
++	u32 charge_full_design_uah;
++};
++
++static const struct regmap_config cw2217_regmap_config = {
++	.reg_bits = 8,
++	.val_bits = 8,
++	.max_register = 0xaf,
++};
++
++static int cw2217_read_be16(struct cw2217_battery *cw, u8 reg, u16 *val)
++{
++	u8 buf[2];
++	int ret;
++
++	ret = regmap_bulk_read(cw->regmap, reg, buf, sizeof(buf));
++	if (ret)
++		return ret;
++
++	*val = get_unaligned_be16(buf);
++	return 0;
++}
++
++static int cw2217_get_voltage(struct cw2217_battery *cw, int *uv)
++{
++	u16 raw;
++	int ret;
++
++	ret = cw2217_read_be16(cw, CW2217_REG_VCELL_H, &raw);
++	if (ret)
++		return ret;
++
++	/* 312.5 uV per LSB (14-bit ADC) */
++	*uv = ((u32)(raw & CW2217_VCELL_MASK) * 3125) / 10;
++	return 0;
++}
++
++static int cw2217_get_current(struct cw2217_battery *cw, int *ua)
++{
++	u16 raw;
++	int ret;
++
++	ret = cw2217_read_be16(cw, CW2217_REG_CURRENT_H, &raw);
++	if (ret)
++		return ret;
++
++	/* Signed 16-bit two's complement, ~1.6 uV per LSB across Rsense */
++	*ua = div_s64((s64)(s16)raw * 1600000LL, cw->rsense_uohm);
++	return 0;
++}
++
++static int cw2217_get_capacity(struct cw2217_battery *cw, int *soc)
++{
++	unsigned int val;
++	int ret;
++
++	ret = regmap_read(cw->regmap, CW2217_REG_SOC_INT, &val);
++	if (ret)
++		return ret;
++
++	*soc = clamp_t(int, val, 0, 100);
++	return 0;
++}
++
++static int cw2217_get_temp(struct cw2217_battery *cw, int *temp)
++{
++	unsigned int val;
++	int ret;
++
++	ret = regmap_read(cw->regmap, CW2217_REG_TEMP, &val);
++	if (ret)
++		return ret;
++
++	/* T(C) = -40 + reg / 2, reported in tenths of degree C */
++	*temp = -400 + (int)val * 5;
++	return 0;
++}
++
++static int cw2217_get_cycle_count(struct cw2217_battery *cw, int *cycles)
++{
++	u16 raw;
++	int ret;
++
++	ret = cw2217_read_be16(cw, CW2217_REG_CYCLE_H, &raw);
++	if (ret)
++		return ret;
++
++	*cycles = raw / 16;
++	return 0;
++}
++
++static int cw2217_get_property(struct power_supply *psy,
++			       enum power_supply_property psp,
++			       union power_supply_propval *val)
++{
++	struct cw2217_battery *cw = power_supply_get_drvdata(psy);
++	unsigned int regval;
++	int curr, soc, ret;
++
++	switch (psp) {
++	case POWER_SUPPLY_PROP_PRESENT:
++		val->intval = 1;
++		return 0;
++
++	case POWER_SUPPLY_PROP_TECHNOLOGY:
++		val->intval = POWER_SUPPLY_TECHNOLOGY_LIPO;
++		return 0;
++
++	case POWER_SUPPLY_PROP_STATUS:
++		ret = cw2217_get_capacity(cw, &soc);
++		if (ret)
++			return ret;
++		ret = cw2217_get_current(cw, &curr);
++		if (ret)
++			return ret;
++		if (soc >= 100 && curr >= 0)
++			val->intval = POWER_SUPPLY_STATUS_FULL;
++		else if (curr > 0)
++			val->intval = POWER_SUPPLY_STATUS_CHARGING;
++		else if (curr < 0)
++			val->intval = POWER_SUPPLY_STATUS_DISCHARGING;
++		else
++			val->intval = POWER_SUPPLY_STATUS_NOT_CHARGING;
++		return 0;
++
++	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
++		return cw2217_get_voltage(cw, &val->intval);
++
++	case POWER_SUPPLY_PROP_CURRENT_NOW:
++		return cw2217_get_current(cw, &val->intval);
++
++	case POWER_SUPPLY_PROP_CAPACITY:
++		return cw2217_get_capacity(cw, &val->intval);
++
++	case POWER_SUPPLY_PROP_CAPACITY_LEVEL:
++		ret = cw2217_get_capacity(cw, &soc);
++		if (ret)
++			return ret;
++		if (soc >= 100)
++			val->intval = POWER_SUPPLY_CAPACITY_LEVEL_FULL;
++		else if (soc >= 70)
++			val->intval = POWER_SUPPLY_CAPACITY_LEVEL_HIGH;
++		else if (soc >= 20)
++			val->intval = POWER_SUPPLY_CAPACITY_LEVEL_NORMAL;
++		else if (soc >= 5)
++			val->intval = POWER_SUPPLY_CAPACITY_LEVEL_LOW;
++		else
++			val->intval = POWER_SUPPLY_CAPACITY_LEVEL_CRITICAL;
++		return 0;
++
++	case POWER_SUPPLY_PROP_TEMP:
++		return cw2217_get_temp(cw, &val->intval);
++
++	case POWER_SUPPLY_PROP_CYCLE_COUNT:
++		return cw2217_get_cycle_count(cw, &val->intval);
++
++	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
++		val->intval = cw->charge_full_design_uah;
++		return 0;
++
++	case POWER_SUPPLY_PROP_CHARGE_FULL:
++		ret = regmap_read(cw->regmap, CW2217_REG_SOH, &regval);
++		if (ret)
++			return ret;
++		regval = clamp_t(unsigned int, regval, 0, 100);
++		val->intval = div_u64((u64)cw->charge_full_design_uah * regval,
++				      100);
++		return 0;
++
++	default:
++		return -EINVAL;
++	}
++}
++
++static const enum power_supply_property cw2217_properties[] = {
++	POWER_SUPPLY_PROP_STATUS,
++	POWER_SUPPLY_PROP_PRESENT,
++	POWER_SUPPLY_PROP_TECHNOLOGY,
++	POWER_SUPPLY_PROP_VOLTAGE_NOW,
++	POWER_SUPPLY_PROP_CURRENT_NOW,
++	POWER_SUPPLY_PROP_CAPACITY,
++	POWER_SUPPLY_PROP_CAPACITY_LEVEL,
++	POWER_SUPPLY_PROP_TEMP,
++	POWER_SUPPLY_PROP_CYCLE_COUNT,
++	POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN,
++	POWER_SUPPLY_PROP_CHARGE_FULL,
++};
++
++static const struct power_supply_desc cw2217_psy_desc = {
++	.name = "cw2217-battery",
++	.type = POWER_SUPPLY_TYPE_BATTERY,
++	.properties = cw2217_properties,
++	.num_properties = ARRAY_SIZE(cw2217_properties),
++	.get_property = cw2217_get_property,
++};
++
++static int cw2217_probe(struct i2c_client *client)
++{
++	struct power_supply_battery_info *info;
++	struct power_supply_config psy_cfg = {};
++	struct cw2217_battery *cw;
++	unsigned int val;
++	int ret;
++
++	cw = devm_kzalloc(&client->dev, sizeof(*cw), GFP_KERNEL);
++	if (!cw)
++		return -ENOMEM;
++
++	cw->dev = &client->dev;
++	cw->rsense_uohm = CW2217_DEFAULT_RSENSE_UOHM;
++	device_property_read_u32(cw->dev, "shunt-resistor-micro-ohms",
++				 &cw->rsense_uohm);
++	if (!cw->rsense_uohm)
++		return -EINVAL;
++
++	cw->regmap = devm_regmap_init_i2c(client, &cw2217_regmap_config);
++	if (IS_ERR(cw->regmap))
++		return dev_err_probe(cw->dev, PTR_ERR(cw->regmap),
++				     "failed to initialize regmap\n");
++
++	ret = regmap_read(cw->regmap, CW2217_REG_CHIP_ID, &val);
++	if (ret)
++		return dev_err_probe(cw->dev, ret, "failed to read chip ID\n");
++
++	if (val != CW2217_CHIP_ID)
++		return dev_err_probe(cw->dev, -ENODEV,
++				     "unexpected chip ID 0x%02x\n", val);
++
++	/* Wake gauge only if asleep; preserve active firmware profile */
++	ret = regmap_read(cw->regmap, CW2217_REG_MODE_CONFIG, &val);
++	if (ret)
++		return ret;
++	if (val == CW2217_MODE_SLEEP) {
++		ret = regmap_write(cw->regmap, CW2217_REG_MODE_CONFIG,
++				   CW2217_MODE_ACTIVE);
++		if (ret)
++			return ret;
++		msleep(20);
++	}
++
++	psy_cfg.fwnode = dev_fwnode(cw->dev);
++	psy_cfg.drv_data = cw;
++
++	cw->psy = devm_power_supply_register(cw->dev, &cw2217_psy_desc,
++					     &psy_cfg);
++	if (IS_ERR(cw->psy))
++		return dev_err_probe(cw->dev, PTR_ERR(cw->psy),
++				     "failed to register power supply\n");
++
++	if (!power_supply_get_battery_info(cw->psy, &info)) {
++		if (info->charge_full_design_uah > 0)
++			cw->charge_full_design_uah =
++				info->charge_full_design_uah;
++		power_supply_put_battery_info(cw->psy, info);
++	}
++
++	return 0;
++}
++
++static const struct of_device_id cw2217_of_match[] = {
++	{ .compatible = "cellwise,cw2215" },
++	{ .compatible = "cellwise,cw2217" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, cw2217_of_match);
++
++static const struct i2c_device_id cw2217_id[] = {
++	{ "cw2215" },
++	{ "cw2217" },
++	{ }
++};
++MODULE_DEVICE_TABLE(i2c, cw2217_id);
++
++static struct i2c_driver cw2217_driver = {
++	.driver = {
++		.name = "cw2217-battery",
++		.of_match_table = cw2217_of_match,
++	},
++	.probe = cw2217_probe,
++	.id_table = cw2217_id,
++};
++module_i2c_driver(cw2217_driver);
++
++MODULE_AUTHOR("sysretq0 <324514544+sysretq0@users.noreply.github.com>");
++MODULE_DESCRIPTION("CellWise CW2215/CW2217 Battery Fuel Gauge driver");
++MODULE_LICENSE("GPL");

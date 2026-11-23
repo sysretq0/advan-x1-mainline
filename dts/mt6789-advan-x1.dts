@@ -12,6 +12,7 @@
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/regulator/mediatek,mt6397-regulator.h>
+#include <dt-bindings/usb/pd.h>
 
 #include "mt6789.dtsi"
 
@@ -21,6 +22,15 @@
 
 	chosen {
 		stdout-path = "serial0:115200n8";
+	};
+
+	battery: battery {
+		compatible = "simple-battery";
+		charge-full-design-microamp-hours = <5000000>;
+		voltage-min-design-microvolt = <3400000>;
+		voltage-max-design-microvolt = <4450000>;
+		constant-charge-voltage-max-microvolt = <4450000>;
+		constant-charge-current-max-microamp = <2000000>;
 	};
 
 	backlight_lcd: backlight {
@@ -86,6 +96,38 @@
 	};
 };
 
+&cpu0 {
+	cpu-supply = <&mt6366_vproc11_reg>;
+};
+
+&cpu1 {
+	cpu-supply = <&mt6366_vproc11_reg>;
+};
+
+&cpu2 {
+	cpu-supply = <&mt6366_vproc11_reg>;
+};
+
+&cpu3 {
+	cpu-supply = <&mt6366_vproc11_reg>;
+};
+
+&cpu4 {
+	cpu-supply = <&mt6366_vproc11_reg>;
+};
+
+&cpu5 {
+	cpu-supply = <&mt6366_vproc11_reg>;
+};
+
+&cpu6 {
+	cpu-supply = <&mt6366_vproc12_reg>;
+};
+
+&cpu7 {
+	cpu-supply = <&mt6366_vproc12_reg>;
+};
+
 &uart0 {
 	status = "okay";
 };
@@ -95,6 +137,26 @@
 	keypad,num-columns = <1>;
 	linux,keymap = <MATRIX_KEY(0x00, 0x00, KEY_VOLUMEDOWN)>;
 	wakeup-source;
+	status = "okay";
+};
+
+&mmc1 {
+	pinctrl-names = "default", "state_uhs";
+	pinctrl-0 = <&mmc1_pins_default>;
+	pinctrl-1 = <&mmc1_pins_uhs>;
+	bus-width = <4>;
+	max-frequency = <200000000>;
+	cap-sd-highspeed;
+	sd-uhs-sdr12;
+	sd-uhs-sdr25;
+	sd-uhs-sdr50;
+	sd-uhs-sdr104;
+	sd-uhs-ddr50;
+	no-mmc;
+	no-sdio;
+	cd-gpios = <&pio 7 GPIO_ACTIVE_HIGH>;
+	vmmc-supply = <&mt6366_vmch_reg>;
+	vqmmc-supply = <&mt6366_vmc_reg>;
 	status = "okay";
 };
 
@@ -123,6 +185,13 @@
 	pinctrl-0 = <&i2c0_pins>;
 	clock-frequency = <400000>;
 	status = "okay";
+
+	fuel-gauge@64 {
+		compatible = "cellwise,cw2217";
+		reg = <0x64>;
+		shunt-resistor-micro-ohms = <10000>;
+		monitored-battery = <&battery>;
+	};
 };
 
 &i2c1 {
@@ -144,6 +213,42 @@
 	pinctrl-0 = <&i2c5_pins>;
 	clock-frequency = <400000>;
 	status = "okay";
+
+	tcpc@4e {
+		compatible = "richtek,rt1711h";
+		reg = <0x4e>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&tcpc_pins>;
+		interrupt-parent = <&pio>;
+		interrupts = <13 IRQ_TYPE_LEVEL_LOW>;
+		wakeup-source;
+
+		connector {
+			compatible = "usb-c-connector";
+			label = "USB-C";
+			power-role = "sink";
+			data-role = "device";
+			sink-pdos = <PDO_FIXED(5000, 2000, PDO_FIXED_USB_COMM)>;
+			op-sink-microwatt = <10000000>;
+		};
+	};
+
+	charger@6b {
+		compatible = "southchip,sc89601a", "ti,bq25890";
+		reg = <0x6b>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&charger_pins>;
+		interrupt-parent = <&pio>;
+		interrupts = <12 IRQ_TYPE_EDGE_FALLING>;
+		ti,battery-regulation-voltage = <4450000>;
+		ti,charge-current = <2000000>;
+		ti,termination-current = <250000>;
+		ti,precharge-current = <480000>;
+		ti,minimum-sys-voltage = <3500000>;
+		ti,boost-voltage = <5000000>;
+		ti,boost-max-current = <1200000>;
+		monitored-battery = <&battery>;
+	};
 };
 
 &i2c6 {
@@ -544,10 +649,62 @@
 };
 
 &pio {
+	charger_pins: charger-default-pins {
+		pins-irq {
+			pinmux = <PINMUX_GPIO12__FUNC_GPIO12>;
+			input-enable;
+			bias-pull-up;
+		};
+	};
+
 	lcd_bias_pins: lcd-bias-default-pins {
 		pins-bias {
 			pinmux = <PINMUX_GPIO108__FUNC_GPIO108>,
 				 <PINMUX_GPIO109__FUNC_GPIO109>;
+		};
+	};
+
+	mmc1_pins_default: mmc1-default-pins {
+		pins-cmd-dat {
+			pinmux = <PINMUX_GPIO72__FUNC_MSDC1_CMD>,
+				 <PINMUX_GPIO73__FUNC_MSDC1_DAT0>,
+				 <PINMUX_GPIO74__FUNC_MSDC1_DAT1>,
+				 <PINMUX_GPIO75__FUNC_MSDC1_DAT2>,
+				 <PINMUX_GPIO76__FUNC_MSDC1_DAT3>;
+			input-enable;
+			drive-strength = <4>;
+			bias-pull-up = <MTK_PUPD_SET_R1R0_01>;
+		};
+
+		pins-clk {
+			pinmux = <PINMUX_GPIO71__FUNC_MSDC1_CLK>;
+			drive-strength = <4>;
+			bias-pull-down = <MTK_PUPD_SET_R1R0_10>;
+		};
+
+		pins-insert {
+			pinmux = <PINMUX_GPIO7__FUNC_GPIO7>;
+			input-enable;
+			bias-pull-up;
+		};
+	};
+
+	mmc1_pins_uhs: mmc1-uhs-pins {
+		pins-cmd-dat {
+			pinmux = <PINMUX_GPIO72__FUNC_MSDC1_CMD>,
+				 <PINMUX_GPIO73__FUNC_MSDC1_DAT0>,
+				 <PINMUX_GPIO74__FUNC_MSDC1_DAT1>,
+				 <PINMUX_GPIO75__FUNC_MSDC1_DAT2>,
+				 <PINMUX_GPIO76__FUNC_MSDC1_DAT3>;
+			input-enable;
+			drive-strength = <4>;
+			bias-pull-up = <MTK_PUPD_SET_R1R0_01>;
+		};
+
+		pins-clk {
+			pinmux = <PINMUX_GPIO71__FUNC_MSDC1_CLK>;
+			drive-strength = <4>;
+			bias-pull-down = <MTK_PUPD_SET_R1R0_10>;
 		};
 	};
 
@@ -557,6 +714,14 @@
 		};
 		pins-ldo {
 			pinmux = <PINMUX_GPIO150__FUNC_GPIO150>;
+		};
+	};
+
+	tcpc_pins: tcpc-default-pins {
+		pins-irq {
+			pinmux = <PINMUX_GPIO13__FUNC_GPIO13>;
+			input-enable;
+			bias-pull-up;
 		};
 	};
 };
