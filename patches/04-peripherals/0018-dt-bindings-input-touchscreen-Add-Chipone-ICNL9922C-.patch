@@ -1,4 +1,4 @@
-From e347f46469489eb9f732af62b01bce7fd2b5f837 Mon Sep 17 00:00:00 2001
+From 53a77d57d3b71b83e08f1a84c8fc6f24767a2369 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Mon, 23 Nov 2026 14:15:47 +0000
 Subject: [PATCH 18/21] dt-bindings: input: touchscreen: Add Chipone ICNL9922C
@@ -9,16 +9,16 @@ touchscreen controller using the Chipone TCS protocol.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- .../touchscreen/chipone,icnl9922c-ts.yaml     | 68 +++++++++++++++++++
- 1 file changed, 68 insertions(+)
+ .../touchscreen/chipone,icnl9922c-ts.yaml     | 66 +++++++++++++++++++
+ 1 file changed, 66 insertions(+)
  create mode 100644 Documentation/devicetree/bindings/input/touchscreen/chipone,icnl9922c-ts.yaml
 
 diff --git a/Documentation/devicetree/bindings/input/touchscreen/chipone,icnl9922c-ts.yaml b/Documentation/devicetree/bindings/input/touchscreen/chipone,icnl9922c-ts.yaml
 new file mode 100644
-index 000000000..deda659ed
+index 000000000..aa544b036
 --- /dev/null
 +++ b/Documentation/devicetree/bindings/input/touchscreen/chipone,icnl9922c-ts.yaml
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,66 @@
 +# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 +%YAML 1.2
 +---
@@ -79,11 +79,12 @@ index 000000000..deda659ed
 +            compatible = "chipone,icnl9922c-ts";
 +            reg = <0>;
 +            spi-max-frequency = <3000000>;
-+            spi-cpha;
-+            spi-cpol;
 +            interrupt-parent = <&pio>;
 +            interrupts = <9 IRQ_TYPE_EDGE_FALLING>;
 +            touchscreen-size-x = <1080>;
 +            touchscreen-size-y = <2460>;
 +        };
 +    };
+-- 
+2.55.0
+

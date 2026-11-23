@@ -216,8 +216,6 @@
 		compatible = "chipone,icnl9922c-ts";
 		reg = <0>;
 		spi-max-frequency = <3000000>;
-		spi-cpha;
-		spi-cpol;
 		panel = <&display_panel>;
 		reset-gpios = <&pio 107 GPIO_ACTIVE_LOW>;
 		pinctrl-names = "default";

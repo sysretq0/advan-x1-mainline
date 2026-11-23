@@ -1,4 +1,4 @@
-From d1127381a4046819525121d90428e8fbd298b786 Mon Sep 17 00:00:00 2001
+From 0c740c547b7230974070c803841cda113fa7982a Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Mon, 23 Nov 2026 16:52:39 +0000
 Subject: [PATCH] Input: add Chipone ICNL9922C SPI TDDI touchscreen driver
@@ -14,8 +14,8 @@ Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  drivers/input/touchscreen/Kconfig             |  14 +
  drivers/input/touchscreen/Makefile            |   1 +
- drivers/input/touchscreen/chipone_icnl9922c.c | 809 ++++++++++++++++++
- 3 files changed, 824 insertions(+)
+ drivers/input/touchscreen/chipone_icnl9922c.c | 814 ++++++++++++++++++
+ 3 files changed, 829 insertions(+)
  create mode 100644 drivers/input/touchscreen/chipone_icnl9922c.c
 
 diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
@@ -57,10 +57,10 @@ index bfd9de833..6b34656e8 100644
  obj-$(CONFIG_TOUCHSCREEN_CYTTSP_CORE)	+= cyttsp_core.o
 diff --git a/drivers/input/touchscreen/chipone_icnl9922c.c b/drivers/input/touchscreen/chipone_icnl9922c.c
 new file mode 100644
-index 000000000..f1f8fdd76
+index 000000000..1e3371dac
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_icnl9922c.c
-@@ -0,0 +1,809 @@
+@@ -0,0 +1,814 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Chipone ICNL9922C SPI TDDI touchscreen driver (TCS + DRW SRAM boot)
@@ -201,22 +201,23 @@ index 000000000..f1f8fdd76
 +							  crc16)));
 +}
 +
-+static int icnl9922c_verify_tcs_rx(const u8 *rx, size_t rlen, u16 cmd)
++static int icnl9922c_verify_tcs_rx(struct device *dev, const u8 *rx,
++				   size_t rlen, u16 cmd)
 +{
 +	const struct icnl9922c_rx_tail *tail;
 +	size_t rxlen = rlen + sizeof(*tail);
-+	u16 crc_recv, crc_calc;
++	u16 crc_recv, crc_calc, cmd_send, cmd_recv;
 +
 +	tail = (const struct icnl9922c_rx_tail *)(rx + rlen);
++	cmd_send = cmd & ~ICNL9922C_TCS_WRITE_BIT;
++	cmd_recv = le16_to_cpu(tail->cmd);
++	if (cmd_recv != cmd_send)
++		dev_dbg(dev, "TCS cmd mismatch: send=0x%04x recv=0x%04x ecode=0x%02x\n",
++			cmd_send, cmd_recv, tail->ecode);
++
 +	crc_recv = le16_to_cpu(tail->crc16);
 +	crc_calc = icnl9922c_crc16(rx, rxlen - 2);
 +	if (crc_recv != crc_calc)
-+		return -EIO;
-+
-+	if (tail->ecode != 0)
-+		return -EIO;
-+
-+	if (le16_to_cpu(tail->cmd) != (cmd & ~ICNL9922C_TCS_WRITE_BIT))
 +		return -EIO;
 +
 +	return 0;
@@ -245,7 +246,7 @@ index 000000000..f1f8fdd76
 +	if (ret)
 +		return ret;
 +
-+	ret = icnl9922c_verify_tcs_rx(ts->rx_buf, rlen, cmd);
++	ret = icnl9922c_verify_tcs_rx(&ts->spi->dev, ts->rx_buf, rlen, cmd);
 +	if (ret)
 +		return ret;
 +
@@ -271,13 +272,13 @@ index 000000000..f1f8fdd76
 +
 +	memset(ts->tx_buf, 0, xfer.len);
 +	icnl9922c_pack_read_hdr((struct icnl9922c_tx_hdr *)ts->tx_buf,
-+				cmd, rlen);
++				cmd, rxlen);
 +
 +	ret = spi_sync_transfer(ts->spi, &xfer, 1);
 +	if (ret)
 +		return ret;
 +
-+	ret = icnl9922c_verify_tcs_rx(ts->rx_buf, rlen, cmd);
++	ret = icnl9922c_verify_tcs_rx(&ts->spi->dev, ts->rx_buf, rlen, cmd);
 +	if (ret)
 +		return ret;
 +
@@ -663,8 +664,9 @@ index 000000000..f1f8fdd76
 +	msleep(40);
 +
 +	for (retries = 0; retries < 5; retries++) {
-+		if (!icnl9922c_tcs_read(ts, ICNL9922C_CMD_INFO_CHIP_FW_ID_RO,
-+					buf, 4)) {
++		ret = icnl9922c_tcs_read(ts, ICNL9922C_CMD_INFO_CHIP_FW_ID_RO,
++					 buf, 4);
++		if (!ret) {
 +			fwid = get_unaligned_le16(buf);
 +			if (fwid && fwid != 0xffff)
 +				break;
@@ -673,7 +675,9 @@ index 000000000..f1f8fdd76
 +	}
 +
 +	if (!fwid || fwid == 0xffff) {
-+		dev_err(dev, "SRAM firmware failed to boot into TCS mode\n");
++		dev_err(dev, "SRAM firmware failed to boot into TCS mode (ret=%d rx=%*ph)\n",
++			ret, (int)(4 + sizeof(struct icnl9922c_rx_tail)),
++			ts->rx_buf);
 +		mutex_unlock(&ts->lock);
 +		return;
 +	}
@@ -751,6 +755,7 @@ index 000000000..f1f8fdd76
 +	if (spi->irq <= 0)
 +		return dev_err_probe(dev, -EINVAL, "missing IRQ\n");
 +
++	spi->mode = SPI_MODE_0;
 +	spi->bits_per_word = 8;
 +	if (!spi->max_speed_hz)
 +		spi->max_speed_hz = 3000000;
