@@ -154,7 +154,7 @@
 	sd-uhs-ddr50;
 	no-mmc;
 	no-sdio;
-	cd-gpios = <&pio 7 GPIO_ACTIVE_HIGH>;
+	cd-gpios = <&pio 7 GPIO_ACTIVE_LOW>;
 	vmmc-supply = <&mt6366_vmch_reg>;
 	vqmmc-supply = <&mt6366_vmc_reg>;
 	status = "okay";
@@ -189,7 +189,7 @@
 	fuel-gauge@64 {
 		compatible = "cellwise,cw2217";
 		reg = <0x64>;
-		shunt-resistor-micro-ohms = <10000>;
+		shunt-resistor-micro-ohms = <5000>;
 		monitored-battery = <&battery>;
 	};
 };
@@ -233,9 +233,9 @@
 		};
 	};
 
-	charger@6b {
+	charger@6a {
 		compatible = "southchip,sc89601a", "ti,bq25890";
-		reg = <0x6b>;
+		reg = <0x6a>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&charger_pins>;
 		interrupt-parent = <&pio>;
