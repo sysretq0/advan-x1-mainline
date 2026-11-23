@@ -1,6 +1,6 @@
-From d1502fd94fb9dec8e201e56836adf1aeee8a7bc1 Mon Sep 17 00:00:00 2001
+From 00e28fcd1bb18a3c3bbd53c73485c7456b914254 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
-Date: Mon, 23 Nov 2026 15:56:34 +0000
+Date: Mon, 23 Nov 2026 16:18:54 +0000
 Subject: [PATCH] Input: add Chipone ICNL9922C SPI TDDI touchscreen driver
 
 Add a mainline SPI touchscreen driver for the Chipone ICNL9922C TDDI
@@ -13,8 +13,8 @@ Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  drivers/input/touchscreen/Kconfig             |  14 +
  drivers/input/touchscreen/Makefile            |   1 +
- drivers/input/touchscreen/chipone_icnl9922c.c | 567 ++++++++++++++++++
- 3 files changed, 582 insertions(+)
+ drivers/input/touchscreen/chipone_icnl9922c.c | 602 ++++++++++++++++++
+ 3 files changed, 617 insertions(+)
  create mode 100644 drivers/input/touchscreen/chipone_icnl9922c.c
 
 diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
@@ -56,10 +56,10 @@ index bfd9de833..6b34656e8 100644
  obj-$(CONFIG_TOUCHSCREEN_CYTTSP_CORE)	+= cyttsp_core.o
 diff --git a/drivers/input/touchscreen/chipone_icnl9922c.c b/drivers/input/touchscreen/chipone_icnl9922c.c
 new file mode 100644
-index 000000000..d8b19c374
+index 000000000..48045073a
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_icnl9922c.c
-@@ -0,0 +1,567 @@
+@@ -0,0 +1,602 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Chipone ICNL9922C SPI TDDI touchscreen driver (TCS + DRW SRAM boot)
@@ -76,6 +76,7 @@ index 000000000..d8b19c374
 +#include <linux/input/touchscreen.h>
 +#include <linux/interrupt.h>
 +#include <linux/module.h>
++#include <linux/mutex.h>
 +#include <linux/of.h>
 +#include <linux/spi/spi.h>
 +#include <linux/unaligned.h>
@@ -146,6 +147,7 @@ index 000000000..d8b19c374
 +	struct input_dev *input;
 +	struct gpio_desc *reset_gpio;
 +	struct touchscreen_properties prop;
++	struct mutex lock; /* serializes SPI buffer access */
 +	u8 *tx_buf;
 +	u8 *rx_buf;
 +};
@@ -342,8 +344,10 @@ index 000000000..d8b19c374
 +	struct icnl9922c_touch_info info;
 +	int ret, i;
 +
++	mutex_lock(&ts->lock);
 +	ret = icnl9922c_tcs_read_1cs(ts, ICNL9922C_CMD_TP_DATA_COORDINATES_RO,
 +				     (u8 *)&info, sizeof(info));
++	mutex_unlock(&ts->lock);
 +	if (ret)
 +		return IRQ_HANDLED;
 +
@@ -459,6 +463,7 @@ index 000000000..d8b19c374
 +		return;
 +	}
 +
++	mutex_lock(&ts->lock);
 +	ret = icnl9922c_enter_prog_mode(ts);
 +	if (ret) {
 +		dev_err(dev, "failed to enter program mode: %d\n", ret);
@@ -512,9 +517,13 @@ index 000000000..d8b19c374
 +		goto out_release;
 +	}
 +
++	mutex_unlock(&ts->lock);
 +	icnl9922c_register_input(ts, fwid);
++	release_firmware(fw);
++	return;
 +
 +out_release:
++	mutex_unlock(&ts->lock);
 +	release_firmware(fw);
 +}
 +
@@ -547,6 +556,7 @@ index 000000000..d8b19c374
 +	if (!ts->tx_buf || !ts->rx_buf)
 +		return -ENOMEM;
 +
++	mutex_init(&ts->lock);
 +	ts->spi = spi;
 +	spi_set_drvdata(spi, ts);
 +
@@ -602,6 +612,30 @@ index 000000000..d8b19c374
 +				       dev, GFP_KERNEL, ts, icnl9922c_fw_cb);
 +}
 +
++static ssize_t fw_ver_show(struct device *dev, struct device_attribute *attr,
++			   char *buf)
++{
++	struct icnl9922c_ts *ts = dev_get_drvdata(dev);
++	u8 raw[4];
++	int ret;
++
++	mutex_lock(&ts->lock);
++	ret = icnl9922c_tcs_read(ts, ICNL9922C_CMD_INFO_FW_VER_RO,
++				 raw, sizeof(raw));
++	mutex_unlock(&ts->lock);
++	if (ret)
++		return ret;
++
++	return sysfs_emit(buf, "0x%04x\n", get_unaligned_le16(raw));
++}
++static DEVICE_ATTR_RO(fw_ver);
++
++static struct attribute *icnl9922c_attrs[] = {
++	&dev_attr_fw_ver.attr,
++	NULL
++};
++ATTRIBUTE_GROUPS(icnl9922c);
++
 +static const struct of_device_id icnl9922c_of_match[] = {
 +	{ .compatible = "chipone,icnl9922c-ts" },
 +	{ }
@@ -618,6 +652,7 @@ index 000000000..d8b19c374
 +	.driver = {
 +		.name = "chipone-icnl9922c",
 +		.of_match_table = icnl9922c_of_match,
++		.dev_groups = icnl9922c_groups,
 +	},
 +	.probe = icnl9922c_probe,
 +	.id_table = icnl9922c_spi_id,

@@ -1,6 +1,6 @@
-From 8497ac3734015fde55a70152ce8cd703755c378a Mon Sep 17 00:00:00 2001
+From 98c32efd7fbeaa624f1dedfba2178c63cb17b751 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
-Date: Mon, 23 Nov 2026 14:15:49 +0000
+Date: Mon, 23 Nov 2026 16:18:55 +0000
 Subject: [PATCH] ASoC: mediatek: mt8186: Add MT6789 AFE and MT6366 sound card
  support
 
@@ -15,12 +15,12 @@ integrated MT6366 (MT6358) PMIC audio codec.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- sound/soc/mediatek/Kconfig                 |  11 ++
+ sound/soc/mediatek/Kconfig                 |  11 +
  sound/soc/mediatek/mt8186/Makefile         |   1 +
- sound/soc/mediatek/mt8186/mt6789-mt6366.c  | 208 +++++++++++++++++++++
+ sound/soc/mediatek/mt8186/mt6789-mt6366.c  | 229 +++++++++++++++++++++
  sound/soc/mediatek/mt8186/mt8186-afe-pcm.c |  70 ++++++-
  sound/soc/mediatek/mt8186/mt8186-reg.h     |   5 +
- 5 files changed, 288 insertions(+), 7 deletions(-)
+ 5 files changed, 309 insertions(+), 7 deletions(-)
  create mode 100644 sound/soc/mediatek/mt8186/mt6789-mt6366.c
 
 diff --git a/sound/soc/mediatek/Kconfig b/sound/soc/mediatek/Kconfig
@@ -56,10 +56,10 @@ index ab3f5b763..5423b2961 100644
 +obj-$(CONFIG_SND_SOC_MT6789_MT6366) += mt6789-mt6366.o
 diff --git a/sound/soc/mediatek/mt8186/mt6789-mt6366.c b/sound/soc/mediatek/mt8186/mt6789-mt6366.c
 new file mode 100644
-index 000000000..2088fc366
+index 000000000..617212089
 --- /dev/null
 +++ b/sound/soc/mediatek/mt8186/mt6789-mt6366.c
-@@ -0,0 +1,208 @@
+@@ -0,0 +1,229 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * MediaTek MT6789 with MT6366 (MT6358) PMIC ASoC machine driver
@@ -70,9 +70,11 @@ index 000000000..2088fc366
 +#include <linux/module.h>
 +#include <linux/of.h>
 +#include <linux/platform_device.h>
++#include <linux/pm_runtime.h>
 +#include <sound/pcm_params.h>
 +#include <sound/soc.h>
 +
++#include "../common/mtk-afe-platform-driver.h"
 +#include "../common/mtk-soc-card.h"
 +#include "../common/mtk-soundcard-driver.h"
 +#include "mt8186-afe-common.h"
@@ -121,6 +123,25 @@ index 000000000..2088fc366
 +		     DAILINK_COMP_ARRAY(COMP_CPU("I2S3")),
 +		     DAILINK_COMP_ARRAY(COMP_DUMMY()),
 +		     DAILINK_COMP_ARRAY(COMP_EMPTY()));
++
++static int mt6789_mt6366_adda_init(struct snd_soc_pcm_runtime *rtd)
++{
++	struct snd_soc_component *cmpnt_afe =
++		snd_soc_rtdcom_lookup(rtd, AFE_PCM_NAME);
++	int ret;
++
++	if (!cmpnt_afe)
++		return mt8186_mt6366_init(rtd);
++
++	ret = pm_runtime_resume_and_get(cmpnt_afe->dev);
++	if (ret < 0)
++		return ret;
++
++	ret = mt8186_mt6366_init(rtd);
++	pm_runtime_put(cmpnt_afe->dev);
++
++	return ret;
++}
 +
 +static struct snd_soc_dai_link mt6789_mt6366_dai_links[] = {
 +	/* Front End DAI links */
@@ -189,7 +210,7 @@ index 000000000..2088fc366
 +		.name = "Primary Codec",
 +		.no_pcm = 1,
 +		.ignore_suspend = 1,
-+		.init = mt8186_mt6366_init,
++		.init = mt6789_mt6366_adda_init,
 +		SND_SOC_DAILINK_REG(adda),
 +	},
 +	{

@@ -138,6 +138,10 @@ if [ -d /sys/class/input ]; then
     done
     [ -n "$INP_SUMMARY" ] && log "Input:$INP_SUMMARY"
 fi
+if [ -r /sys/bus/spi/devices/spi0.0/fw_ver ]; then
+    TP_VER=$(cat /sys/bus/spi/devices/spi0.0/fw_ver 2>/dev/null || echo "err")
+    log "Touch: spi0.0 fw_ver=${TP_VER}"
+fi
 if [ -d /sys/devices/soc0 ]; then
     SOC_FAM=$(cat /sys/devices/soc0/family 2>/dev/null || echo "?")
     SOC_ID=$(cat /sys/devices/soc0/soc_id 2>/dev/null || echo "?")
