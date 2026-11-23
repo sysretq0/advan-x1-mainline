@@ -6,19 +6,22 @@ Subject: [PATCH 5/7] drm/mediatek: Add MT6789 DSI and hardware DSC 1.1 support
 Add MediaTek MT6789 MIPI-DSI controller support (N6/N4 D-PHY timing,
 ULPS sleepout exit, bootloader video-mode handover, CMDQ_SIZE_SEL,
 and idle polling) together with hardware VESA DSC 1.1 encoder
-configuration in mtk_ddp_comp and mtk_crtc.
+configuration in mtk_ddp_comp and mtk_crtc. Also clear stale
+bootloader OVL_BGCLR_SEL_IN on the head DDP component (i == 0) in
+mtk_crtc_ddp_hw_init() so OVL0 uses its internal background color
+rather than stalling on a clock-gated bootloader OVL0_2L.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- drivers/gpu/drm/mediatek/mtk_crtc.c     |  10 +
+ drivers/gpu/drm/mediatek/mtk_crtc.c     |  14 +-
  drivers/gpu/drm/mediatek/mtk_ddp_comp.c | 205 ++++++++++++++++-
  drivers/gpu/drm/mediatek/mtk_ddp_comp.h |  17 ++
  drivers/gpu/drm/mediatek/mtk_disp_drv.h |   3 +
  drivers/gpu/drm/mediatek/mtk_dsi.c      | 388 ++++++++++++++++++++++++++------
- 5 files changed, 547 insertions(+), 76 deletions(-)
+ 5 files changed, 550 insertions(+), 77 deletions(-)
 
 diff --git a/drivers/gpu/drm/mediatek/mtk_crtc.c b/drivers/gpu/drm/mediatek/mtk_crtc.c
-index 1941222a9..5349a8bbc 100644
+index 1941222a9..a7faa1fb9 100644
 --- a/drivers/gpu/drm/mediatek/mtk_crtc.c
 +++ b/drivers/gpu/drm/mediatek/mtk_crtc.c
 @@ -343,6 +343,7 @@ static int mtk_crtc_ddp_hw_init(struct mtk_crtc *mtk_crtc)
@@ -29,7 +32,7 @@ index 1941222a9..5349a8bbc 100644
  	unsigned int width, height, vrefresh, bpc = MTK_MAX_BPC;
  	int ret;
  	int i;
-@@ -401,9 +402,18 @@ static int mtk_crtc_ddp_hw_init(struct mtk_crtc *mtk_crtc)
+@@ -401,10 +402,21 @@ static int mtk_crtc_ddp_hw_init(struct mtk_crtc *mtk_crtc)
  		mtk_mutex_add_comp(mtk_crtc->mutex, mtk_crtc->ddp_comp[i]->id);
  	mtk_mutex_enable(mtk_crtc->mutex);
  
@@ -42,12 +45,16 @@ index 1941222a9..5349a8bbc 100644
  	for (i = 0; i < mtk_crtc->ddp_comp_nr; i++) {
  		struct mtk_ddp_comp *comp = mtk_crtc->ddp_comp[i];
  
+-		if (i == 1)
 +		if (dsc)
 +			mtk_ddp_comp_set_dsc(comp, dsc);
 +
- 		if (i == 1)
++		if (i == 0)
++			mtk_ddp_comp_bgclr_in_off(comp);
++		else if (i == 1)
  			mtk_ddp_comp_bgclr_in_on(comp);
  
+ 		mtk_ddp_comp_config(comp, width, height, vrefresh, bpc, NULL);
 diff --git a/drivers/gpu/drm/mediatek/mtk_ddp_comp.c b/drivers/gpu/drm/mediatek/mtk_ddp_comp.c
 index 282614507..83eeaf8a5 100644
 --- a/drivers/gpu/drm/mediatek/mtk_ddp_comp.c
