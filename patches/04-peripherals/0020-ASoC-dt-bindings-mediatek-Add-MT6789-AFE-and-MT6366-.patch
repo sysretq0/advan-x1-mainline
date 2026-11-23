@@ -1,8 +1,8 @@
-From abd972a94408bd4450ef7885b0c83a5fd03685a1 Mon Sep 17 00:00:00 2001
+From 00c572453187e468c4e12ab721173821e4f6ad1b Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Mon, 23 Nov 2026 14:15:48 +0000
-Subject: [PATCH 20/21] ASoC: dt-bindings: mediatek: Add MT6789 AFE and MT6366
- sound card bindings
+Subject: [PATCH] ASoC: dt-bindings: mediatek: Add MT6789 AFE and MT6366 sound
+ card bindings
 
 Extend the MT8186 AFE PCM binding with the compatible MediaTek MT6789
 audio front-end (power-domains and optional reset) and add the MT6789
@@ -10,17 +10,17 @@ with MT6366 PMIC ASoC sound card binding.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- .../sound/mediatek,mt6789-mt6366-sound.yaml   | 73 +++++++++++++++++++
- .../bindings/sound/mt8186-afe-pcm.yaml        | 20 ++++-
- 2 files changed, 90 insertions(+), 3 deletions(-)
+ .../sound/mediatek,mt6789-mt6366-sound.yaml   | 67 +++++++++++++++++++
+ .../bindings/sound/mt8186-afe-pcm.yaml        | 20 +++++-
+ 2 files changed, 84 insertions(+), 3 deletions(-)
  create mode 100644 Documentation/devicetree/bindings/sound/mediatek,mt6789-mt6366-sound.yaml
 
 diff --git a/Documentation/devicetree/bindings/sound/mediatek,mt6789-mt6366-sound.yaml b/Documentation/devicetree/bindings/sound/mediatek,mt6789-mt6366-sound.yaml
 new file mode 100644
-index 000000000..9f5c30cbf
+index 0000000..024f232
 --- /dev/null
 +++ b/Documentation/devicetree/bindings/sound/mediatek,mt6789-mt6366-sound.yaml
-@@ -0,0 +1,73 @@
+@@ -0,0 +1,67 @@
 +# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 +%YAML 1.2
 +---
@@ -43,12 +43,6 @@ index 000000000..9f5c30cbf
 +properties:
 +  compatible:
 +    const: mediatek,mt6789-mt6366-sound
-+
-+  audio-routing:
-+    $ref: /schemas/types.yaml#/definitions/non-unique-string-array
-+    description:
-+      List of connections between audio components (sink, source pairs).
-+    minItems: 2
 +
 +  mediatek,platform:
 +    $ref: /schemas/types.yaml#/definitions/phandle
@@ -81,7 +75,7 @@ index 000000000..9f5c30cbf
 +  - model
 +  - mediatek,platform
 +
-+additionalProperties: false
++unevaluatedProperties: false
 +
 +examples:
 +  - |
@@ -95,7 +89,7 @@ index 000000000..9f5c30cbf
 +            "Earpiece", "Receiver";
 +    };
 diff --git a/Documentation/devicetree/bindings/sound/mt8186-afe-pcm.yaml b/Documentation/devicetree/bindings/sound/mt8186-afe-pcm.yaml
-index f5af2cf18..1c3d31f55 100644
+index f5af2cf..1c3d31f 100644
 --- a/Documentation/devicetree/bindings/sound/mt8186-afe-pcm.yaml
 +++ b/Documentation/devicetree/bindings/sound/mt8186-afe-pcm.yaml
 @@ -11,7 +11,9 @@ maintainers:
@@ -145,3 +139,6 @@ index f5af2cf18..1c3d31f55 100644
  additionalProperties: false
  
  examples:
+-- 
+2.55.0
+

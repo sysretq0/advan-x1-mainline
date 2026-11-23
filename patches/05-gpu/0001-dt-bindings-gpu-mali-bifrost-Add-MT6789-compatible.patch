@@ -1,29 +1,32 @@
-From c4df624d3a496b5d22418bcf98bba8c85685e1d1 Mon Sep 17 00:00:00 2001
+From c03740d99b5d539526337804e607cef60a398a73 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 04:29:51 +0000
-Subject: [PATCH 1/2] dt-bindings: gpu: mali-bifrost: Add MT6789 compatible
+Subject: [PATCH] dt-bindings: gpu: mali-bifrost: Add MT6789 compatible
 
 Document the mediatek,mt6789-mali compatible string (2 power domains:
 core0, core1) in arm,mali-bifrost.yaml.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- Documentation/devicetree/bindings/gpu/arm,mali-bifrost.yaml | 2 ++
- 1 file changed, 2 insertions(+)
+ Documentation/devicetree/bindings/gpu/arm,mali-bifrost.yaml | 5 +++++
+ 1 file changed, 5 insertions(+)
 
 diff --git a/Documentation/devicetree/bindings/gpu/arm,mali-bifrost.yaml b/Documentation/devicetree/bindings/gpu/arm,mali-bifrost.yaml
-index ece2b637c..6a9725403 100644
+index ece2b63..3b29aff 100644
 --- a/Documentation/devicetree/bindings/gpu/arm,mali-bifrost.yaml
 +++ b/Documentation/devicetree/bindings/gpu/arm,mali-bifrost.yaml
-@@ -21,6 +21,7 @@ properties:
-               - amlogic,meson-g12a-mali
-               - mediatek,mt8183-mali
-               - mediatek,mt8183b-mali
-+              - mediatek,mt6789-mali
-               - mediatek,mt8186-mali
-               - mediatek,mt8365-mali
-               - realtek,rtd1619-mali
-@@ -232,6 +233,7 @@ allOf:
+@@ -36,6 +36,10 @@ properties:
+               - rockchip,rk3576-mali
+               - samsung,exynos850-mali
+           - const: arm,mali-bifrost # Mali Bifrost GPU model/revision is fully discoverable
++      - items:
++          - const: mediatek,mt6789-mali
++          - const: mediatek,mt8186-mali
++          - const: arm,mali-valhall-jm
+       - items:
+           - enum:
+               - mediatek,mt8195-mali
+@@ -232,6 +236,7 @@ allOf:
          compatible:
            contains:
              enum:

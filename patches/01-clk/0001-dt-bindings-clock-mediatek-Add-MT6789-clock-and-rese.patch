@@ -1,7 +1,7 @@
-From daff5efc85c8320633806664c915a1b160131dd6 Mon Sep 17 00:00:00 2001
+From 9a9b005b8556aed095ed308fa49c8111b1aa9892 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 04:29:27 +0000
-Subject: [PATCH 1/4] dt-bindings: clock: mediatek: Add MT6789 clock and reset
+Subject: [PATCH] dt-bindings: clock: mediatek: Add MT6789 clock and reset
  bindings
 
 Add devicetree bindings and clock/reset ID headers for the MediaTek
@@ -10,11 +10,11 @@ infracfg_ao, IMP I2C wrappers, and MMSYS).
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- .../bindings/clock/mediatek,mt6789-clock.yaml |  44 ++
+ .../bindings/clock/mediatek,mt6789-clock.yaml |  46 ++
  .../clock/mediatek,mt6789-sys-clock.yaml      |  52 ++
  include/dt-bindings/clock/mt6789-clk.h        | 444 ++++++++++++++++++
  include/dt-bindings/reset/mt6789-resets.h     |  14 +
- 4 files changed, 554 insertions(+)
+ 4 files changed, 556 insertions(+)
  create mode 100644 Documentation/devicetree/bindings/clock/mediatek,mt6789-clock.yaml
  create mode 100644 Documentation/devicetree/bindings/clock/mediatek,mt6789-sys-clock.yaml
  create mode 100644 include/dt-bindings/clock/mt6789-clk.h
@@ -22,10 +22,10 @@ Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 
 diff --git a/Documentation/devicetree/bindings/clock/mediatek,mt6789-clock.yaml b/Documentation/devicetree/bindings/clock/mediatek,mt6789-clock.yaml
 new file mode 100644
-index 000000000..9d539c821
+index 0000000..52781c7
 --- /dev/null
 +++ b/Documentation/devicetree/bindings/clock/mediatek,mt6789-clock.yaml
-@@ -0,0 +1,44 @@
+@@ -0,0 +1,46 @@
 +# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 +%YAML 1.2
 +---
@@ -44,11 +44,13 @@ index 000000000..9d539c821
 +
 +properties:
 +  compatible:
-+    enum:
-+      - mediatek,mt6789-imp_iic_wrap_c
-+      - mediatek,mt6789-imp_iic_wrap_en
-+      - mediatek,mt6789-imp_iic_wrap_n
-+      - mediatek,mt6789-imp_iic_wrap_w
++    items:
++      - enum:
++          - mediatek,mt6789-imp_iic_wrap_c
++          - mediatek,mt6789-imp_iic_wrap_en
++          - mediatek,mt6789-imp_iic_wrap_n
++          - mediatek,mt6789-imp_iic_wrap_w
++      - const: syscon
 +
 +  reg:
 +    maxItems: 1
@@ -66,13 +68,13 @@ index 000000000..9d539c821
 +examples:
 +  - |
 +    imp_iic_wrap_w: clock-controller@11e02000 {
-+        compatible = "mediatek,mt6789-imp_iic_wrap_w";
++        compatible = "mediatek,mt6789-imp_iic_wrap_w", "syscon";
 +        reg = <0x11e02000 0x1000>;
 +        #clock-cells = <1>;
 +    };
 diff --git a/Documentation/devicetree/bindings/clock/mediatek,mt6789-sys-clock.yaml b/Documentation/devicetree/bindings/clock/mediatek,mt6789-sys-clock.yaml
 new file mode 100644
-index 000000000..04f65e0c0
+index 0000000..04f65e0
 --- /dev/null
 +++ b/Documentation/devicetree/bindings/clock/mediatek,mt6789-sys-clock.yaml
 @@ -0,0 +1,52 @@
@@ -130,7 +132,7 @@ index 000000000..04f65e0c0
 +    };
 diff --git a/include/dt-bindings/clock/mt6789-clk.h b/include/dt-bindings/clock/mt6789-clk.h
 new file mode 100644
-index 000000000..e36ad7763
+index 0000000..e36ad77
 --- /dev/null
 +++ b/include/dt-bindings/clock/mt6789-clk.h
 @@ -0,0 +1,444 @@
@@ -580,7 +582,7 @@ index 000000000..e36ad7763
 +#endif /* __DT_BINDINGS_CLOCK_MT6789_CLK_H */
 diff --git a/include/dt-bindings/reset/mt6789-resets.h b/include/dt-bindings/reset/mt6789-resets.h
 new file mode 100644
-index 000000000..43a89940d
+index 0000000..43a8994
 --- /dev/null
 +++ b/include/dt-bindings/reset/mt6789-resets.h
 @@ -0,0 +1,14 @@
