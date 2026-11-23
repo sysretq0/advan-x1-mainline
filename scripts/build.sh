@@ -20,7 +20,7 @@ K=${K:-/work/mainline/linux}
 WORK=${WORK:-/work/mainline/linux-worktree}
 OUT=${OUT:-$REPO/build}
 JOBS=${JOBS:-1}
-BASE=${BASE:-master}
+BASE=${BASE:-666539eecdf4db623f5e3c3e55cf9f2dfad24aa4}
 BRANCH=port-series
 MODE=${1:-full}
 
