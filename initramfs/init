@@ -178,6 +178,18 @@ if [ -d /sys/class/typec ]; then
     done
     [ -n "$TC_SUMMARY" ] && log "Type-C:$TC_SUMMARY"
 fi
+if [ -d /sys/class/nfc ]; then
+    NFC_SUMMARY=""
+    for nd in /sys/class/nfc/nfc*; do
+        [ -d "$nd" ] || continue
+        NFC_SUMMARY="$NFC_SUMMARY $(basename "$nd")"
+    done
+    [ -n "$NFC_SUMMARY" ] && log "NFC:$NFC_SUMMARY"
+fi
+if [ -r /proc/asound/cards ]; then
+    ALSA_SUMMARY=$(tr '\n' ' ' < /proc/asound/cards | sed 's/  */ /g')
+    [ -n "$ALSA_SUMMARY" ] && log "ALSA: $ALSA_SUMMARY"
+fi
 
 # Keep UFS host controller active during early boot
 for ufs_pwr in /sys/bus/platform/devices/*.ufshci/power/control; do

@@ -94,6 +94,39 @@
 		device_type = "memory";
 		reg = <0x01 0x40000000 0x00 0xe9700000>;
 	};
+
+	sound {
+		compatible = "mediatek,mt6789-mt6366-sound";
+		model = "mt6789-mt6366";
+		mediatek,platform = <&afe>;
+		pinctrl-names = "aud_clk_mosi_off",
+				"aud_clk_mosi_on",
+				"aud_clk_miso_off",
+				"aud_clk_miso_on",
+				"aud_dat_miso_off",
+				"aud_dat_miso_on",
+				"aud_dat_mosi_off",
+				"aud_dat_mosi_on",
+				"aud_gpio_i2s0_off",
+				"aud_gpio_i2s0_on",
+				"aud_gpio_i2s3_off",
+				"aud_gpio_i2s3_on";
+		pinctrl-0 = <&aud_clk_mosi_off>;
+		pinctrl-1 = <&aud_clk_mosi_on>;
+		pinctrl-2 = <&aud_clk_miso_off>;
+		pinctrl-3 = <&aud_clk_miso_on>;
+		pinctrl-4 = <&aud_dat_miso_off>;
+		pinctrl-5 = <&aud_dat_miso_on>;
+		pinctrl-6 = <&aud_dat_mosi_off>;
+		pinctrl-7 = <&aud_dat_mosi_on>;
+		pinctrl-8 = <&aud_gpio_i2s0_off>;
+		pinctrl-9 = <&aud_gpio_i2s0_on>;
+		pinctrl-10 = <&aud_gpio_i2s3_off>;
+		pinctrl-11 = <&aud_gpio_i2s3_on>;
+		audio-routing = "Headphone", "Headphone L",
+				"Headphone", "Headphone R",
+				"Earpiece", "Receiver";
+	};
 };
 
 &cpu0 {
@@ -178,6 +211,20 @@
 	pinctrl-0 = <&spi0_pins>;
 	mediatek,pad-select = <0>;
 	status = "okay";
+
+	touchscreen@0 {
+		compatible = "chipone,icnl9922c-ts";
+		reg = <0>;
+		spi-max-frequency = <3000000>;
+		spi-cpha;
+		spi-cpol;
+		pinctrl-names = "default";
+		pinctrl-0 = <&touch_pins>;
+		interrupt-parent = <&pio>;
+		interrupts = <9 IRQ_TYPE_EDGE_FALLING>;
+		touchscreen-size-x = <1080>;
+		touchscreen-size-y = <2460>;
+	};
 };
 
 &i2c0 {
@@ -206,6 +253,23 @@
 	pinctrl-0 = <&i2c2_pins>;
 	clock-frequency = <400000>;
 	status = "okay";
+};
+
+&i2c3 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c3_pins>;
+	clock-frequency = <400000>;
+	status = "okay";
+
+	nfc@8 {
+		compatible = "st,st21nfcb-i2c";
+		reg = <0x08>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&nfc_pins>;
+		interrupt-parent = <&pio>;
+		interrupts = <1 IRQ_TYPE_LEVEL_HIGH>;
+		reset-gpios = <&pio 106 GPIO_ACTIVE_HIGH>;
+	};
 };
 
 &i2c5 {
@@ -724,6 +788,138 @@
 			bias-pull-up;
 		};
 	};
+
+	touch_pins: touch-default-pins {
+		pins-irq {
+			pinmux = <PINMUX_GPIO9__FUNC_GPIO9>;
+			input-enable;
+			bias-pull-up;
+		};
+	};
+
+	i2c3_pins: i2c3-default-pins {
+		pins-bus {
+			pinmux = <PINMUX_GPIO136__FUNC_SCL3>,
+				 <PINMUX_GPIO137__FUNC_SDA3>;
+			bias-pull-up;
+		};
+	};
+
+	nfc_pins: nfc-default-pins {
+		pins-irq {
+			pinmux = <PINMUX_GPIO1__FUNC_GPIO1>;
+			input-enable;
+			bias-pull-down;
+		};
+
+		pins-rst {
+			pinmux = <PINMUX_GPIO106__FUNC_GPIO106>;
+		};
+	};
+
+	aud_clk_mosi_off: aud-clk-mosi-off-pins {
+		pins-clk-sync {
+			pinmux = <PINMUX_GPIO169__FUNC_GPIO169>,
+				 <PINMUX_GPIO170__FUNC_GPIO170>;
+			input-enable;
+			bias-pull-down;
+		};
+	};
+
+	aud_clk_mosi_on: aud-clk-mosi-on-pins {
+		pins-clk-sync {
+			pinmux = <PINMUX_GPIO169__FUNC_AUD_CLK_MOSI>,
+				 <PINMUX_GPIO170__FUNC_AUD_SYNC_MOSI>;
+		};
+	};
+
+	aud_clk_miso_off: aud-clk-miso-off-pins {
+		pins-clk-sync {
+			pinmux = <PINMUX_GPIO173__FUNC_GPIO173>,
+				 <PINMUX_GPIO174__FUNC_GPIO174>;
+			input-enable;
+			bias-pull-down;
+		};
+	};
+
+	aud_clk_miso_on: aud-clk-miso-on-pins {
+		pins-clk-sync {
+			pinmux = <PINMUX_GPIO173__FUNC_AUD_CLK_MISO>,
+				 <PINMUX_GPIO174__FUNC_AUD_SYNC_MISO>;
+		};
+	};
+
+	aud_dat_mosi_off: aud-dat-mosi-off-pins {
+		pins-dat {
+			pinmux = <PINMUX_GPIO171__FUNC_GPIO171>,
+				 <PINMUX_GPIO172__FUNC_GPIO172>;
+			input-enable;
+			bias-pull-down;
+		};
+	};
+
+	aud_dat_mosi_on: aud-dat-mosi-on-pins {
+		pins-dat {
+			pinmux = <PINMUX_GPIO171__FUNC_AUD_DAT_MOSI0>,
+				 <PINMUX_GPIO172__FUNC_AUD_DAT_MOSI1>;
+		};
+	};
+
+	aud_dat_miso_off: aud-dat-miso-off-pins {
+		pins-dat {
+			pinmux = <PINMUX_GPIO175__FUNC_GPIO175>,
+				 <PINMUX_GPIO176__FUNC_GPIO176>;
+			input-enable;
+			bias-pull-down;
+		};
+	};
+
+	aud_dat_miso_on: aud-dat-miso-on-pins {
+		pins-dat {
+			pinmux = <PINMUX_GPIO175__FUNC_AUD_DAT_MISO0>,
+				 <PINMUX_GPIO176__FUNC_AUD_DAT_MISO1>;
+			input-schmitt-enable;
+			bias-disable;
+		};
+	};
+
+	aud_gpio_i2s0_off: aud-gpio-i2s0-off-pins {
+		pins-sdata {
+			pinmux = <PINMUX_GPIO53__FUNC_GPIO53>;
+			input-enable;
+			bias-pull-down;
+		};
+	};
+
+	aud_gpio_i2s0_on: aud-gpio-i2s0-on-pins {
+		pins-sdata {
+			pinmux = <PINMUX_GPIO53__FUNC_I2S0_DI>;
+			bias-disable;
+		};
+	};
+
+	aud_gpio_i2s3_off: aud-gpio-i2s3-off-pins {
+		pins-i2s3 {
+			pinmux = <PINMUX_GPIO50__FUNC_GPIO50>,
+				 <PINMUX_GPIO51__FUNC_GPIO51>,
+				 <PINMUX_GPIO52__FUNC_GPIO52>;
+			input-enable;
+			bias-pull-down;
+		};
+	};
+
+	aud_gpio_i2s3_on: aud-gpio-i2s3-on-pins {
+		pins-i2s3 {
+			pinmux = <PINMUX_GPIO50__FUNC_I2S3_DO>,
+				 <PINMUX_GPIO51__FUNC_I2S3_BCK>,
+				 <PINMUX_GPIO52__FUNC_I2S3_LRCK>;
+			bias-disable;
+		};
+	};
+};
+
+&afe {
+	status = "okay";
 };
 
 &disp_pwm0 {

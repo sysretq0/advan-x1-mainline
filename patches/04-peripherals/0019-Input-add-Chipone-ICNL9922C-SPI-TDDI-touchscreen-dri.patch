@@ -1,0 +1,416 @@
+From cb77ccd7ac11c3e89c210f6a9913420c6a5ce106 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Mon, 23 Nov 2026 14:15:47 +0000
+Subject: [PATCH 19/21] Input: add Chipone ICNL9922C SPI TDDI touchscreen
+ driver
+
+Add a minimal mainline SPI touchscreen driver for the Chipone
+ICNL9922C TDDI controller using the TCS framing protocol (CRC-16/BUYPASS
+framing and single-CS coordinate readout). Optional reset-gpios allows
+safe coexistence when the shared TDDI reset line is owned by the
+MIPI-DSI panel driver.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/input/touchscreen/Kconfig             |  13 +
+ drivers/input/touchscreen/Makefile            |   1 +
+ drivers/input/touchscreen/chipone_icnl9922c.c | 354 ++++++++++++++++++
+ 3 files changed, 368 insertions(+)
+ create mode 100644 drivers/input/touchscreen/chipone_icnl9922c.c
+
+diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
+index 9b9ae8ac3..f615f54c2 100644
+--- a/drivers/input/touchscreen/Kconfig
++++ b/drivers/input/touchscreen/Kconfig
+@@ -210,6 +210,19 @@ config TOUCHSCREEN_CHIPONE_ICN8505
+ 	  To compile this driver as a module, choose M here: the
+ 	  module will be called chipone_icn8505.
+ 
++config TOUCHSCREEN_CHIPONE_ICNL9922C
++	tristate "Chipone ICNL9922C SPI TDDI touchscreen controller"
++	depends on SPI_MASTER
++	depends on OF
++	help
++	  Say Y here if you have a Chipone ICNL9922C based SPI TDDI
++	  touchscreen controller using the TCS protocol.
++
++	  If unsure, say N.
++
++	  To compile this driver as a module, choose M here: the
++	  module will be called chipone_icnl9922c.
++
+ config TOUCHSCREEN_CY8CTMA140
+ 	tristate "cy8ctma140 touchscreen"
+ 	depends on I2C
+diff --git a/drivers/input/touchscreen/Makefile b/drivers/input/touchscreen/Makefile
+index bfd9de833..6b34656e8 100644
+--- a/drivers/input/touchscreen/Makefile
++++ b/drivers/input/touchscreen/Makefile
+@@ -23,6 +23,7 @@ obj-$(CONFIG_TOUCHSCREEN_BU21013)	+= bu21013_ts.o
+ obj-$(CONFIG_TOUCHSCREEN_BU21029)	+= bu21029_ts.o
+ obj-$(CONFIG_TOUCHSCREEN_CHIPONE_ICN8318)	+= chipone_icn8318.o
+ obj-$(CONFIG_TOUCHSCREEN_CHIPONE_ICN8505)	+= chipone_icn8505.o
++obj-$(CONFIG_TOUCHSCREEN_CHIPONE_ICNL9922C)	+= chipone_icnl9922c.o
+ obj-$(CONFIG_TOUCHSCREEN_CY8CTMA140)	+= cy8ctma140.o
+ obj-$(CONFIG_TOUCHSCREEN_CY8CTMG110)	+= cy8ctmg110_ts.o
+ obj-$(CONFIG_TOUCHSCREEN_CYTTSP_CORE)	+= cyttsp_core.o
+diff --git a/drivers/input/touchscreen/chipone_icnl9922c.c b/drivers/input/touchscreen/chipone_icnl9922c.c
+new file mode 100644
+index 000000000..57384ce56
+--- /dev/null
++++ b/drivers/input/touchscreen/chipone_icnl9922c.c
+@@ -0,0 +1,354 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Chipone ICNL9922C SPI TDDI touchscreen driver (TCS protocol)
++ *
++ * Copyright (C) 2026 sysretq0 <324514544+sysretq0@users.noreply.github.com>
++ */
++
++#include <linux/delay.h>
++#include <linux/gpio/consumer.h>
++#include <linux/input.h>
++#include <linux/input/mt.h>
++#include <linux/input/touchscreen.h>
++#include <linux/interrupt.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/spi/spi.h>
++#include <linux/unaligned.h>
++
++#define ICNL9922C_TCS_WR_ADDR			0xf0
++#define ICNL9922C_TCS_RD_ADDR			0xf1
++#define ICNL9922C_TCS_READ_BIT			BIT(14)
++#define ICNL9922C_TCS_WRITE_BIT			BIT(13)
++
++#define ICNL9922C_CMD_INFO_CHIP_FW_ID_RO	0x4003
++#define ICNL9922C_CMD_INFO_FW_VER_RO		0x4005
++#define ICNL9922C_CMD_INFO_TOUCH_XY_INFO_RO	0x4007
++#define ICNL9922C_CMD_TP_DATA_COORDINATES_RO	0x4103
++
++#define ICNL9922C_MAX_TOUCH_POINTS		10
++#define ICNL9922C_DEBUG_MSG_SIZE		40
++#define ICNL9922C_MAX_XFER_SIZE			128
++
++#define ICNL9922C_EVENT_DOWN			1
++#define ICNL9922C_EVENT_MOVE			2
++#define ICNL9922C_EVENT_STAY			3
++#define ICNL9922C_EVENT_UP			4
++
++struct icnl9922c_tx_hdr {
++	u8 addr;
++	__le16 cmd;
++	__le16 datlen;
++	__le16 crc16;
++} __packed;
++
++struct icnl9922c_rx_tail {
++	u8 ecode;
++	__le16 cmd;
++	__le16 crc16;
++} __packed;
++
++struct icnl9922c_touch_msg {
++	u8 id;
++	__le16 x;
++	__le16 y;
++	u8 pressure;
++	u8 event;
++} __packed;
++
++struct icnl9922c_touch_info {
++	u8 vkey_state;
++	u8 num_msg;
++	struct icnl9922c_touch_msg msgs[ICNL9922C_MAX_TOUCH_POINTS];
++	u8 debug_msg[ICNL9922C_DEBUG_MSG_SIZE];
++} __packed;
++
++struct icnl9922c_ts {
++	struct spi_device *spi;
++	struct input_dev *input;
++	struct gpio_desc *reset_gpio;
++	struct touchscreen_properties prop;
++	u8 tx_buf[ICNL9922C_MAX_XFER_SIZE] __aligned(ARCH_DMA_MINALIGN);
++	u8 rx_buf[ICNL9922C_MAX_XFER_SIZE] __aligned(ARCH_DMA_MINALIGN);
++};
++
++/* MSB-first CRC-16/BUYPASS (polynomial 0x8005, initial value 0x0000) */
++static u16 icnl9922c_crc16(const u8 *data, size_t len)
++{
++	u16 crc = 0;
++	size_t i;
++	int bit;
++
++	for (i = 0; i < len; i++) {
++		crc ^= (u16)data[i] << 8;
++		for (bit = 0; bit < 8; bit++) {
++			if (crc & 0x8000)
++				crc = (crc << 1) ^ 0x8005;
++			else
++				crc <<= 1;
++		}
++	}
++
++	return crc;
++}
++
++static void icnl9922c_pack_read_hdr(struct icnl9922c_tx_hdr *hdr,
++				    u16 cmd, u16 datlen)
++{
++	hdr->addr = ICNL9922C_TCS_RD_ADDR;
++	hdr->cmd = cpu_to_le16(cmd & ~ICNL9922C_TCS_WRITE_BIT);
++	hdr->datlen = cpu_to_le16(datlen);
++	hdr->crc16 = cpu_to_le16(icnl9922c_crc16((const u8 *)hdr,
++						 offsetof(struct icnl9922c_tx_hdr,
++							  crc16)));
++}
++
++static int icnl9922c_tcs_read(struct icnl9922c_ts *ts, u16 cmd,
++			      u8 *rdata, size_t rlen)
++{
++	size_t rxlen = rlen + sizeof(struct icnl9922c_rx_tail);
++	u16 crc_recv, crc_calc;
++	int ret;
++
++	if (rxlen > sizeof(ts->rx_buf))
++		return -EINVAL;
++
++	memset(ts->tx_buf, 0, sizeof(struct icnl9922c_tx_hdr));
++	icnl9922c_pack_read_hdr((struct icnl9922c_tx_hdr *)ts->tx_buf,
++				cmd, rlen);
++
++	ret = spi_write(ts->spi, ts->tx_buf, sizeof(struct icnl9922c_tx_hdr));
++	if (ret)
++		return ret;
++
++	usleep_range(100, 150);
++
++	ret = spi_read(ts->spi, ts->rx_buf, rxlen);
++	if (ret)
++		return ret;
++
++	crc_recv = get_unaligned_le16(ts->rx_buf + rxlen - 2);
++	crc_calc = icnl9922c_crc16(ts->rx_buf, rxlen - 2);
++	if (crc_recv != crc_calc) {
++		dev_dbg(&ts->spi->dev,
++			"TCS cmd 0x%04x CRC mismatch: recv 0x%04x != calc 0x%04x\n",
++			cmd, crc_recv, crc_calc);
++		return -EIO;
++	}
++
++	memcpy(rdata, ts->rx_buf, rlen);
++	usleep_range(100, 150);
++
++	return 0;
++}
++
++static int icnl9922c_tcs_read_1cs(struct icnl9922c_ts *ts, u16 cmd,
++				  u8 *rdata, size_t rlen)
++{
++	size_t rxlen = rlen + sizeof(struct icnl9922c_rx_tail);
++	struct spi_transfer xfer = {
++		.tx_buf = ts->tx_buf,
++		.rx_buf = ts->rx_buf,
++		.len = max(sizeof(struct icnl9922c_tx_hdr), rxlen),
++	};
++	u16 crc_recv, crc_calc;
++	int ret;
++
++	if (xfer.len > sizeof(ts->tx_buf))
++		return -EINVAL;
++
++	memset(ts->tx_buf, 0, xfer.len);
++	icnl9922c_pack_read_hdr((struct icnl9922c_tx_hdr *)ts->tx_buf,
++				cmd, rlen);
++
++	ret = spi_sync_transfer(ts->spi, &xfer, 1);
++	if (ret)
++		return ret;
++
++	crc_recv = get_unaligned_le16(ts->rx_buf + rxlen - 2);
++	crc_calc = icnl9922c_crc16(ts->rx_buf, rxlen - 2);
++	if (crc_recv != crc_calc) {
++		dev_dbg(&ts->spi->dev,
++			"TCS 1CS cmd 0x%04x CRC mismatch: recv 0x%04x != calc 0x%04x\n",
++			cmd, crc_recv, crc_calc);
++		return -EIO;
++	}
++
++	memcpy(rdata, ts->rx_buf, rlen);
++
++	return 0;
++}
++
++static irqreturn_t icnl9922c_irq_handler(int irq, void *dev_id)
++{
++	struct icnl9922c_ts *ts = dev_id;
++	struct icnl9922c_touch_info info;
++	int ret, i;
++
++	ret = icnl9922c_tcs_read_1cs(ts, ICNL9922C_CMD_TP_DATA_COORDINATES_RO,
++				     (u8 *)&info, sizeof(info));
++	if (ret)
++		return IRQ_HANDLED;
++
++	if (!info.num_msg || info.num_msg > ICNL9922C_MAX_TOUCH_POINTS)
++		return IRQ_HANDLED;
++
++	for (i = 0; i < info.num_msg; i++) {
++		const struct icnl9922c_touch_msg *msg = &info.msgs[i];
++		bool active;
++		u16 x, y;
++
++		if (msg->id >= ICNL9922C_MAX_TOUCH_POINTS)
++			continue;
++
++		active = msg->event == ICNL9922C_EVENT_DOWN ||
++			 msg->event == ICNL9922C_EVENT_MOVE ||
++			 msg->event == ICNL9922C_EVENT_STAY;
++
++		input_mt_slot(ts->input, msg->id);
++		if (!input_mt_report_slot_state(ts->input, MT_TOOL_FINGER,
++						active))
++			continue;
++
++		x = le16_to_cpu(msg->x);
++		y = le16_to_cpu(msg->y);
++		touchscreen_report_pos(ts->input, &ts->prop, x, y, true);
++		input_report_abs(ts->input, ABS_MT_PRESSURE, msg->pressure);
++	}
++
++	input_mt_sync_frame(ts->input);
++	input_sync(ts->input);
++
++	return IRQ_HANDLED;
++}
++
++static int icnl9922c_probe(struct spi_device *spi)
++{
++	struct device *dev = &spi->dev;
++	struct icnl9922c_ts *ts;
++	u8 buf[10];
++	u16 fwid = 0, fwver = 0;
++	u16 res_x = 0, res_y = 0;
++	int ret, retries;
++
++	if (spi->irq <= 0)
++		return dev_err_probe(dev, -EINVAL, "missing IRQ\n");
++
++	spi->bits_per_word = 8;
++	if (!spi->max_speed_hz)
++		spi->max_speed_hz = 3000000;
++
++	ret = spi_setup(spi);
++	if (ret)
++		return dev_err_probe(dev, ret, "failed to setup SPI\n");
++
++	ts = devm_kzalloc(dev, sizeof(*ts), GFP_KERNEL);
++	if (!ts)
++		return -ENOMEM;
++
++	ts->spi = spi;
++	spi_set_drvdata(spi, ts);
++
++	ts->reset_gpio = devm_gpiod_get_optional(dev, "reset", GPIOD_OUT_LOW);
++	if (IS_ERR(ts->reset_gpio))
++		return dev_err_probe(dev, PTR_ERR(ts->reset_gpio),
++				     "failed to get reset GPIO\n");
++
++	if (ts->reset_gpio) {
++		gpiod_set_value_cansleep(ts->reset_gpio, 1);
++		msleep(20);
++		gpiod_set_value_cansleep(ts->reset_gpio, 0);
++		msleep(60);
++	}
++
++	for (retries = 0; retries < 3; retries++) {
++		ret = icnl9922c_tcs_read(ts, ICNL9922C_CMD_INFO_CHIP_FW_ID_RO,
++					 buf, 4);
++		if (!ret) {
++			fwid = get_unaligned_le16(buf);
++			if (fwid && fwid != 0xffff)
++				break;
++			ret = -ENODEV;
++		}
++		msleep(50);
++	}
++	if (ret)
++		return dev_err_probe(dev, ret,
++				     "failed to read ICNL9922C firmware ID\n");
++
++	if (!icnl9922c_tcs_read(ts, ICNL9922C_CMD_INFO_FW_VER_RO, buf, 4))
++		fwver = get_unaligned_le16(buf);
++
++	if (!icnl9922c_tcs_read(ts, ICNL9922C_CMD_INFO_TOUCH_XY_INFO_RO,
++				buf, sizeof(buf))) {
++		res_x = get_unaligned_le16(buf);
++		res_y = get_unaligned_le16(buf + 2);
++	}
++
++	ts->input = devm_input_allocate_device(dev);
++	if (!ts->input)
++		return -ENOMEM;
++
++	ts->input->name = "Chipone ICNL9922C Touchscreen";
++	ts->input->id.bustype = BUS_SPI;
++
++	input_set_abs_params(ts->input, ABS_MT_POSITION_X, 0,
++			     res_x ? res_x : 1079, 0, 0);
++	input_set_abs_params(ts->input, ABS_MT_POSITION_Y, 0,
++			     res_y ? res_y : 2459, 0, 0);
++	input_set_abs_params(ts->input, ABS_MT_PRESSURE, 0, 255, 0, 0);
++
++	touchscreen_parse_properties(ts->input, true, &ts->prop);
++	if (!ts->prop.max_x)
++		ts->prop.max_x = res_x ? res_x : 1079;
++	if (!ts->prop.max_y)
++		ts->prop.max_y = res_y ? res_y : 2459;
++
++	ret = input_mt_init_slots(ts->input, ICNL9922C_MAX_TOUCH_POINTS,
++				  INPUT_MT_DIRECT | INPUT_MT_DROP_UNUSED);
++	if (ret)
++		return dev_err_probe(dev, ret, "failed to init MT slots\n");
++
++	ret = devm_request_threaded_irq(dev, spi->irq, NULL,
++					icnl9922c_irq_handler,
++					IRQF_ONESHOT, dev_name(dev), ts);
++	if (ret)
++		return dev_err_probe(dev, ret, "failed to request IRQ %d\n",
++				     spi->irq);
++
++	ret = input_register_device(ts->input);
++	if (ret)
++		return dev_err_probe(dev, ret,
++				     "failed to register input device\n");
++
++	dev_info(dev, "Chipone ICNL9922C fwid=0x%04x fwver=0x%04x (%ux%u)\n",
++		 fwid, fwver, ts->prop.max_x + 1, ts->prop.max_y + 1);
++
++	return 0;
++}
++
++static const struct of_device_id icnl9922c_of_match[] = {
++	{ .compatible = "chipone,icnl9922c-ts" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, icnl9922c_of_match);
++
++static const struct spi_device_id icnl9922c_spi_id[] = {
++	{ "icnl9922c-ts" },
++	{ }
++};
++MODULE_DEVICE_TABLE(spi, icnl9922c_spi_id);
++
++static struct spi_driver icnl9922c_driver = {
++	.driver = {
++		.name = "chipone-icnl9922c",
++		.of_match_table = icnl9922c_of_match,
++	},
++	.probe = icnl9922c_probe,
++	.id_table = icnl9922c_spi_id,
++};
++module_spi_driver(icnl9922c_driver);
++
++MODULE_AUTHOR("sysretq0 <324514544+sysretq0@users.noreply.github.com>");
++MODULE_DESCRIPTION("Chipone ICNL9922C SPI TDDI Touchscreen Driver");
++MODULE_LICENSE("GPL");

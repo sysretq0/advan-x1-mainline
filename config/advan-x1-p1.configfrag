@@ -172,8 +172,19 @@ CONFIG_INPUT_REGULATOR_HAPTIC=y
 # CPU frequency scaling (hardware DVFS)
 CONFIG_ARM_MEDIATEK_CPUFREQ_HW=y
 
-# Touchscreen subsystem (out-of-tree Chipone TDDI config is in config/extra/)
+# Touchscreen subsystem (Chipone ICNL9922C SPI TDDI)
 CONFIG_INPUT_TOUCHSCREEN=y
+CONFIG_TOUCHSCREEN_CHIPONE_ICNL9922C=y
+
+# NFC (STMicroelectronics ST21NFC / ST-NCI on i2c3)
+CONFIG_NFC=y
+CONFIG_NFC_NCI=y
+CONFIG_NFC_ST_NCI=y
+CONFIG_NFC_ST_NCI_I2C=y
+
+# Audio (MT6789 AFE + MT6366/MT6358 PMIC codec)
+CONFIG_SND_SOC_MT8186=y
+CONFIG_SND_SOC_MT6789_MT6366=y
 
 # Thermal: MediaTek eFuse, socinfo and LVTS thermal sensor
 CONFIG_NVMEM_MTK_EFUSE=y
