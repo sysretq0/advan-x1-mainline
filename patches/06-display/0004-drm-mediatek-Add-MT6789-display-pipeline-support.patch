@@ -6,16 +6,23 @@ Subject: [PATCH 4/7] drm/mediatek: Add MT6789 display pipeline support
 Add MediaTek MT6789 display subsystem match data across mtk_drm_drv
 and the DDP subdrivers (OVL, RDMA, COLOR, CCORR, AAL, GAMMA).
 
+MT6789 OVL0 and RDMA0 require shadow-register bypass
+(DISP_OVL_BYPASS_SHADOW in DISP_REG_OVL_EN and
+RDMA_BYPASS_SHADOW | RDMA_READ_WORK_REG in DISP_REG_RDMA_SHADOW_UPDATE),
+a 48992-byte RDMA0 FIFO (3062 16-byte entries) with zero video-mode
+output valid threshold (0x8bf60000), and a clean RDMA0 soft-reset when
+handing over from an active bootloader pipeline.
+
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  drivers/gpu/drm/mediatek/mtk_disp_aal.c   |  1 +
  drivers/gpu/drm/mediatek/mtk_disp_ccorr.c |  2 ++
  drivers/gpu/drm/mediatek/mtk_disp_color.c |  2 ++
  drivers/gpu/drm/mediatek/mtk_disp_gamma.c |  2 ++
- drivers/gpu/drm/mediatek/mtk_disp_ovl.c   |  2 ++
- drivers/gpu/drm/mediatek/mtk_disp_rdma.c  |  8 ++++++
+ drivers/gpu/drm/mediatek/mtk_disp_ovl.c   | 26 ++++++++++++++++--
+ drivers/gpu/drm/mediatek/mtk_disp_rdma.c  | 33 ++++++++++++++++++++++-
  drivers/gpu/drm/mediatek/mtk_drm_drv.c    | 45 +++++++++++++++++++++++++++++++
- 7 files changed, 62 insertions(+)
+ 7 files changed, 108 insertions(+), 3 deletions(-)
 
 diff --git a/drivers/gpu/drm/mediatek/mtk_disp_aal.c b/drivers/gpu/drm/mediatek/mtk_disp_aal.c
 index 192c1a7d5..6790d747a 100644
@@ -69,36 +76,157 @@ index 787f68e7d..739f263dd 100644
  	  .data = &mt8173_gamma_driver_data},
  	{ .compatible = "mediatek,mt8183-disp-gamma",
 diff --git a/drivers/gpu/drm/mediatek/mtk_disp_ovl.c b/drivers/gpu/drm/mediatek/mtk_disp_ovl.c
-index 544587071..3b6d484df 100644
+index 544587071..bb7d341a1 100644
 --- a/drivers/gpu/drm/mediatek/mtk_disp_ovl.c
 +++ b/drivers/gpu/drm/mediatek/mtk_disp_ovl.c
-@@ -752,6 +752,8 @@ static const struct mtk_disp_ovl_data mt8195_ovl_driver_data = {
+@@ -24,6 +24,7 @@
+ #define OVL_FME_CPL_INT					BIT(1)
+ #define DISP_REG_OVL_INTSTA			0x0008
+ #define DISP_REG_OVL_EN				0x000c
++#define DISP_OVL_BYPASS_SHADOW				BIT(22)
+ #define DISP_REG_OVL_RST			0x0014
+ #define DISP_REG_OVL_ROI_SIZE			0x0020
+ #define DISP_REG_OVL_DATAPATH_CON		0x0024
+@@ -146,6 +147,7 @@ struct mtk_disp_ovl_data {
+ 	bool fmt_rgb565_is_0;
+ 	bool smi_id_en;
+ 	bool supports_afbc;
++	bool bypass_shadow;
+ 	const u32 blend_modes;
+ 	const u32 *formats;
+ 	size_t num_formats;
+@@ -260,6 +262,7 @@ void mtk_ovl_clk_disable(struct device *dev)
+ void mtk_ovl_start(struct device *dev)
+ {
+ 	struct mtk_disp_ovl *ovl = dev_get_drvdata(dev);
++	u32 en = 0x1;
+ 
+ 	if (ovl->data->smi_id_en) {
+ 		unsigned int reg;
+@@ -268,14 +271,17 @@ void mtk_ovl_start(struct device *dev)
+ 		reg = reg | OVL_LAYER_SMI_ID_EN;
+ 		writel_relaxed(reg, ovl->regs + DISP_REG_OVL_DATAPATH_CON);
+ 	}
+-	writel_relaxed(0x1, ovl->regs + DISP_REG_OVL_EN);
++	if (ovl->data->bypass_shadow)
++		en |= DISP_OVL_BYPASS_SHADOW;
++	writel_relaxed(en, ovl->regs + DISP_REG_OVL_EN);
+ }
+ 
+ void mtk_ovl_stop(struct device *dev)
+ {
+ 	struct mtk_disp_ovl *ovl = dev_get_drvdata(dev);
++	u32 en = ovl->data->bypass_shadow ? DISP_OVL_BYPASS_SHADOW : 0x0;
+ 
+-	writel_relaxed(0x0, ovl->regs + DISP_REG_OVL_EN);
++	writel_relaxed(en, ovl->regs + DISP_REG_OVL_EN);
+ 	if (ovl->data->smi_id_en) {
+ 		unsigned int reg;
+ 
+@@ -749,9 +755,25 @@ static const struct mtk_disp_ovl_data mt8195_ovl_driver_data = {
+ 	.supports_clrfmt_ext = true,
+ };
+ 
++static const struct mtk_disp_ovl_data mt6789_ovl_driver_data = {
++	.addr = DISP_REG_OVL_ADDR_MT8173,
++	.gmc_bits = 10,
++	.layer_nr = 4,
++	.fmt_rgb565_is_0 = true,
++	.smi_id_en = true,
++	.bypass_shadow = true,
++	.blend_modes = BIT(DRM_MODE_BLEND_PREMULTI) |
++		       BIT(DRM_MODE_BLEND_COVERAGE) |
++		       BIT(DRM_MODE_BLEND_PIXEL_NONE),
++	.formats = mt8173_formats,
++	.num_formats = ARRAY_SIZE(mt8173_formats),
++};
++
  static const struct of_device_id mtk_disp_ovl_driver_dt_match[] = {
  	{ .compatible = "mediatek,mt2701-disp-ovl",
  	  .data = &mt2701_ovl_driver_data},
 +	{ .compatible = "mediatek,mt6789-disp-ovl",
-+	  .data = &mt8192_ovl_driver_data},
++	  .data = &mt6789_ovl_driver_data},
  	{ .compatible = "mediatek,mt8167-disp-ovl",
  	  .data = &mt8167_ovl_driver_data},
  	{ .compatible = "mediatek,mt8173-disp-ovl",
 diff --git a/drivers/gpu/drm/mediatek/mtk_disp_rdma.c b/drivers/gpu/drm/mediatek/mtk_disp_rdma.c
-index 67bd9e1ca..4ffe4891c 100644
+index 67bd9e1ca..09343a4e9 100644
 --- a/drivers/gpu/drm/mediatek/mtk_disp_rdma.c
 +++ b/drivers/gpu/drm/mediatek/mtk_disp_rdma.c
-@@ -382,6 +382,12 @@ static const struct mtk_disp_rdma_data mt2701_rdma_driver_data = {
+@@ -29,6 +29,7 @@
+ #define DISP_REG_RDMA_GLOBAL_CON		0x0010
+ #define RDMA_ENGINE_EN					BIT(0)
+ #define RDMA_MODE_MEMORY				BIT(1)
++#define RDMA_SOFT_RESET					BIT(4)
+ #define DISP_REG_RDMA_SIZE_CON_0		0x0014
+ #define RDMA_MATRIX_ENABLE				BIT(17)
+ #define RDMA_MATRIX_INT_MTX_SEL				GENMASK(23, 20)
+@@ -50,6 +51,9 @@
+ #define RDMA_FIFO_PSEUDO_SIZE(bytes)			(((bytes) / 16) << 16)
+ #define RDMA_OUTPUT_VALID_FIFO_THRESHOLD(bytes)		((bytes) / 16)
+ #define RDMA_FIFO_SIZE(rdma)			((rdma)->data->fifo_size)
++#define DISP_REG_RDMA_SHADOW_UPDATE		0x00bc
++#define RDMA_BYPASS_SHADOW				BIT(1)
++#define RDMA_READ_WORK_REG				BIT(2)
+ #define DISP_RDMA_MEM_START_ADDR		0x0f00
+ 
+ #define RDMA_MEM_GMC				0x40402020
+@@ -72,6 +76,8 @@ struct mtk_disp_rdma_data {
+ 	unsigned int fifo_size;
+ 	const u32 *formats;
+ 	size_t num_formats;
++	bool bypass_shadow;
++	bool zero_fifo_threshold;
+ };
+ 
+ /*
+@@ -190,6 +196,20 @@ void mtk_rdma_config(struct device *dev, unsigned int width,
+ 	struct mtk_disp_rdma *rdma = dev_get_drvdata(dev);
+ 	u32 rdma_fifo_size;
+ 
++	if (rdma->data->bypass_shadow) {
++		if (!cmdq_pkt &&
++		    (readl(rdma->regs + DISP_REG_RDMA_GLOBAL_CON) & RDMA_ENGINE_EN)) {
++			writel(0x0, rdma->regs + DISP_REG_RDMA_INT_ENABLE);
++			writel(RDMA_SOFT_RESET, rdma->regs + DISP_REG_RDMA_GLOBAL_CON);
++			writel(0x0, rdma->regs + DISP_REG_RDMA_GLOBAL_CON);
++			writel(0x0, rdma->regs + DISP_REG_RDMA_INT_STATUS);
++		}
++		mtk_ddp_write_mask(cmdq_pkt, RDMA_BYPASS_SHADOW | RDMA_READ_WORK_REG,
++				   &rdma->cmdq_reg, rdma->regs,
++				   DISP_REG_RDMA_SHADOW_UPDATE,
++				   RDMA_BYPASS_SHADOW | RDMA_READ_WORK_REG);
++	}
++
+ 	mtk_ddp_write_mask(cmdq_pkt, width, &rdma->cmdq_reg, rdma->regs,
+ 			   DISP_REG_RDMA_SIZE_CON_0, 0xfff);
+ 	mtk_ddp_write_mask(cmdq_pkt, height, &rdma->cmdq_reg, rdma->regs,
+@@ -206,7 +226,7 @@ void mtk_rdma_config(struct device *dev, unsigned int width,
+ 	 * output threshold to 70% of max fifo size to make sure the
+ 	 * threhold will not overflow
+ 	 */
+-	threshold = rdma_fifo_size * 7 / 10;
++	threshold = rdma->data->zero_fifo_threshold ? 0 : rdma_fifo_size * 7 / 10;
+ 	reg = RDMA_FIFO_UNDERFLOW_EN |
+ 	      RDMA_FIFO_PSEUDO_SIZE(rdma_fifo_size) |
+ 	      RDMA_OUTPUT_VALID_FIFO_THRESHOLD(threshold);
+@@ -382,6 +402,15 @@ static const struct mtk_disp_rdma_data mt2701_rdma_driver_data = {
  	.num_formats = ARRAY_SIZE(mt8173_formats),
  };
  
 +static const struct mtk_disp_rdma_data mt6789_rdma_driver_data = {
-+	.fifo_size = SZ_16K * 3 + SZ_128 * 5,
++	.fifo_size = SZ_32K + SZ_8K + SZ_4K + SZ_2K + SZ_1K +
++		     SZ_512 + SZ_256 + SZ_64 + SZ_32,
 +	.formats = mt8173_formats,
 +	.num_formats = ARRAY_SIZE(mt8173_formats),
++	.bypass_shadow = true,
++	.zero_fifo_threshold = true,
 +};
 +
  static const struct mtk_disp_rdma_data mt8173_rdma_driver_data = {
  	.fifo_size = SZ_8K,
  	.formats = mt8173_formats,
-@@ -403,6 +409,8 @@ static const struct mtk_disp_rdma_data mt8195_rdma_driver_data = {
+@@ -403,6 +432,8 @@ static const struct mtk_disp_rdma_data mt8195_rdma_driver_data = {
  static const struct of_device_id mtk_disp_rdma_driver_dt_match[] = {
  	{ .compatible = "mediatek,mt2701-disp-rdma",
  	  .data = &mt2701_rdma_driver_data},

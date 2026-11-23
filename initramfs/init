@@ -104,11 +104,11 @@ if command -v devmem >/dev/null 2>&1; then
         [ -r "$c" ] && [ "$(cat "$c" 2>/dev/null)" -gt 0 ] 2>/dev/null
     }
     if clk_on mm_apb_bus && clk_on mm_disp_mutex0; then
-        log "MMSYS/MUTEX: cg0=$(devmem 0x14000100 32) cg1=$(devmem 0x14000110 32) ovl_con=$(devmem 0x14000f04 32) rdma_sout=$(devmem 0x14000f0c 32) ovl_mout=$(devmem 0x14000f18 32) dith_mout=$(devmem 0x14000f20 32) rdma_sel=$(devmem 0x14000f28 32) dsi_sel=$(devmem 0x14000f30 32) dsc_mout=$(devmem 0x14000f38 32) mtx_en=$(devmem 0x14001020 32) mtx_sof=$(devmem 0x1400102c 32) mtx_mod0=$(devmem 0x14001030 32)"
+        log "MMSYS/MUTEX: cg0=$(devmem 0x14000100 32) cg1=$(devmem 0x140001a0 32) dl_v0=$(devmem 0x14000e9c 32) dl_v1=$(devmem 0x14000ea0 32) dl_r0=$(devmem 0x14000ea8 32) dl_r1=$(devmem 0x14000eac 32) mtx_en=$(devmem 0x14001020 32) mtx_sof=$(devmem 0x1400102c 32) mtx_mod0=$(devmem 0x14001030 32)"
     fi
     if clk_on mm_disp_ovl0 && clk_on mm_disp_rdma0; then
-        log "OVL0: sta=$(devmem 0x14005000 32) inten=$(devmem 0x14005004 32) intsta=$(devmem 0x14005008 32) en=$(devmem 0x1400500c 32) roi=$(devmem 0x14005020 32) dp=$(devmem 0x14005024 32) src=$(devmem 0x1400502c 32) l0con=$(devmem 0x14005030 32) l0sz=$(devmem 0x14005038 32) l0addr=$(devmem 0x14005f40 32)"
-        log "RDMA0: inten=$(devmem 0x14007000 32) ints=$(devmem 0x14007004 32) con=$(devmem 0x14007010 32) sz0=$(devmem 0x14007014 32) sz1=$(devmem 0x14007018 32) fifo=$(devmem 0x14007040 32) in_l=$(devmem 0x140070f4 32) out_l=$(devmem 0x140070fc 32)"
+        log "OVL0: sta=$(devmem 0x14005000 32) inten=$(devmem 0x14005004 32) intsta=$(devmem 0x14005008 32) en=$(devmem 0x1400500c 32) dp=$(devmem 0x14005024 32) src=$(devmem 0x1400502c 32) l0addr=$(devmem 0x14005f40 32) flow=$(devmem 0x14005240 32)"
+        log "RDMA0: inten=$(devmem 0x14007000 32) ints=$(devmem 0x14007004 32) con=$(devmem 0x14007010 32) fifo=$(devmem 0x14007040 32) shd=$(devmem 0x140070bc 32) in_l=$(devmem 0x140070f4 32) out_l=$(devmem 0x140070fc 32) dbg=$(devmem 0x14007100 32)"
     fi
     if clk_on mm_disp_dsc_wrap0 && clk_on mm_dsi0; then
         log "DSC0/DSI0: dsc_con=$(devmem 0x14012000 32) dsc_mode=$(devmem 0x14012030 32) dsc_shd=$(devmem 0x14012200 32) dsi_st=$(devmem 0x14013000 32) dsi_is=$(devmem 0x1401300c 32) dsi_con=$(devmem 0x14013010 32) dsi_md=$(devmem 0x14013014 32) dsi_tx=$(devmem 0x14013018 32) dsi_ps=$(devmem 0x1401301c 32) dsi_lc=$(devmem 0x14013104 32) dbg6=$(devmem 0x14013160 32) dbg7=$(devmem 0x14013164 32)"
