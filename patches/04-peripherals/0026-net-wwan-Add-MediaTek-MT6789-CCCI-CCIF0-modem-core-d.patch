@@ -1,30 +1,27 @@
-From c19421789d53f7fa1d253944fd25f24656d18b87 Mon Sep 17 00:00:00 2001
+From a0c58cd1d8958ccf0015399e88a91a5e9abb541c Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
-Date: Tue, 24 Nov 2026 05:25:13 +0000
-Subject: [PATCH] net: wwan: Add MediaTek MT6789 CCCI/CCIF0 modem core driver
+Date: Tue, 24 Nov 2026 05:52:57 +0000
+Subject: [PATCH] net: wwan: Add MediaTek MT6789 CCCI CCIF0 modem core driver
 
-Add a clean mainline driver for the MediaTek MT6789 (Helio G99) Gen95
-cellular modem transport over AP-MD CCIF0 mailbox and shared memory.
-
-The driver verifies LK md1img pre-load via the ccci_tag_mem handoff
-region without touching EMI-MPU-protected modem DRAM, programs MD
-BANK0/BANK1/BANK4 HW remap and BL31 SCP SMEM base via
-MTK_SIP_LK_CCCI_CONTROL when a chainloader skips LK load_modem, runs the
-verified MT6789 EL3 SiP SMC boot and MD MTCMOS power-cycle sequence,
-initializes the 16 Gen95 CCIF0 normal/exception ringbuffers in
-non-cacheable SMEM, performs CCIF0 SRAM HS1/HS2 runtime feature
-negotiation (50 features), monitors the MD WDT IRQ, and exposes
-read-only sysfs status telemetry.
+Add a clean mainline CCCI core transport driver for MediaTek MT6789
+(Helio G99) implementing:
+- LK ccci_tag_mem verification and md1rom reset-vector check when
+  EMI MPU is unlocked
+- Unconditional MD MTCMOS reset cycle, vmodem/vsram regulators, SPM
+  SRCLKEN_O1, and EL3 SiP SMC boot handshake (0xC2000505)
+- Gen95 CCIF0 16-queue normal/exception SMEM ringbuffers, mailbox IRQs,
+  MD WDT IRQ, and HS1/HS2 runtime feature negotiation
+- Read-only sysfs telemetry attributes for Gate 5.2 verification
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  drivers/net/wwan/Kconfig                     |   15 +
  drivers/net/wwan/Makefile                    |    1 +
  drivers/net/wwan/mtk_ccci/Makefile           |    5 +
- drivers/net/wwan/mtk_ccci/mtk_ccci.h         |  325 +++++
- drivers/net/wwan/mtk_ccci/mtk_ccci_core.c    | 1256 ++++++++++++++++++
- drivers/net/wwan/mtk_ccci/mtk_ccci_ringbuf.c |  213 +++
- 6 files changed, 1815 insertions(+)
+ drivers/net/wwan/mtk_ccci/mtk_ccci.h         |  318 +++++
+ drivers/net/wwan/mtk_ccci/mtk_ccci_core.c    | 1188 ++++++++++++++++++
+ drivers/net/wwan/mtk_ccci/mtk_ccci_ringbuf.c |  213 ++++
+ 6 files changed, 1740 insertions(+)
  create mode 100644 drivers/net/wwan/mtk_ccci/Makefile
  create mode 100644 drivers/net/wwan/mtk_ccci/mtk_ccci.h
  create mode 100644 drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
@@ -78,10 +75,10 @@ index 000000000..b3947240c
 +mtk_ccci-y := mtk_ccci_core.o mtk_ccci_ringbuf.o
 diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci.h b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
 new file mode 100644
-index 000000000..1bc4dea2a
+index 000000000..c6776bde1
 --- /dev/null
 +++ b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
-@@ -0,0 +1,325 @@
+@@ -0,0 +1,318 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +/*
 + * MediaTek MT6789 CCCI cellular modem transport definitions.
@@ -103,14 +100,7 @@ index 000000000..1bc4dea2a
 +#include <linux/workqueue.h>
 +
 +/* EL3 / BL31 SiP SMC IDs and sub-commands (verified on MT6789 BL31) */
-+#define MTK_SIP_LK_CCCI_CONTROL		0xc200040b
 +#define MTK_SIP_KERNEL_CCCI_CONTROL	0xc2000505
-+
-+#define MTK_CCCI_LK_BANK0_REMAP		1
-+#define MTK_CCCI_LK_BANK1_REMAP		2
-+#define MTK_CCCI_LK_BANK4_REMAP		3
-+#define MTK_CCCI_LK_REMAP_LOCK		8
-+#define MTK_CCCI_LK_SCP_SMEM_INFO	12
 +
 +#define MTK_CCCI_SMC_CLOCK_REQ		5
 +#define MTK_CCCI_SMC_POWER_CONFIG	6
@@ -409,10 +399,10 @@ index 000000000..1bc4dea2a
 +#endif /* __MTK_CCCI_H__ */
 diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
 new file mode 100644
-index 000000000..84ada7881
+index 000000000..cc00042b7
 --- /dev/null
 +++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
-@@ -0,0 +1,1256 @@
+@@ -0,0 +1,1188 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * MediaTek MT6789 CCCI cellular modem core driver (Phase 5.2: LK pre-load
@@ -480,91 +470,19 @@ index 000000000..84ada7881
 +		      0, 0, 0, 0, res);
 +}
 +
-+static void mtk_ccci_lk_smc(u32 sub_cmd, u32 arg1, u32 arg2, u32 arg3,
-+			    struct arm_smccc_res *res)
++static void mtk_ccci_peek_md1rom(struct mtk_ccci_dev *ccci)
 +{
-+	arm_smccc_smc(MTK_SIP_LK_CCCI_CONTROL, sub_cmd, arg1, arg2, arg3,
-+		      0, 0, 0, res);
-+}
-+
-+/*
-+ * Program MD BANK0/BANK1/BANK4 HW remap and BL31 SCP SMEM base when the
-+ * bootloader (e.g., Loki -> U-Boot chainload) skipped LK's load_modem stage.
-+ * Returns true if EL3 remap was unlocked and programmed by Linux, false if
-+ * stock LK already programmed and locked it.
-+ */
-+static bool mtk_ccci_setup_hw_remap(struct mtk_ccci_dev *ccci)
-+{
-+	struct arm_smccc_res res;
 +	void __iomem *md_va;
-+	phys_addr_t scp_phys;
-+	u32 slot, b4_0 = 0, b4_4 = 0;
 +
-+	mtk_ccci_lk_smc(MTK_CCCI_LK_BANK0_REMAP,
-+			lower_32_bits(ccci->md_img_phys),
-+			upper_32_bits(ccci->md_img_phys), 0, &res);
-+	if (res.a0) {
-+		dev_info(ccci->dev,
-+			 "EL3 MD HW remap already locked by LK (ret=%ld)\n",
-+			 (long)res.a0);
-+		return false;
-+	}
-+
-+	dev_info(ccci->dev,
-+		 "EL3 BANK0 remap (%pa): 0x%08lx 0x%08lx 0x%08lx\n",
-+		 &ccci->md_img_phys, res.a1, res.a2, res.a3);
-+
-+	mtk_ccci_lk_smc(MTK_CCCI_LK_BANK1_REMAP,
-+			lower_32_bits(ccci->md_img_phys),
-+			upper_32_bits(ccci->md_img_phys), 0, &res);
-+	dev_info(ccci->dev,
-+		 "EL3 BANK1 remap (%pa): ret=%ld 0x%08lx 0x%08lx 0x%08lx\n",
-+		 &ccci->md_img_phys, (long)res.a0, res.a1, res.a2, res.a3);
-+
-+	/* BANK4 slots 0..3 -> NC SMEM (MD 0x40000000), slots 4..7 -> C SMEM (MD 0x48000000) */
-+	for (slot = 0; slot < 4; slot++) {
-+		phys_addr_t pa = ccci->nc_smem_phys + (phys_addr_t)slot * SZ_32M;
-+
-+		mtk_ccci_lk_smc(MTK_CCCI_LK_BANK4_REMAP,
-+				lower_32_bits(pa), upper_32_bits(pa),
-+				slot, &res);
-+		if (slot == 0)
-+			b4_0 = res.a1;
-+	}
-+	for (slot = 4; slot < 8; slot++) {
-+		phys_addr_t pa = ccci->c_smem_phys +
-+				 (phys_addr_t)(slot - 4) * SZ_32M;
-+
-+		mtk_ccci_lk_smc(MTK_CCCI_LK_BANK4_REMAP,
-+				lower_32_bits(pa), upper_32_bits(pa),
-+				slot, &res);
-+		if (slot == 4)
-+			b4_4 = res.a1;
-+	}
-+	dev_info(ccci->dev, "EL3 BANK4 remap: slot0=0x%08x slot4=0x%08x\n",
-+		 b4_0, b4_4);
-+
-+	/* Register SCP CCISM SMEM AP phys base (BL31 expects arg1=hi, arg2=lo) */
-+	scp_phys = ccci->nc_smem_phys + NC_OFF_CCISM_SCP;
-+	mtk_ccci_lk_smc(MTK_CCCI_LK_SCP_SMEM_INFO,
-+			upper_32_bits(scp_phys), lower_32_bits(scp_phys),
-+			0, &res);
-+
-+	mtk_ccci_lk_smc(MTK_CCCI_LK_REMAP_LOCK, 0, 0, 0, &res);
-+	dev_info(ccci->dev, "EL3 MD HW remap locked (ret=%ld)\n", (long)res.a0);
-+
-+	/* EMI MPU is not locked when LK skipped load_modem; verify md1rom head */
 +	md_va = ioremap_wc(ccci->md_img_phys, 0x20);
-+	if (md_va) {
-+		dev_info(ccci->dev,
-+			 "md1rom @ %pa: %08x %08x %08x %08x\n",
-+			 &ccci->md_img_phys,
-+			 readl(md_va + 0x0), readl(md_va + 0x4),
-+			 readl(md_va + 0x8), readl(md_va + 0xc));
-+		iounmap(md_va);
-+	}
++	if (!md_va)
++		return;
 +
-+	return true;
++	dev_info(ccci->dev, "md1rom @ %pa: %08x %08x %08x %08x\n",
++		 &ccci->md_img_phys,
++		 readl(md_va + 0x0), readl(md_va + 0x4),
++		 readl(md_va + 0x8), readl(md_va + 0xc));
++	iounmap(md_va);
 +}
 +
 +static void mtk_ccif_read_sram(struct mtk_ccci_dev *ccci, u32 off,
@@ -1228,7 +1146,6 @@ index 000000000..84ada7881
 +{
 +	struct mtk_ccci_dev *ccci = container_of(work, struct mtk_ccci_dev, boot_work);
 +	struct arm_smccc_res res;
-+	bool ap_remapped;
 +	bool brom_pass = false;
 +	unsigned int pwr_sta = 0;
 +	int ret, tries;
@@ -1243,10 +1160,17 @@ index 000000000..84ada7881
 +		return;
 +	}
 +
-+	/* Program BANK0/1/4 HW remap + SCP SMEM if chainloader skipped LK load_modem */
-+	ap_remapped = mtk_ccci_setup_hw_remap(ccci);
++	mtk_ccci_smc(MTK_CCCI_SMC_POWER_CONFIG, MTK_CCCI_PWR_BOOT_STATUS, 0, &res);
++	dev_info(ccci->dev, "pre-reset MD boot_status=0x%lx/0x%lx\n",
++		 res.a1, res.a2);
 +
-+	if (!ap_remapped) {
++	/*
++	 * When stock LK booted MD into BROM (boot_status != 0), poll BROM
++	 * completion and avoid touching EMI-MPU-locked md1img DRAM. When
++	 * chainloaded via Loki -> U-Boot (boot_status == 0, EMI MPU unlocked),
++	 * verify the md1rom reset vector in DRAM directly.
++	 */
++	if (res.a1 || res.a2) {
 +		for (tries = 0; tries < 50; tries++) {
 +			mtk_ccci_smc(MTK_CCCI_SMC_POWER_CONFIG,
 +				     MTK_CCCI_PWR_CHECK_DONE, 0, &res);
@@ -1262,11 +1186,9 @@ index 000000000..84ada7881
 +		dev_info(ccci->dev, "BROM check=%s flags=0x%lx,0x%lx,0x%lx,0x%lx\n",
 +			 brom_pass ? "PASS" : "TIMEOUT",
 +			 res.a0, res.a1, res.a2, res.a3);
++	} else {
++		mtk_ccci_peek_md1rom(ccci);
 +	}
-+
-+	mtk_ccci_smc(MTK_CCCI_SMC_POWER_CONFIG, MTK_CCCI_PWR_BOOT_STATUS, 0, &res);
-+	dev_info(ccci->dev, "pre-reset MD boot_status=0x%lx/0x%lx\n",
-+		 res.a1, res.a2);
 +
 +	/*
 +	 * Unconditionally power off MD MTCMOS to cleanly reset MD out of LK's
