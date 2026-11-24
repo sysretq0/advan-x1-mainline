@@ -91,4 +91,5 @@ On MT6789 retail devices booting mainline via Loki chainload after Stock LK:
    MD-view `MDSS_DBG` base (`MTK_MD_NC_SMEM_MD_BASE + NC_OFF_MDSS_DBG`), and
    `NC_SZ_MDSS_DBG` (matching stock `ccci_md_hif_start(1) ->
    ccci_reset_ccif_hw`, binary-derived from `ccci_md_all.ko` and verified on
-   hardware with live modem boot to `READY`).
+   hardware through MD BootROM pass (`boot_status=0x5443000c / 0x53320000`;
+   HS1 handshake WIP)).
