@@ -272,6 +272,7 @@
 			mediatek,ccif-scp = <&ccif2>;
 			mediatek,dpmaif = <&dpmaif>;
 			mediatek,scpsys = <&scpsys>;
+			mediatek,infracfg = <&infracfg_ao>;
 			mediatek,srclken-o1 = <0x200000>;
 			mediatek,power-flow-config = <0x12>;
 			status = "disabled";

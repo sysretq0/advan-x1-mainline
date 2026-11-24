@@ -11,8 +11,8 @@ and display pipeline.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- arch/arm64/boot/dts/mediatek/mt6789.dtsi | 1604 ++++++++++++++++++++++
- 1 file changed, 1604 insertions(+)
+ arch/arm64/boot/dts/mediatek/mt6789.dtsi | 1605 ++++++++++++++++++++++
+ 1 file changed, 1605 insertions(+)
  create mode 100644 arch/arm64/boot/dts/mediatek/mt6789.dtsi
 
 diff --git a/arch/arm64/boot/dts/mediatek/mt6789.dtsi b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
@@ -20,7 +20,7 @@ new file mode 100644
 index 000000000..111111111
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
-@@ -0,0 +1,1604 @@
+@@ -0,0 +1,1605 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * MediaTek MT6789 (Helio G99) SoC base device tree — mainline shape.
@@ -295,6 +295,7 @@ index 000000000..111111111
 +			mediatek,ccif-scp = <&ccif2>;
 +			mediatek,dpmaif = <&dpmaif>;
 +			mediatek,scpsys = <&scpsys>;
++			mediatek,infracfg = <&infracfg_ao>;
 +			mediatek,srclken-o1 = <0x200000>;
 +			mediatek,power-flow-config = <0x12>;
 +			status = "disabled";

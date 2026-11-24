@@ -1,34 +1,35 @@
-From a0c58cd1d8958ccf0015399e88a91a5e9abb541c Mon Sep 17 00:00:00 2001
+From 93f7e4d29b773eaf6a0b6a1e4d79002a255b6830 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
-Date: Tue, 24 Nov 2026 05:52:57 +0000
-Subject: [PATCH] net: wwan: Add MediaTek MT6789 CCCI CCIF0 modem core driver
+Date: Tue, 24 Nov 2026 03:47:43 +0000
+Subject: [PATCH] net: wwan: Add MediaTek MT6789 CCCI/CCIF0 modem core driver
 
-Add a clean mainline CCCI core transport driver for MediaTek MT6789
-(Helio G99) implementing:
-- LK ccci_tag_mem verification and md1rom reset-vector check when
-  EMI MPU is unlocked
-- Unconditional MD MTCMOS reset cycle, vmodem/vsram regulators, SPM
-  SRCLKEN_O1, and EL3 SiP SMC boot handshake (0xC2000505)
-- Gen95 CCIF0 16-queue normal/exception SMEM ringbuffers, mailbox IRQs,
-  MD WDT IRQ, and HS1/HS2 runtime feature negotiation
-- Read-only sysfs telemetry attributes for Gate 5.2 verification
+Add clean mainline driver for the MediaTek MT6789 (Helio G99 / Gen95)
+integrated cellular modem (Phase 5.2):
+- Verifies LK md1img pre-load via ccci_tag_mem without touching
+  EMI-MPU-protected md1img DRAM from the AP CPU.
+- Executes the EL3 SiP SMC boot handshake (MTK_SIP_KERNEL_CCCI_CONTROL:
+  MD_CHECK_DONE, MD_FLIGHT_MODE_SET, MD_KERNEL_BOOT_UP), SPM SRCLKEN O1
+  configuration, vmodem/vsram 825 mV regulators, and MD MTCMOS cycle.
+- Initializes Gen95 CCIF0 normal/exception ringbuffers in AP-MD SMEM,
+  handles CCIF0 data0/data1 and MD WDT interrupts, and performs the
+  HS1/HS2 runtime feature negotiation.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  drivers/net/wwan/Kconfig                     |   15 +
  drivers/net/wwan/Makefile                    |    1 +
  drivers/net/wwan/mtk_ccci/Makefile           |    5 +
- drivers/net/wwan/mtk_ccci/mtk_ccci.h         |  318 +++++
- drivers/net/wwan/mtk_ccci/mtk_ccci_core.c    | 1188 ++++++++++++++++++
- drivers/net/wwan/mtk_ccci/mtk_ccci_ringbuf.c |  213 ++++
- 6 files changed, 1740 insertions(+)
+ drivers/net/wwan/mtk_ccci/mtk_ccci.h         |  329 +++++
+ drivers/net/wwan/mtk_ccci/mtk_ccci_core.c    | 1260 ++++++++++++++++++
+ drivers/net/wwan/mtk_ccci/mtk_ccci_ringbuf.c |  213 +++
+ 6 files changed, 1823 insertions(+)
  create mode 100644 drivers/net/wwan/mtk_ccci/Makefile
  create mode 100644 drivers/net/wwan/mtk_ccci/mtk_ccci.h
  create mode 100644 drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
  create mode 100644 drivers/net/wwan/mtk_ccci/mtk_ccci_ringbuf.c
 
 diff --git a/drivers/net/wwan/Kconfig b/drivers/net/wwan/Kconfig
-index 958dbc734..306386653 100644
+index 958dbc7..3063866 100644
 --- a/drivers/net/wwan/Kconfig
 +++ b/drivers/net/wwan/Kconfig
 @@ -121,6 +121,21 @@ config MTK_T7XX
@@ -54,7 +55,7 @@ index 958dbc734..306386653 100644
  
  endmenu
 diff --git a/drivers/net/wwan/Makefile b/drivers/net/wwan/Makefile
-index 3960c0ae2..f76a77984 100644
+index 3960c0a..f76a779 100644
 --- a/drivers/net/wwan/Makefile
 +++ b/drivers/net/wwan/Makefile
 @@ -14,3 +14,4 @@ obj-$(CONFIG_QCOM_BAM_DMUX) += qcom_bam_dmux.o
@@ -64,7 +65,7 @@ index 3960c0ae2..f76a77984 100644
 +obj-$(CONFIG_MTK_CCCI) += mtk_ccci/
 diff --git a/drivers/net/wwan/mtk_ccci/Makefile b/drivers/net/wwan/mtk_ccci/Makefile
 new file mode 100644
-index 000000000..b3947240c
+index 0000000..b394724
 --- /dev/null
 +++ b/drivers/net/wwan/mtk_ccci/Makefile
 @@ -0,0 +1,5 @@
@@ -75,10 +76,10 @@ index 000000000..b3947240c
 +mtk_ccci-y := mtk_ccci_core.o mtk_ccci_ringbuf.o
 diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci.h b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
 new file mode 100644
-index 000000000..c6776bde1
+index 0000000..4bb2956
 --- /dev/null
 +++ b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
-@@ -0,0 +1,318 @@
+@@ -0,0 +1,329 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +/*
 + * MediaTek MT6789 CCCI cellular modem transport definitions.
@@ -116,6 +117,14 @@ index 000000000..c6776bde1
 +#define MTK_SPM_POWERON_CONFIG_EN	0x000
 +#define MTK_SPM_POWERON_CONFIG_KEY	0x0b160001
 +#define MTK_SPM_SRCLKEN_O1_REG		0x008
++
++/* INFRACFG_AO CCIF0 hardware reset registers (MT6789 ccif_hw_reset_ver == 0) */
++#define MTK_INFRA_AO_RST3_SET		0x150
++#define MTK_INFRA_AO_RST3_CLR		0x154
++#define MTK_INFRA_RST3_CCIF0_BIT	BIT(8)
++
++/* CCIF0 SRAM bootup trace / MDSS_DBG footer magic ("rtbn") */
++#define MTK_CCIF_RTBN_MAGIC		0x7274626eU
 +
 +/* CCIF0/CCIF2 register offsets */
 +#define APCCIF_CON			0x000
@@ -216,6 +225,8 @@ index 000000000..c6776bde1
 +#define MTK_MD_C_SMEM_MD_BASE		0x48000000U
 +
 +#define NC_OFF_MDCCCI_DBG		0x00800000U
++#define NC_OFF_MDSS_DBG			0x00800800U
++#define NC_SZ_MDSS_DBG			0x00003800U
 +#define NC_SZ_EE_TOTAL			0x00010000U
 +#define NC_OFF_RUNTIME_AP		0x0080e800U
 +#define NC_SZ_RUNTIME_AP		0x00000800U
@@ -341,6 +352,7 @@ index 000000000..c6776bde1
 +	void __iomem *ccif_ap_base;
 +	void __iomem *ccif_md_base;
 +	struct regmap *scpsys;
++	struct regmap *infracfg;
 +
 +	struct clk_bulk_data *ccif_clks;
 +	int num_ccif_clks;
@@ -399,10 +411,10 @@ index 000000000..c6776bde1
 +#endif /* __MTK_CCCI_H__ */
 diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
 new file mode 100644
-index 000000000..cc00042b7
+index 0000000..61f3902
 --- /dev/null
 +++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
-@@ -0,0 +1,1188 @@
+@@ -0,0 +1,1260 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * MediaTek MT6789 CCCI cellular modem core driver (Phase 5.2: LK pre-load
@@ -473,16 +485,25 @@ index 000000000..cc00042b7
 +static void mtk_ccci_peek_md1rom(struct mtk_ccci_dev *ccci)
 +{
 +	void __iomem *md_va;
++	phys_addr_t dsp_phys = ccci->md_img_phys + 0x07200000;
 +
 +	md_va = ioremap_wc(ccci->md_img_phys, 0x20);
-+	if (!md_va)
-+		return;
++	if (md_va) {
++		dev_info(ccci->dev, "md1rom @ %pa: %08x %08x %08x %08x\n",
++			 &ccci->md_img_phys,
++			 readl(md_va + 0x0), readl(md_va + 0x4),
++			 readl(md_va + 0x8), readl(md_va + 0xc));
++		iounmap(md_va);
++	}
 +
-+	dev_info(ccci->dev, "md1rom @ %pa: %08x %08x %08x %08x\n",
-+		 &ccci->md_img_phys,
-+		 readl(md_va + 0x0), readl(md_va + 0x4),
-+		 readl(md_va + 0x8), readl(md_va + 0xc));
-+	iounmap(md_va);
++	md_va = ioremap_wc(dsp_phys, 0x20);
++	if (md_va) {
++		dev_info(ccci->dev, "md1dsp @ %pa: %08x %08x %08x %08x\n",
++			 &dsp_phys,
++			 readl(md_va + 0x0), readl(md_va + 0x4),
++			 readl(md_va + 0x8), readl(md_va + 0xc));
++		iounmap(md_va);
++	}
 +}
 +
 +static void mtk_ccif_read_sram(struct mtk_ccci_dev *ccci, u32 off,
@@ -507,14 +528,72 @@ index 000000000..cc00042b7
 +	wmb();
 +}
 +
-+static void mtk_ccif_sram_clear(struct mtk_ccci_dev *ccci)
++static void mtk_ccif_hw_reset(struct mtk_ccci_dev *ccci)
 +{
 +	u32 i;
 +
-+	for (i = 0; i < MTK_CCIF_SRAM_SIZE; i += 4)
++	if (ccci->infracfg) {
++		regmap_write(ccci->infracfg, MTK_INFRA_AO_RST3_SET,
++			     MTK_INFRA_RST3_CCIF0_BIT);
++		usleep_range(10, 20);
++		regmap_write(ccci->infracfg, MTK_INFRA_AO_RST3_CLR,
++			     MTK_INFRA_RST3_CCIF0_BIT);
++	}
++
++	for (i = 0; i < MTK_CCIF_SRAM_SIZE; i += 4) {
 +		writel(0, ccci->ccif_ap_base + APCCIF_CHDATA + i);
-+	/* Ensure CCIF SRAM zeroing completes before enabling IRQs */
++		writel(0, ccci->ccif_md_base + APCCIF_CHDATA + i);
++	}
++
++	/* Write Gen95 bootup trace / MDSS_DBG footer at tail of CCIF0 SRAM */
++	writel(MTK_CCIF_RTBN_MAGIC,
++	       ccci->ccif_ap_base + APCCIF_CHDATA + MTK_CCIF_SRAM_SIZE - 12);
++	writel(MTK_MD_NC_SMEM_MD_BASE + NC_OFF_MDSS_DBG,
++	       ccci->ccif_ap_base + APCCIF_CHDATA + MTK_CCIF_SRAM_SIZE - 8);
++	writel(NC_SZ_MDSS_DBG,
++	       ccci->ccif_ap_base + APCCIF_CHDATA + MTK_CCIF_SRAM_SIZE - 4);
++
++	writel(0xffffffff, ccci->ccif_ap_base + APCCIF_ACK);
++	/* Ensure CCIF0 HW reset and SRAM footer complete before MD boot */
 +	wmb();
++}
++
++static void mtk_ccci_dump_timeout_state(struct mtk_ccci_dev *ccci)
++{
++	u32 off, w0, w1, w2, w3;
++
++	dev_err(ccci->dev,
++		"AP_CCIF0: con=0x%x busy=0x%x start=0x%x rch=0x%x irq0m=0x%x irq1m=0x%x\n",
++		readl(ccci->ccif_ap_base + APCCIF_CON),
++		readl(ccci->ccif_ap_base + APCCIF_BUSY),
++		readl(ccci->ccif_ap_base + APCCIF_START),
++		readl(ccci->ccif_ap_base + APCCIF_RCHNUM),
++		readl(ccci->ccif_ap_base + APCCIF_IRQ0_MASK),
++		readl(ccci->ccif_ap_base + APCCIF_IRQ1_MASK));
++	dev_err(ccci->dev,
++		"MD_CCIF0: con=0x%x busy=0x%x start=0x%x rch=0x%x\n",
++		readl(ccci->ccif_md_base + APCCIF_CON),
++		readl(ccci->ccif_md_base + APCCIF_BUSY),
++		readl(ccci->ccif_md_base + APCCIF_START),
++		readl(ccci->ccif_md_base + APCCIF_RCHNUM));
++
++	for (off = 0; off < MTK_CCIF_SRAM_SIZE; off += 16) {
++		w0 = readl(ccci->ccif_ap_base + APCCIF_CHDATA + off);
++		w1 = readl(ccci->ccif_ap_base + APCCIF_CHDATA + off + 4);
++		w2 = readl(ccci->ccif_ap_base + APCCIF_CHDATA + off + 8);
++		w3 = readl(ccci->ccif_ap_base + APCCIF_CHDATA + off + 12);
++		if (w0 || w1 || w2 || w3)
++			dev_err(ccci->dev, "CCIF_SRAM[+0x%03x]: %08x %08x %08x %08x\n",
++				off, w0, w1, w2, w3);
++	}
++
++	w0 = readl(ccci->nc_smem_virt + NC_OFF_MDCCCI_DBG);
++	w1 = readl(ccci->nc_smem_virt + NC_OFF_MDCCCI_DBG + 4);
++	w2 = readl(ccci->nc_smem_virt + NC_OFF_MDSS_DBG);
++	w3 = readl(ccci->nc_smem_virt + NC_OFF_MDSS_DBG + 4);
++	if (w0 || w1 || w2 || w3)
++		dev_err(ccci->dev, "SMEM_DBG: mdccci=%08x %08x mdss=%08x %08x\n",
++			w0, w1, w2, w3);
 +}
 +
 +static int mtk_ccif_ring_doorbell(struct mtk_ccci_dev *ccci, u32 ch)
@@ -1118,16 +1197,22 @@ index 000000000..cc00042b7
 +{
 +	struct mtk_ccci_dev *ccci = data;
 +	u32 rch = readl(ccci->ccif_ap_base + APCCIF_RCHNUM);
-+	u32 ack = rch & MTK_CCIF_EXP_QUEUE_MASK;
++	u32 ack = rch & (MTK_CCIF_EXP_QUEUE_MASK | BIT(MTK_CCIF_RINGQ_SRAM));
 +
 +	if (!ack)
 +		return IRQ_NONE;
 +
 +	writel(ack, ccci->ccif_ap_base + APCCIF_ACK);
-+	/* Ensure CCIF exception ACK completes before returning from ISR */
++	/* Ensure CCIF ACK completes before scheduling worker */
 +	wmb();
 +
-+	dev_warn_ratelimited(ccci->dev, "CCIF IRQ1 high ch mask=0x%08x\n", ack);
++	if (ack & BIT(MTK_CCIF_RINGQ_SRAM)) {
++		set_mask_bits(&ccci->pending_ch, 0, BIT(MTK_CCIF_RINGQ_SRAM));
++		schedule_work(&ccci->rx_work);
++	}
++	if (ack & MTK_CCIF_EXP_QUEUE_MASK)
++		dev_warn_ratelimited(ccci->dev, "CCIF IRQ1 high ch mask=0x%08x\n",
++				     ack & MTK_CCIF_EXP_QUEUE_MASK);
 +	return IRQ_HANDLED;
 +}
 +
@@ -1200,6 +1285,13 @@ index 000000000..cc00042b7
 +	dev_info(ccci->dev, "MD MTCMOS OFF: ret=%d pwr_sta=0x%08x\n", ret, pwr_sta);
 +	mtk_ccci_smc(MTK_CCCI_SMC_FLIGHT_MODE_SET, 0, 0, &res);
 +
++	/*
++	 * Reset CCIF0 hardware, clear AP+MD SRAM, and install the Gen95
++	 * 0x7274626e ("rtbn") + MDSS_DBG footer while MD is powered off
++	 * (matches stock ccci_md_hif_start(1) -> ccci_reset_ccif_hw).
++	 */
++	mtk_ccif_hw_reset(ccci);
++
 +	if (ccci->vmodem) {
 +		regulator_set_voltage(ccci->vmodem, 825000, 825000);
 +		ret = regulator_enable(ccci->vmodem);
@@ -1233,11 +1325,6 @@ index 000000000..cc00042b7
 +		return;
 +	}
 +
-+	/* Clear any stale CCIF0 flags after MTCMOS cycle, then enable IRQs */
-+	writel(0xffffffff, ccci->ccif_ap_base + APCCIF_ACK);
-+	writel(0x01, ccci->ccif_ap_base + APCCIF_CON);
-+	mtk_ccif_sram_clear(ccci);
-+
 +	enable_irq(ccci->ccif_irq0);
 +	enable_irq(ccci->ccif_irq1);
 +	enable_irq(ccci->wdt_irq);
@@ -1253,12 +1340,9 @@ index 000000000..cc00042b7
 +	if (!wait_for_completion_timeout(&ccci->hs1_comp, msecs_to_jiffies(5000))) {
 +		mtk_ccci_smc(MTK_CCCI_SMC_POWER_CONFIG, MTK_CCCI_PWR_BOOT_STATUS, 0, &res);
 +		dev_err(ccci->dev,
-+			"HS1 timeout (5s)! boot_status=0x%lx/0x%lx ap_rch=0x%x ap_busy=0x%x md_rch=0x%x sram0=0x%x\n",
-+			res.a1, res.a2,
-+			readl(ccci->ccif_ap_base + APCCIF_RCHNUM),
-+			readl(ccci->ccif_ap_base + APCCIF_BUSY),
-+			ccci->ccif_md_base ? readl(ccci->ccif_md_base + APCCIF_RCHNUM) : 0,
-+			readl(ccci->ccif_ap_base + APCCIF_CHDATA));
++			"HS1 timeout (5s)! boot_status=0x%lx/0x%lx\n",
++			res.a1, res.a2);
++		mtk_ccci_dump_timeout_state(ccci);
 +		ccci->state = MTK_CCCI_STATE_FAILED;
 +		return;
 +	}
@@ -1465,6 +1549,8 @@ index 000000000..cc00042b7
 +
 +	ccci->scpsys = syscon_regmap_lookup_by_phandle_optional(pdev->dev.of_node,
 +								"mediatek,scpsys");
++	ccci->infracfg = syscon_regmap_lookup_by_phandle_optional(pdev->dev.of_node,
++								  "mediatek,infracfg");
 +	of_property_read_u32(pdev->dev.of_node, "mediatek,srclken-o1", &ccci->srclken_o1);
 +	of_property_read_u32(pdev->dev.of_node, "mediatek,power-flow-config",
 +			     &ccci->power_flow_config);
@@ -1518,10 +1604,8 @@ index 000000000..cc00042b7
 +	if (ret)
 +		return dev_err_probe(&pdev->dev, ret, "failed to enable CCIF clocks\n");
 +
-+	/* Reset CCIF0 pending flags, enable concurrent mode, clear 512B SRAM */
++	/* Clear pending CCIF0 flags before requesting IRQs */
 +	writel(0xffffffff, ccci->ccif_ap_base + APCCIF_ACK);
-+	writel(0x01, ccci->ccif_ap_base + APCCIF_CON);
-+	mtk_ccif_sram_clear(ccci);
 +
 +	ret = devm_request_irq(&pdev->dev, ccci->ccif_irq0, mtk_ccci_ccif_irq0,
 +			       IRQF_TRIGGER_HIGH | IRQF_NO_AUTOEN,
@@ -1593,7 +1677,7 @@ index 000000000..cc00042b7
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_ringbuf.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_ringbuf.c
 new file mode 100644
-index 000000000..f4a49fae1
+index 0000000..f4a49fa
 --- /dev/null
 +++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_ringbuf.c
 @@ -0,0 +1,213 @@

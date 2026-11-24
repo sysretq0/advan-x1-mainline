@@ -15,10 +15,10 @@ subsystems:
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- .../bindings/net/mediatek,mt6789-ccci.yaml    | 131 ++++++++++++++++++
+ .../bindings/net/mediatek,mt6789-ccci.yaml    | 136 ++++++++++++++++++
  .../bindings/net/mediatek,mt6789-dpmaif.yaml  |  85 ++++++++++++
  .../soc/mediatek/mediatek,mt6789-ccif.yaml    |  83 ++++++++++++
- 3 files changed, 299 insertions(+)
+ 3 files changed, 304 insertions(+)
  create mode 100644 Documentation/devicetree/bindings/net/mediatek,mt6789-ccci.yaml
  create mode 100644 Documentation/devicetree/bindings/net/mediatek,mt6789-dpmaif.yaml
  create mode 100644 Documentation/devicetree/bindings/soc/mediatek/mediatek,mt6789-ccif.yaml
@@ -28,7 +28,7 @@ new file mode 100644
 index 000000000..111111111
 --- /dev/null
 +++ b/Documentation/devicetree/bindings/net/mediatek,mt6789-ccci.yaml
-@@ -0,0 +1,131 @@
+@@ -0,0 +1,136 @@
 +# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 +%YAML 1.2
 +---
@@ -91,6 +91,10 @@ index 000000000..111111111
 +    $ref: /schemas/types.yaml#/definitions/phandle
 +    description: Phandle to the SCPSYS syscon node for SRCLKEN O1 control
 +
++  mediatek,infracfg:
++    $ref: /schemas/types.yaml#/definitions/phandle
++    description: Phandle to the INFRACFG_AO syscon node for CCIF0 hardware reset
++
 +  mediatek,srclken-o1:
 +    $ref: /schemas/types.yaml#/definitions/uint32
 +    description: Bitmask for SPM SRCLKEN O1 modem clock request control
@@ -152,6 +156,7 @@ index 000000000..111111111
 +            mediatek,ccif-scp = <&ccif2>;
 +            mediatek,dpmaif = <&dpmaif>;
 +            mediatek,scpsys = <&scpsys>;
++            mediatek,infracfg = <&infracfg_ao>;
 +            mediatek,srclken-o1 = <0x200000>;
 +            mediatek,power-flow-config = <0x12>;
 +            memory-region = <&md_nc_smem>, <&md_c_smem>, <&ccci_tag_mem>;
