@@ -1,0 +1,1644 @@
+From 04cbaab006b51aafe5c40aed1b4a2e1b324ce2a7 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Tue, 24 Nov 2026 20:35:40 +0000
+Subject: [PATCH] net: wwan: mtk_ccci: Add DPMAIF v1 and SMEM UL WWAN data
+ plane
+
+Add the MT6789 DPMAIF v1 downlink DMA engine and SMEM uplink DRB data
+plane to mtk_ccci and expose standard Linux WWAN IP network devices
+(wwan0, ...) via wwan_register_ops().
+
+On MT6789 (dpmaif_ver=1, chip_info=6789), downlink packets arrive via
+hardware DPMAIF v1 PIT/BAT/FRG-BAT DMA rings over GIC SPI 241 (drained
+via NAPI), while uplink packets use the SMEM_USER_MD_DATA (NC_OFF_MD_DATA,
+5 MiB) 3-queue DRB ring with doorbell writes to pd-md-misc +0x1c and
+completion interrupts on CCIF0 IRQ1 bit 23 (AP_MD_DATA_NOTIFY).
+
+Start DPMAIF hardware before MD_KERNEL_BOOT_UP (matching
+BOOT_WAITING_FOR_HS1) and register WWAN netdev ops once HS2 completes
+and the modem enters MTK_CCCI_STATE_READY so wwan0 and /dev/wwan0at0
+attach under the same WWAN device. Expose dpmaif_rx_pkts, dpmaif_tx_pkts,
+and dpmaif_rx_irqs sysfs counters.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ drivers/net/wwan/Kconfig                    |    4 +-
+ drivers/net/wwan/mtk_ccci/Makefile          |    3 +-
+ drivers/net/wwan/mtk_ccci/mtk_ccci.h        |   13 +
+ drivers/net/wwan/mtk_ccci/mtk_ccci_core.c   |   57 +-
+ drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c | 1423 +++++++++++++++++++
+ 5 files changed, 1492 insertions(+), 8 deletions(-)
+ create mode 100644 drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c
+
+diff --git a/drivers/net/wwan/Kconfig b/drivers/net/wwan/Kconfig
+index 7eb5ae8ec..054ca6948 100644
+--- a/drivers/net/wwan/Kconfig
++++ b/drivers/net/wwan/Kconfig
+@@ -127,8 +127,8 @@ config MTK_CCCI
+ 	select REGMAP
+ 	help
+ 	  Enables the MediaTek MT6789 (Helio G99 / Gen95) CCCI/CCIF0 modem
+-	  boot, mailbox ringbuffer, WWAN AT control port, and sysfs telemetry
+-	  core. DPMAIF network data plane support is staged separately.
++	  boot, mailbox ringbuffer, WWAN AT control port, DPMAIF v1 + SMEM
++	  WWAN network data plane, and sysfs telemetry driver.
+ 
+ 	  To compile this driver as a module, choose M here: the module will
+ 	  be called mtk_ccci.
+diff --git a/drivers/net/wwan/mtk_ccci/Makefile b/drivers/net/wwan/mtk_ccci/Makefile
+index bf65dda7b..4b550b726 100644
+--- a/drivers/net/wwan/mtk_ccci/Makefile
++++ b/drivers/net/wwan/mtk_ccci/Makefile
+@@ -2,4 +2,5 @@
+ 
+ obj-$(CONFIG_MTK_CCCI) += mtk_ccci.o
+ 
+-mtk_ccci-y := mtk_ccci_core.o mtk_ccci_ringbuf.o mtk_ccci_rpc.o mtk_ccci_fs.o mtk_ccci_at.o
++mtk_ccci-y := mtk_ccci_core.o mtk_ccci_ringbuf.o mtk_ccci_rpc.o mtk_ccci_fs.o \
++	      mtk_ccci_at.o mtk_ccci_dpmaif.o
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci.h b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
+index aef6a87ec..46b5e5358 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci.h
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
+@@ -70,6 +70,7 @@
+ #define MTK_CCIF_D2H_EX_ALLQ_RESET	(MTK_CCIF_RINGQ_SRAM + 4)
+ #define MTK_CCIF_AP_MD_PEER_WAKEUP	(MTK_CCIF_RINGQ_SRAM + 5)
+ #define MTK_CCIF_AP_MD_SEQ_ERR		(MTK_CCIF_RINGQ_SRAM + 6)
++#define MTK_CCIF_AP_MD_DATA_NOTIFY	(MTK_CCIF_RINGQ_SRAM + 8)
+ #define MTK_CCIF_DATA_QUEUE_MASK	0x00ff
+ #define MTK_CCIF_EXP_QUEUE_MASK		0xffff0000
+ #define MTK_CCIF_RPC_QUEUE		1
+@@ -389,6 +390,7 @@ enum mtk_ccci_state {
+ };
+ 
+ struct wwan_port;
++struct mtk_ccci_dpmaif;
+ 
+ struct mtk_ccci_dev {
+ 	struct device *dev;
+@@ -470,6 +472,11 @@ struct mtk_ccci_dev {
+ 	atomic_t at_rx_count;
+ 	atomic_t at_tx_count;
+ 
++	struct mtk_ccci_dpmaif *dpmaif;
++	atomic_t dpmaif_rx_pkts;
++	atomic_t dpmaif_tx_pkts;
++	atomic_t dpmaif_rx_irqs;
++
+ 	enum mtk_ccci_state state;
+ 	atomic_t boot_triggered;
+ 	atomic_t hs1_done;
+@@ -499,4 +506,10 @@ int mtk_ccci_at_register(struct mtk_ccci_dev *ccci);
+ void mtk_ccci_at_unregister(struct mtk_ccci_dev *ccci);
+ void mtk_ccci_at_rx(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len);
+ 
++int mtk_ccci_dpmaif_init(struct mtk_ccci_dev *ccci);
++void mtk_ccci_dpmaif_uninit(struct mtk_ccci_dev *ccci);
++int mtk_ccci_dpmaif_start(struct mtk_ccci_dev *ccci);
++int mtk_ccci_dpmaif_register_wwan(struct mtk_ccci_dev *ccci);
++void mtk_ccci_dpmaif_smem_tx_irq(struct mtk_ccci_dev *ccci);
++
+ #endif /* __MTK_CCCI_H__ */
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+index 34c9d42d6..0f5257f57 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+@@ -1102,10 +1102,17 @@ static irqreturn_t mtk_ccci_ccif_irq1(int irq, void *data)
+ 	if (ack & MTK_CCIF_EXP_QUEUE_MASK) {
+ 		u32 exp = ack & MTK_CCIF_EXP_QUEUE_MASK;
+ 
+-		dev_warn_ratelimited(ccci->dev, "CCIF IRQ1 high ch mask=0x%08x\n",
+-				     exp);
+-		set_mask_bits(&ccci->pending_exp, 0, exp);
+-		schedule_work(&ccci->exp_work);
++		if (exp & BIT(MTK_CCIF_AP_MD_DATA_NOTIFY)) {
++			mtk_ccci_dpmaif_smem_tx_irq(ccci);
++			exp &= ~BIT(MTK_CCIF_AP_MD_DATA_NOTIFY);
++		}
++		if (exp) {
++			dev_warn_ratelimited(ccci->dev,
++					     "CCIF IRQ1 high ch mask=0x%08x\n",
++					     exp);
++			set_mask_bits(&ccci->pending_exp, 0, exp);
++			schedule_work(&ccci->exp_work);
++		}
+ 	}
+ 	return IRQ_HANDLED;
+ }
+@@ -1219,6 +1226,11 @@ static void mtk_ccci_boot_work(struct work_struct *work)
+ 	 */
+ 	mtk_ccif_hw_reset(ccci);
+ 
++	ret = mtk_ccci_dpmaif_start(ccci);
++	if (ret)
++		dev_warn(ccci->dev, "DPMAIF start failed (%d); continuing without IP data plane\n",
++			 ret);
++
+ 	if (ccci->vmodem) {
+ 		ret = regulator_set_voltage(ccci->vmodem, 825000, 825000);
+ 		if (ret)
+@@ -1298,8 +1310,10 @@ static void mtk_ccci_boot_work(struct work_struct *work)
+ 		return;
+ 	}
+ 
+-	if (READ_ONCE(ccci->state) == MTK_CCCI_STATE_READY)
++	if (READ_ONCE(ccci->state) == MTK_CCCI_STATE_READY) {
+ 		mtk_ccci_at_register(ccci);
++		mtk_ccci_dpmaif_register_wwan(ccci);
++	}
+ }
+ 
+ /* Read-only sysfs telemetry attributes for Gate 5.2 verification */
+@@ -1391,6 +1405,30 @@ static ssize_t at_tx_count_show(struct device *dev, struct device_attribute *att
+ }
+ static DEVICE_ATTR_RO(at_tx_count);
+ 
++static ssize_t dpmaif_rx_pkts_show(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	struct mtk_ccci_dev *ccci = dev_get_drvdata(dev);
++
++	return sysfs_emit(buf, "%d\n", atomic_read(&ccci->dpmaif_rx_pkts));
++}
++static DEVICE_ATTR_RO(dpmaif_rx_pkts);
++
++static ssize_t dpmaif_tx_pkts_show(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	struct mtk_ccci_dev *ccci = dev_get_drvdata(dev);
++
++	return sysfs_emit(buf, "%d\n", atomic_read(&ccci->dpmaif_tx_pkts));
++}
++static DEVICE_ATTR_RO(dpmaif_tx_pkts);
++
++static ssize_t dpmaif_rx_irqs_show(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	struct mtk_ccci_dev *ccci = dev_get_drvdata(dev);
++
++	return sysfs_emit(buf, "%d\n", atomic_read(&ccci->dpmaif_rx_irqs));
++}
++static DEVICE_ATTR_RO(dpmaif_rx_irqs);
++
+ static ssize_t boot_show(struct device *dev, struct device_attribute *attr, char *buf)
+ {
+ 	struct mtk_ccci_dev *ccci = dev_get_drvdata(dev);
+@@ -1435,6 +1473,9 @@ static struct attribute *mtk_ccci_attrs[] = {
+ 	&dev_attr_fs_tx_count.attr,
+ 	&dev_attr_at_rx_count.attr,
+ 	&dev_attr_at_tx_count.attr,
++	&dev_attr_dpmaif_rx_pkts.attr,
++	&dev_attr_dpmaif_tx_pkts.attr,
++	&dev_attr_dpmaif_rx_irqs.attr,
+ 	NULL,
+ };
+ ATTRIBUTE_GROUPS(mtk_ccci);
+@@ -1682,6 +1723,11 @@ static int mtk_ccci_probe(struct platform_device *pdev)
+ 		goto err_fs;
+ 	}
+ 
++	ret = mtk_ccci_dpmaif_init(ccci);
++	if (ret)
++		dev_warn(&pdev->dev, "DPMAIF init failed (%d); continuing without IP data plane\n",
++			 ret);
++
+ 	pm_runtime_enable(&pdev->dev);
+ 	mtk_ccci_park_md(ccci);
+ 
+@@ -1709,6 +1755,7 @@ static void mtk_ccci_remove(struct platform_device *pdev)
+ 		disable_irq(ccci->ccif_irq0);
+ 		disable_irq(ccci->ccif_irq1);
+ 	}
++	mtk_ccci_dpmaif_uninit(ccci);
+ 	mtk_ccci_at_unregister(ccci);
+ 	mtk_ccci_rpc_unregister(ccci);
+ 	mtk_ccci_fs_unregister(ccci);
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c
+new file mode 100644
+index 000000000..fbf1c2c59
+--- /dev/null
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c
+@@ -0,0 +1,1423 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * MediaTek MT6789 CCCI DPMAIF v1 + SMEM UL WWAN network data plane.
++ *
++ * Implements MT6789's hardware DPMAIF v1 downlink engine (PIT + BAT + FRG BAT
++ * DMA rings over GIC SPI 241 with NAPI) paired with MT6789's shared-memory
++ * uplink DRB queue in SMEM_USER_MD_DATA (NC_OFF_MD_DATA, doorbell on
++ * pd-md-misc +0x1c, completion on CCIF0 IRQ1 bit 23). Exposes standard Linux
++ * WWAN IP network devices (wwan0, ...) via wwan_register_ops().
++ *
++ * Copyright (c) 2026 sysretq0 <sysretq0@proton.me>
++ */
++
++#include <linux/atomic.h>
++#include <linux/bitfield.h>
++#include <linux/bits.h>
++#include <linux/build_bug.h>
++#include <linux/clk.h>
++#include <linux/dma-mapping.h>
++#include <linux/errno.h>
++#include <linux/if_arp.h>
++#include <linux/if_ether.h>
++#include <linux/interrupt.h>
++#include <linux/io.h>
++#include <linux/iopoll.h>
++#include <linux/netdevice.h>
++#include <linux/of.h>
++#include <linux/of_address.h>
++#include <linux/of_irq.h>
++#include <linux/regmap.h>
++#include <linux/skbuff.h>
++#include <linux/slab.h>
++#include <linux/spinlock.h>
++#include <linux/workqueue.h>
++#include <linux/wwan.h>
++#include <net/pkt_sched.h>
++
++#include "mtk_ccci.h"
++
++/* INFRACFG_AO DPMAIF wakeup control register */
++#define INFRA_DPMAIF_CTRL_REG		0x0c00
++#define INFRA_DPMAIF_IP_BUSY_MASK	GENMASK(13, 12)
++#define INFRA_DPMAIF_MD2AP_WAKE_BIT	BIT(13)
++
++/* DPMAIF v1 AO_DL registers (0x10014400) */
++#define DPMAIF_AO_DL_PKTINFO_CON0	0x0000
++#define DPMAIF_AO_DL_PKTINFO_CON1	0x0004
++#define DPMAIF_AO_DL_PKTINFO_CON2	0x0008
++#define DPMAIF_AO_DL_RDY_CHK_THRES	0x000c
++#define DPMAIF_AO_DL_BAT_STA2		0x0018
++#define DPMAIF_AO_DL_PIT_STA2		0x0028
++#define DPMAIF_AO_DL_RDY_CHK_FRG_THRES	0x0030
++
++/* DPMAIF v1 PD_UL registers (0x1022d000) */
++#define DPMAIF_PD_UL_CHNL_ARB0		0x0010
++#define DPMAIF_PD_UL_CHNL_CON0(q)	(0x0020 + 0x10 * (q))
++#define DPMAIF_PD_UL_CHNL_CON1(q)	(0x0024 + 0x10 * (q))
++
++/* DPMAIF v1 PD_DL registers (0x1022d100) */
++#define DPMAIF_PD_DL_BAT_INIT		0x0000
++#define DPMAIF_PD_DL_BAT_ADD		0x0004
++#define DPMAIF_PD_DL_BAT_INIT_CON0	0x0008
++#define DPMAIF_PD_DL_BAT_INIT_CON1	0x000c
++#define DPMAIF_PD_DL_PIT_INIT		0x0020
++#define DPMAIF_PD_DL_PIT_ADD		0x0024
++#define DPMAIF_PD_DL_PIT_INIT_CON0	0x0028
++#define DPMAIF_PD_DL_PIT_INIT_CON1	0x002c
++#define DPMAIF_PD_DL_PIT_INIT_CON3	0x0034
++
++/* DPMAIF v1 PD_MISC registers (0x1022d400) */
++#define DPMAIF_PD_AP_UL_L2TISAR0	0x0000
++#define DPMAIF_PD_AP_UL_L2TIMR0		0x0004
++#define DPMAIF_PD_AP_UL_L2TICR0		0x0008
++#define DPMAIF_PD_AP_UL_L2TISR0		0x000c
++#define DPMAIF_PD_AP_DL_L2TISAR0	0x0050
++#define DPMAIF_PD_AP_DL_L2TIMR0		0x0054
++#define DPMAIF_PD_AP_DL_L2TIMCR0	0x0058
++#define DPMAIF_PD_AP_DL_L2TIMSR0	0x005c
++#define DPMAIF_PD_AP_IP_BUSY		0x0060
++#define DPMAIF_PD_AP_DLUL_IP_BUSY_MASK	0x0064
++
++/* DPMAIF v1 PD_MD_MISC doorbell (0x1022c000) */
++#define DPMAIF_PD_MD_L1TISR0		0x001c
++#define DPMAIF_MD_SMEM_UL_DOORBELL	0x00000003U
++
++/* Register field masks */
++#define DPMAIF_DL_ADD_UPDATE		BIT(31)
++#define DPMAIF_DL_ADD_NOT_READY		BIT(31)
++#define DPMAIF_DL_BAT_FRG_ADD		BIT(16)
++
++#define DPMAIF_DL_BAT_INIT_ALLSET	BIT(0)
++#define DPMAIF_DL_BAT_FRG_INIT		BIT(16)
++#define DPMAIF_DL_BAT_INIT_EN		BIT(31)
++#define DPMAIF_DL_BAT_INIT_NOT_READY	BIT(31)
++
++#define DPMAIF_DL_PIT_INIT_ALLSET	BIT(0)
++#define DPMAIF_DL_PIT_INIT_EN		BIT(31)
++#define DPMAIF_DL_PIT_INIT_NOT_READY	BIT(31)
++
++#define DPMAIF_BAT_EN_BIT		BIT(16)
++#define DPMAIF_PIT_EN_BIT		BIT(0)
++#define DPMAIF_ADDRH_MSK		GENMASK(31, 24)
++#define DPMAIF_SIZE_MSK			GENMASK(15, 0)
++
++#define DPMAIF_BAT_BID_MAXCNT_MSK	GENMASK(31, 16)
++#define DPMAIF_BAT_REMAIN_MINSZ_MSK	GENMASK(15, 8)
++#define DPMAIF_PIT_CHK_NUM_MSK		GENMASK(31, 24)
++#define DPMAIF_BAT_BUF_SZ_MSK		GENMASK(16, 8)
++#define DPMAIF_BAT_RSV_LEN_MSK		GENMASK(7, 0)
++#define DPMAIF_CHKSUM_ON_BIT		BIT(31)
++#define DPMAIF_PKT_ALIGN_EN_BIT		BIT(23)
++#define DPMAIF_PKT_ALIGN_MSK		GENMASK(23, 22)
++#define DPMAIF_BAT_CHK_THRES_MSK	GENMASK(21, 16)
++#define DPMAIF_AO_DL_ISR_MSK		GENMASK(6, 0)
++
++#define DPMAIF_FRG_FEAT_EN_BIT		BIT(28)
++#define DPMAIF_FRG_BUF_SZ_MSK		GENMASK(15, 8)
++#define DPMAIF_FRG_CHK_THRES_MSK	GENMASK(7, 0)
++
++#define DPMAIF_UL_INT_QDONE_MSK		GENMASK(3, 0)
++#define DPMAIF_UL_INT_ERR_MSK		(GENMASK(19, 16) | GENMASK(15, 12) | GENMASK(11, 8))
++#define DPMAIF_UL_L2INTR_EN_MSK		(DPMAIF_UL_INT_QDONE_MSK | DPMAIF_UL_INT_ERR_MSK)
++
++#define DPMAIF_DL_INT_QDONE_BIT		BIT(0)
++#define DPMAIF_DL_INT_SKB_LEN_ERR	BIT(1)
++#define DPMAIF_DL_INT_MTU_ERR		BIT(6)
++#define DPMAIF_DL_L2INTR_ERR_MSK	(DPMAIF_DL_INT_SKB_LEN_ERR | DPMAIF_DL_INT_MTU_ERR)
++#define DPMAIF_DL_L2INTR_EN_MSK		(DPMAIF_DL_INT_QDONE_BIT | DPMAIF_DL_L2INTR_ERR_MSK)
++
++/* MT6789 DPMAIF v1 ring dimensions */
++#define MTK_DPMAIF_MAX_NETIF		8
++#define MTK_DPMAIF_HW_TXQ_NUM		4
++#define MTK_DPMAIF_HW_DRB_CNT		2048U
++#define MTK_DPMAIF_BAT_CNT		1024U
++#define MTK_DPMAIF_PIT_CNT		(MTK_DPMAIF_BAT_CNT * 2U)
++#define MTK_DPMAIF_PKT_SZ		(128U * 28U) /* 3584 B */
++#define MTK_DPMAIF_FRG_SZ		128U
++#define MTK_DPMAIF_HW_MTU		(3U * 1024U + 8U)
++#define MTK_DPMAIF_BAT_REMAIN		64U
++#define MTK_DPMAIF_CHK_PIT_NUM		6U
++#define MTK_DPMAIF_CHK_BAT_NUM		3U
++#define MTK_DPMAIF_CHK_FRG_NUM		3U
++
++/* MT6789 SMEM UL TX layout inside NC_OFF_MD_DATA (5 MiB) */
++#define MTK_DPMAIF_SMEM_UL_QNUM		3U
++#define MTK_DPMAIF_SMEM_UL_QSIZE	1024U
++#define MTK_DPMAIF_SMEM_SLOT_SZ		1600U
++#define MTK_DPMAIF_NAPI_BUDGET		64
++
++/* Hardware descriptor bitfield definitions */
++#define DPMAIF_PIT_PT_MASK		BIT(0)
++#define DPMAIF_PIT_CBIT_MASK		BIT(1)
++#define DPMAIF_PIT_BUFTYPE_MASK		BIT(2)
++#define DPMAIF_PIT_BID_MASK		GENMASK(15, 3)
++#define DPMAIF_PIT_LEN_MASK		GENMASK(31, 16)
++#define DPMAIF_PIT_MSG_CSUM_MASK	GENMASK(3, 2)
++#define DPMAIF_PIT_MSG_CH_MASK		GENMASK(23, 16)
++#define DPMAIF_PIT_ADDRH_MASK		GENMASK(7, 0)
++
++#define DPMAIF_DES_PT_PD		0U
++#define DPMAIF_DES_PT_MSG		1U
++
++#define DPMAIF_DRB_DTYP_MASK		GENMASK(1, 0)
++#define DPMAIF_DRB_CBIT_MASK		BIT(2)
++#define DPMAIF_DRB_ADDRH_MASK		GENMASK(15, 8)
++#define DPMAIF_DRB_LEN_MASK		GENMASK(31, 16)
++#define DPMAIF_DRB_MSG_CH_MASK		GENMASK(23, 16)
++#define DPMAIF_DRB_DTYP_PD		0U
++#define DPMAIF_DRB_DTYP_MSG		1U
++
++struct mtk_dpmaif_pit {
++	__le32 w0;
++	__le32 w1;
++	__le32 w2;
++} __packed;
++
++struct mtk_dpmaif_bat {
++	__le32 addr_lo;
++	__le32 addr_hi;
++} __packed;
++
++struct mtk_dpmaif_drb {
++	__le32 w0;
++	__le32 w1;
++} __packed;
++
++struct mtk_dpmaif_smem_qinfo {
++	u32 rd;
++	u32 wr;
++	u32 rel;
++	u32 sz;
++};
++
++struct mtk_dpmaif_bat_skb {
++	struct sk_buff *skb;
++	dma_addr_t dma;
++	u32 len;
++};
++
++struct mtk_dpmaif_bat_page {
++	struct page *page;
++	dma_addr_t dma;
++	u32 len;
++};
++
++struct mtk_dpmaif_netif {
++	struct mtk_ccci_dpmaif *dp;
++	struct net_device *ndev;
++	u32 if_id;
++};
++
++struct mtk_ccci_dpmaif {
++	struct mtk_ccci_dev *ccci;
++	struct device *dev;
++
++	void __iomem *ao_ul_base;
++	void __iomem *ao_dl_base;
++	void __iomem *pd_ul_base;
++	void __iomem *pd_dl_base;
++	void __iomem *pd_misc_base;
++	void __iomem *pd_md_misc_base;
++	void __iomem *pd_sram_base;
++
++	struct clk *clk;
++	int irq;
++	bool irq_enabled;
++	bool started;
++	bool wwan_registered;
++
++	/* DL PIT + BAT + FRG BAT DMA rings */
++	struct mtk_dpmaif_pit *pit_base;
++	dma_addr_t pit_dma;
++	u16 pit_rd_idx;
++
++	struct mtk_dpmaif_bat *bat_base;
++	dma_addr_t bat_dma;
++	struct mtk_dpmaif_bat_skb *bat_skbs;
++	u16 bat_wr_idx;
++	u16 bat_rel_idx;
++
++	struct mtk_dpmaif_bat *frg_base;
++	dma_addr_t frg_dma;
++	struct mtk_dpmaif_bat_page *frg_pages;
++	u16 frg_wr_idx;
++	u16 frg_rel_idx;
++
++	/* In-progress DL packet assembly state across PIT entries */
++	struct sk_buff *cur_skb;
++	u8 cur_chn_idx;
++	u8 cur_csum;
++
++	/* HW UL DRB rings (initialized for HW parity with stock MT6789) */
++	struct mtk_dpmaif_drb *hw_drb_base[MTK_DPMAIF_HW_TXQ_NUM];
++	dma_addr_t hw_drb_dma[MTK_DPMAIF_HW_TXQ_NUM];
++
++	/* SMEM UL SW solution in NC_OFF_MD_DATA */
++	void __iomem *smem_qinfo[MTK_DPMAIF_SMEM_UL_QNUM];
++	void __iomem *smem_drb[MTK_DPMAIF_SMEM_UL_QNUM];
++	void __iomem *smem_buf[MTK_DPMAIF_SMEM_UL_QNUM];
++	u32 smem_buf_md_pa[MTK_DPMAIF_SMEM_UL_QNUM];
++	u32 smem_buf_wr[MTK_DPMAIF_SMEM_UL_QNUM];
++	spinlock_t smem_tx_lock; /* serializes SMEM UL writes and reclaim */
++	struct work_struct smem_tx_work;
++
++	/* NAPI + WWAN netdevs */
++	struct net_device *dummy_dev;
++	struct napi_struct napi;
++	struct mtk_dpmaif_netif *netifs[MTK_DPMAIF_MAX_NETIF];
++	struct ratelimit_state err_rs;
++};
++
++static inline u32 dp_ring_next(u32 sz, u32 idx, u32 cnt)
++{
++	idx += cnt;
++	if (idx >= sz)
++		idx -= sz;
++	return idx;
++}
++
++static inline u32 dp_ring_readable(u32 sz, u32 rd, u32 wr)
++{
++	return (wr >= rd) ? (wr - rd) : (sz + wr - rd);
++}
++
++static inline u32 dp_ring_writeable(u32 sz, u32 rel, u32 wr)
++{
++	return (wr < rel) ? (rel - wr - 1) : (sz + rel - wr - 1);
++}
++
++static inline u32 dp_ring_releasable(u32 sz, u32 rel, u32 rd)
++{
++	return (rel <= rd) ? (rd - rel) : (sz + rd - rel);
++}
++
++static int dpmaif_wait_clear(void __iomem *reg, u32 mask)
++{
++	u32 val;
++
++	return readl_poll_timeout_atomic(reg, val, !(val & mask), 1, 20000);
++}
++
++static void dpmaif_set_ao_dl_isr_mask(struct mtk_ccci_dpmaif *dp, u32 mask)
++{
++	u32 val = readl(dp->ao_dl_base + DPMAIF_AO_DL_RDY_CHK_THRES);
++
++	val &= ~DPMAIF_AO_DL_ISR_MSK;
++	val |= mask & DPMAIF_AO_DL_ISR_MSK;
++	writel(val, dp->ao_dl_base + DPMAIF_AO_DL_RDY_CHK_THRES);
++}
++
++static void dpmaif_mask_dl_qdone(struct mtk_ccci_dpmaif *dp)
++{
++	u32 val;
++
++	writel(DPMAIF_DL_INT_QDONE_BIT,
++	       dp->pd_misc_base + DPMAIF_PD_AP_DL_L2TIMSR0);
++	val = readl(dp->ao_dl_base + DPMAIF_AO_DL_RDY_CHK_THRES);
++	val |= DPMAIF_DL_INT_QDONE_BIT;
++	dpmaif_set_ao_dl_isr_mask(dp, val);
++}
++
++static void dpmaif_unmask_dl_qdone(struct mtk_ccci_dpmaif *dp)
++{
++	u32 val;
++
++	writel(DPMAIF_DL_INT_QDONE_BIT,
++	       dp->pd_misc_base + DPMAIF_PD_AP_DL_L2TIMCR0);
++	val = readl(dp->ao_dl_base + DPMAIF_AO_DL_RDY_CHK_THRES);
++	val &= ~DPMAIF_DL_INT_QDONE_BIT;
++	dpmaif_set_ao_dl_isr_mask(dp, val);
++}
++
++static int dpmaif_dl_add_bat_cnt(struct mtk_ccci_dpmaif *dp, u16 cnt, bool frg)
++{
++	u32 cmd = (cnt & 0xffffU) | DPMAIF_DL_ADD_UPDATE;
++	int ret;
++
++	if (!cnt)
++		return 0;
++	if (frg)
++		cmd |= DPMAIF_DL_BAT_FRG_ADD;
++
++	ret = dpmaif_wait_clear(dp->pd_dl_base + DPMAIF_PD_DL_BAT_ADD,
++				DPMAIF_DL_ADD_NOT_READY);
++	if (ret)
++		return ret;
++
++	writel(cmd, dp->pd_dl_base + DPMAIF_PD_DL_BAT_ADD);
++	return dpmaif_wait_clear(dp->pd_dl_base + DPMAIF_PD_DL_BAT_ADD,
++				 DPMAIF_DL_ADD_NOT_READY);
++}
++
++static int dpmaif_dl_add_pit_cnt(struct mtk_ccci_dpmaif *dp, u16 cnt)
++{
++	u32 cmd = (cnt & 0xffffU) | DPMAIF_DL_ADD_UPDATE;
++	int ret;
++
++	if (!cnt)
++		return 0;
++
++	ret = dpmaif_wait_clear(dp->pd_dl_base + DPMAIF_PD_DL_PIT_ADD,
++				DPMAIF_DL_ADD_NOT_READY);
++	if (ret)
++		return ret;
++
++	writel(cmd, dp->pd_dl_base + DPMAIF_PD_DL_PIT_ADD);
++	return dpmaif_wait_clear(dp->pd_dl_base + DPMAIF_PD_DL_PIT_ADD,
++				 DPMAIF_DL_ADD_NOT_READY);
++}
++
++static int dpmaif_dl_bat_init_cmd(struct mtk_ccci_dpmaif *dp, u32 flags)
++{
++	int ret;
++
++	ret = dpmaif_wait_clear(dp->pd_dl_base + DPMAIF_PD_DL_BAT_INIT,
++				DPMAIF_DL_BAT_INIT_NOT_READY);
++	if (ret)
++		return ret;
++
++	writel(flags | DPMAIF_DL_BAT_INIT_EN,
++	       dp->pd_dl_base + DPMAIF_PD_DL_BAT_INIT);
++	return dpmaif_wait_clear(dp->pd_dl_base + DPMAIF_PD_DL_BAT_INIT,
++				 DPMAIF_DL_BAT_INIT_NOT_READY);
++}
++
++static int dpmaif_dl_pit_init_cmd(struct mtk_ccci_dpmaif *dp, u32 flags)
++{
++	int ret;
++
++	ret = dpmaif_wait_clear(dp->pd_dl_base + DPMAIF_PD_DL_PIT_INIT,
++				DPMAIF_DL_PIT_INIT_NOT_READY);
++	if (ret)
++		return ret;
++
++	writel(flags | DPMAIF_DL_PIT_INIT_EN,
++	       dp->pd_dl_base + DPMAIF_PD_DL_PIT_INIT);
++	return dpmaif_wait_clear(dp->pd_dl_base + DPMAIF_PD_DL_PIT_INIT,
++				 DPMAIF_DL_PIT_INIT_NOT_READY);
++}
++
++static int dpmaif_dl_bat_enable(struct mtk_ccci_dpmaif *dp, bool enable,
++				bool frg)
++{
++	u32 val = readl(dp->pd_dl_base + DPMAIF_PD_DL_BAT_INIT_CON1);
++
++	if (enable)
++		val |= DPMAIF_BAT_EN_BIT;
++	else
++		val &= ~DPMAIF_BAT_EN_BIT;
++	writel(val, dp->pd_dl_base + DPMAIF_PD_DL_BAT_INIT_CON1);
++
++	return dpmaif_dl_bat_init_cmd(dp, frg ? DPMAIF_DL_BAT_FRG_INIT : 0);
++}
++
++static int dpmaif_alloc_bat_skbs(struct mtk_ccci_dpmaif *dp, u32 cnt, gfp_t gfp)
++{
++	u32 i, space;
++	u16 idx;
++
++	space = dp_ring_writeable(MTK_DPMAIF_BAT_CNT, dp->bat_rel_idx,
++				  dp->bat_wr_idx);
++	if (cnt > space)
++		return -ENOSPC;
++
++	idx = dp->bat_wr_idx;
++	for (i = 0; i < cnt; i++) {
++		struct sk_buff *skb;
++		dma_addr_t dma;
++
++		skb = __dev_alloc_skb(MTK_DPMAIF_PKT_SZ, gfp);
++		if (!skb)
++			return -ENOMEM;
++
++		dma = dma_map_single(dp->dev, skb->data, MTK_DPMAIF_PKT_SZ,
++				     DMA_FROM_DEVICE);
++		if (dma_mapping_error(dp->dev, dma)) {
++			dev_kfree_skb_any(skb);
++			return -ENOMEM;
++		}
++
++		dp->bat_base[idx].addr_lo = cpu_to_le32(lower_32_bits(dma));
++		dp->bat_base[idx].addr_hi = cpu_to_le32(upper_32_bits(dma) & 0xffU);
++		dp->bat_skbs[idx].skb = skb;
++		dp->bat_skbs[idx].dma = dma;
++		dp->bat_skbs[idx].len = MTK_DPMAIF_PKT_SZ;
++		idx = dp_ring_next(MTK_DPMAIF_BAT_CNT, idx, 1);
++	}
++
++	/* Ensure BAT descriptor writes complete before HW doorbell */
++	wmb();
++	dp->bat_wr_idx = idx;
++	return 0;
++}
++
++static int dpmaif_alloc_frg_pages(struct mtk_ccci_dpmaif *dp, u32 cnt, gfp_t gfp)
++{
++	u32 i, space;
++	u16 idx;
++
++	space = dp_ring_writeable(MTK_DPMAIF_BAT_CNT, dp->frg_rel_idx,
++				  dp->frg_wr_idx);
++	if (cnt > space)
++		return -ENOSPC;
++
++	idx = dp->frg_wr_idx;
++	for (i = 0; i < cnt; i++) {
++		struct page *page;
++		dma_addr_t dma;
++
++		page = alloc_page(gfp);
++		if (!page)
++			return -ENOMEM;
++
++		dma = dma_map_page(dp->dev, page, 0, MTK_DPMAIF_FRG_SZ,
++				   DMA_FROM_DEVICE);
++		if (dma_mapping_error(dp->dev, dma)) {
++			put_page(page);
++			return -ENOMEM;
++		}
++
++		dp->frg_base[idx].addr_lo = cpu_to_le32(lower_32_bits(dma));
++		dp->frg_base[idx].addr_hi = cpu_to_le32(upper_32_bits(dma) & 0xffU);
++		dp->frg_pages[idx].page = page;
++		dp->frg_pages[idx].dma = dma;
++		dp->frg_pages[idx].len = MTK_DPMAIF_FRG_SZ;
++		idx = dp_ring_next(MTK_DPMAIF_BAT_CNT, idx, 1);
++	}
++
++	/* Ensure FRG BAT descriptor writes complete before HW doorbell */
++	wmb();
++	dp->frg_wr_idx = idx;
++	return 0;
++}
++
++static void dpmaif_free_dl_buffers(struct mtk_ccci_dpmaif *dp)
++{
++	u32 i;
++
++	if (dp->cur_skb) {
++		dev_kfree_skb_any(dp->cur_skb);
++		dp->cur_skb = NULL;
++	}
++
++	if (dp->bat_skbs) {
++		for (i = 0; i < MTK_DPMAIF_BAT_CNT; i++) {
++			if (dp->bat_skbs[i].skb) {
++				dma_unmap_single(dp->dev, dp->bat_skbs[i].dma,
++						 dp->bat_skbs[i].len,
++						 DMA_FROM_DEVICE);
++				dev_kfree_skb_any(dp->bat_skbs[i].skb);
++				dp->bat_skbs[i].skb = NULL;
++			}
++		}
++	}
++
++	if (dp->frg_pages) {
++		for (i = 0; i < MTK_DPMAIF_BAT_CNT; i++) {
++			if (dp->frg_pages[i].page) {
++				dma_unmap_page(dp->dev, dp->frg_pages[i].dma,
++					       dp->frg_pages[i].len,
++					       DMA_FROM_DEVICE);
++				put_page(dp->frg_pages[i].page);
++				dp->frg_pages[i].page = NULL;
++			}
++		}
++	}
++}
++
++static void dpmaif_deliver_skb(struct mtk_ccci_dpmaif *dp, struct sk_buff *skb)
++{
++	struct mtk_dpmaif_netif *nif = NULL;
++	struct net_device *ndev;
++	u8 ip_ver;
++	u32 len;
++
++	if (!skb->len) {
++		dev_kfree_skb_any(skb);
++		return;
++	}
++
++	if (dp->cur_chn_idx < MTK_DPMAIF_MAX_NETIF)
++		nif = READ_ONCE(dp->netifs[dp->cur_chn_idx]);
++
++	if (!nif || !netif_running(nif->ndev)) {
++		if (__ratelimit(&dp->err_rs))
++			dev_info(dp->dev, "DPMAIF RX drop ch=%u len=%u (netif %s)\n",
++				 dp->cur_chn_idx, skb->len,
++				 nif ? "down" : "unregistered");
++		dev_kfree_skb_any(skb);
++		return;
++	}
++
++	ndev = nif->ndev;
++	ip_ver = skb->data[0] >> 4;
++	if (ip_ver == 4) {
++		skb->protocol = htons(ETH_P_IP);
++	} else if (ip_ver == 6) {
++		skb->protocol = htons(ETH_P_IPV6);
++	} else {
++		ndev->stats.rx_dropped++;
++		dev_kfree_skb_any(skb);
++		return;
++	}
++
++	skb->dev = ndev;
++	len = skb->len;
++	ndev->stats.rx_packets++;
++	ndev->stats.rx_bytes += len;
++	atomic_inc(&dp->ccci->dpmaif_rx_pkts);
++	napi_gro_receive(&dp->napi, skb);
++}
++
++static int dpmaif_rx_handle_pd(struct mtk_ccci_dpmaif *dp, u32 w0, u32 w1,
++			       u32 w2, u16 *refill_bat, u16 *refill_frg)
++{
++	bool is_frag = FIELD_GET(DPMAIF_PIT_BUFTYPE_MASK, w0);
++	u16 bid = FIELD_GET(DPMAIF_PIT_BID_MASK, w0);
++	u16 data_len = FIELD_GET(DPMAIF_PIT_LEN_MASK, w0);
++	bool more = FIELD_GET(DPMAIF_PIT_CBIT_MASK, w0);
++
++	if (bid >= MTK_DPMAIF_BAT_CNT)
++		return -EINVAL;
++
++	if (!is_frag) {
++		struct mtk_dpmaif_bat_skb *bs = &dp->bat_skbs[bid];
++		struct sk_buff *skb = bs->skb;
++		u64 data_phy;
++		s64 data_off;
++
++		if (!skb)
++			return -EINVAL;
++
++		dma_unmap_single(dp->dev, bs->dma, bs->len, DMA_FROM_DEVICE);
++		bs->skb = NULL;
++
++		data_phy = ((u64)FIELD_GET(DPMAIF_PIT_ADDRH_MASK, w2) << 32) | w1;
++		data_off = (s64)(data_phy - (u64)bs->dma);
++
++		dp->bat_rel_idx = dp_ring_next(MTK_DPMAIF_BAT_CNT, bid, 1);
++		if (!dpmaif_alloc_bat_skbs(dp, 1, GFP_ATOMIC))
++			(*refill_bat)++;
++
++		if (data_off < 0 || data_off + data_len > bs->len) {
++			dev_kfree_skb_any(skb);
++			return -EPROTO;
++		}
++
++		skb_reserve(skb, (int)data_off);
++		skb_put(skb, data_len);
++		skb->ip_summed = (dp->cur_csum == 0) ?
++				 CHECKSUM_UNNECESSARY : CHECKSUM_NONE;
++
++		if (dp->cur_skb)
++			dev_kfree_skb_any(dp->cur_skb);
++		dp->cur_skb = skb;
++	} else {
++		struct mtk_dpmaif_bat_page *bp = &dp->frg_pages[bid];
++		struct page *page = bp->page;
++		u64 data_phy;
++		s64 data_off;
++
++		if (!page)
++			return -EINVAL;
++
++		dma_unmap_page(dp->dev, bp->dma, bp->len, DMA_FROM_DEVICE);
++		bp->page = NULL;
++
++		data_phy = ((u64)FIELD_GET(DPMAIF_PIT_ADDRH_MASK, w2) << 32) | w1;
++		data_off = (s64)(data_phy - (u64)bp->dma);
++
++		dp->frg_rel_idx = dp_ring_next(MTK_DPMAIF_BAT_CNT, bid, 1);
++		if (!dpmaif_alloc_frg_pages(dp, 1, GFP_ATOMIC))
++			(*refill_frg)++;
++
++		if (dp->cur_skb && data_off >= 0 &&
++		    data_off + data_len <= PAGE_SIZE &&
++		    skb_shinfo(dp->cur_skb)->nr_frags < MAX_SKB_FRAGS) {
++			skb_add_rx_frag(dp->cur_skb,
++					skb_shinfo(dp->cur_skb)->nr_frags,
++					page, (int)data_off, data_len,
++					PAGE_SIZE);
++		} else {
++			put_page(page);
++		}
++	}
++
++	if (!more && dp->cur_skb) {
++		dpmaif_deliver_skb(dp, dp->cur_skb);
++		dp->cur_skb = NULL;
++		return 1;
++	}
++
++	return 0;
++}
++
++static int mtk_dpmaif_napi_poll(struct napi_struct *napi, int budget)
++{
++	struct mtk_ccci_dpmaif *dp = container_of(napi, struct mtk_ccci_dpmaif, napi);
++	u16 pit_wr, pit_avail, pit_done = 0, refill_bat = 0, refill_frg = 0;
++	int pkts = 0;
++
++	/* Ensure hardware PIT updates are visible before reading entries */
++	dma_rmb();
++	pit_wr = readl(dp->ao_dl_base + DPMAIF_AO_DL_PIT_STA2) & 0xffffU;
++	pit_avail = dp_ring_readable(MTK_DPMAIF_PIT_CNT, dp->pit_rd_idx, pit_wr);
++
++	while (pit_done < pit_avail && pkts < budget) {
++		struct mtk_dpmaif_pit pit = dp->pit_base[dp->pit_rd_idx];
++		u32 w0 = le32_to_cpu(pit.w0);
++		u32 w1 = le32_to_cpu(pit.w1);
++		u32 w2 = le32_to_cpu(pit.w2);
++
++		if (FIELD_GET(DPMAIF_PIT_PT_MASK, w0) == DPMAIF_DES_PT_MSG) {
++			dp->cur_chn_idx = FIELD_GET(DPMAIF_PIT_MSG_CH_MASK, w0);
++			dp->cur_csum = FIELD_GET(DPMAIF_PIT_MSG_CSUM_MASK, w0);
++			if (dp->cur_skb) {
++				dev_kfree_skb_any(dp->cur_skb);
++				dp->cur_skb = NULL;
++			}
++		} else {
++			int ret = dpmaif_rx_handle_pd(dp, w0, w1, w2,
++						      &refill_bat, &refill_frg);
++			if (ret > 0)
++				pkts += ret;
++		}
++
++		dp->pit_rd_idx = dp_ring_next(MTK_DPMAIF_PIT_CNT,
++					      dp->pit_rd_idx, 1);
++		pit_done++;
++
++		if ((pit_done & 0x3fU) == 0) {
++			dpmaif_dl_add_bat_cnt(dp, refill_frg, true);
++			dpmaif_dl_add_bat_cnt(dp, refill_bat, false);
++			dpmaif_dl_add_pit_cnt(dp, 64);
++			refill_frg = 0;
++			refill_bat = 0;
++		}
++	}
++
++	if (refill_frg)
++		dpmaif_dl_add_bat_cnt(dp, refill_frg, true);
++	if (refill_bat)
++		dpmaif_dl_add_bat_cnt(dp, refill_bat, false);
++	if (pit_done & 0x3fU)
++		dpmaif_dl_add_pit_cnt(dp, pit_done & 0x3fU);
++
++	if (pkts < budget) {
++		napi_complete_done(napi, pkts);
++		dpmaif_unmask_dl_qdone(dp);
++	}
++
++	return pkts;
++}
++
++static irqreturn_t mtk_dpmaif_irq(int irq, void *data)
++{
++	struct mtk_ccci_dpmaif *dp = data;
++	u32 dl_isr, dl_imr, ul_isr, ul_imr, busy;
++
++	dl_isr = readl(dp->pd_misc_base + DPMAIF_PD_AP_DL_L2TISAR0);
++	dl_imr = readl(dp->pd_misc_base + DPMAIF_PD_AP_DL_L2TIMR0);
++	ul_isr = readl(dp->pd_misc_base + DPMAIF_PD_AP_UL_L2TISAR0);
++	ul_imr = readl(dp->pd_misc_base + DPMAIF_PD_AP_UL_L2TIMR0);
++
++	busy = readl(dp->pd_misc_base + DPMAIF_PD_AP_IP_BUSY);
++	if (busy)
++		writel(busy, dp->pd_misc_base + DPMAIF_PD_AP_IP_BUSY);
++
++	if (ul_isr) {
++		ul_isr &= ~ul_imr;
++		if (ul_isr)
++			writel(ul_isr, dp->pd_misc_base + DPMAIF_PD_AP_UL_L2TISAR0);
++	}
++
++	if (dl_isr) {
++		dl_isr &= ~dl_imr;
++		if (dl_isr) {
++			if ((dl_isr & DPMAIF_DL_L2INTR_ERR_MSK) &&
++			    __ratelimit(&dp->err_rs))
++				dev_warn(dp->dev, "DPMAIF DL error IRQ: 0x%08x\n",
++					 dl_isr);
++
++			writel(dl_isr, dp->pd_misc_base + DPMAIF_PD_AP_DL_L2TISAR0);
++
++			if (dl_isr & DPMAIF_DL_INT_QDONE_BIT) {
++				dpmaif_mask_dl_qdone(dp);
++				atomic_inc(&dp->ccci->dpmaif_rx_irqs);
++				napi_schedule(&dp->napi);
++			}
++		}
++	}
++
++	return IRQ_HANDLED;
++}
++
++/* SMEM UL TX ring management (MT6789 tx_sw_solution in NC_OFF_MD_DATA) */
++static u32 dpmaif_smem_reclaim_locked(struct mtk_ccci_dpmaif *dp, u32 q)
++{
++	void __iomem *qinfo = dp->smem_qinfo[q];
++	u32 rd, rel, sz, freed;
++
++	/* Observe MD rd pointer updates before reclaiming SMEM slots */
++	dma_rmb();
++	rd = readl(qinfo + offsetof(struct mtk_dpmaif_smem_qinfo, rd));
++	rel = readl(qinfo + offsetof(struct mtk_dpmaif_smem_qinfo, rel));
++	sz = readl(qinfo + offsetof(struct mtk_dpmaif_smem_qinfo, sz));
++	if (!sz || rd >= sz || rel >= sz)
++		return 0;
++
++	freed = dp_ring_releasable(sz, rel, rd);
++	if (!freed)
++		return 0;
++
++	writel(rd, qinfo + offsetof(struct mtk_dpmaif_smem_qinfo, rel));
++	/* Flush updated rel pointer to non-cacheable SMEM */
++	wmb();
++	return freed;
++}
++
++static void dpmaif_wake_netifs(struct mtk_ccci_dpmaif *dp)
++{
++	u32 i;
++
++	for (i = 0; i < MTK_DPMAIF_MAX_NETIF; i++) {
++		struct mtk_dpmaif_netif *nif = READ_ONCE(dp->netifs[i]);
++
++		if (nif && netif_queue_stopped(nif->ndev))
++			netif_wake_queue(nif->ndev);
++	}
++}
++
++static void mtk_dpmaif_smem_tx_work(struct work_struct *work)
++{
++	struct mtk_ccci_dpmaif *dp =
++		container_of(work, struct mtk_ccci_dpmaif, smem_tx_work);
++	unsigned long flags;
++	u32 q, total = 0;
++
++	spin_lock_irqsave(&dp->smem_tx_lock, flags);
++	for (q = 0; q < MTK_DPMAIF_SMEM_UL_QNUM; q++)
++		total += dpmaif_smem_reclaim_locked(dp, q);
++	spin_unlock_irqrestore(&dp->smem_tx_lock, flags);
++
++	if (total)
++		dpmaif_wake_netifs(dp);
++}
++
++void mtk_ccci_dpmaif_smem_tx_irq(struct mtk_ccci_dev *ccci)
++{
++	struct mtk_ccci_dpmaif *dp = ccci->dpmaif;
++
++	if (dp && dp->started)
++		schedule_work(&dp->smem_tx_work);
++}
++
++static netdev_tx_t mtk_dpmaif_start_xmit(struct sk_buff *skb,
++					 struct net_device *ndev)
++{
++	struct mtk_dpmaif_netif *nif = wwan_netdev_drvpriv(ndev);
++	struct mtk_ccci_dpmaif *dp = nif->dp;
++	struct mtk_dpmaif_drb msg_drb, pd_drb;
++	void __iomem *qinfo = dp->smem_qinfo[0];
++	void __iomem *drb_base = dp->smem_drb[0];
++	unsigned long flags;
++	u32 wr, rel, sz, next_idx, buf_idx, pkt_len;
++	u64 buf_md_pa;
++
++	if (READ_ONCE(dp->ccci->state) != MTK_CCCI_STATE_READY || !dp->started) {
++		dev_kfree_skb_any(skb);
++		ndev->stats.tx_dropped++;
++		return NETDEV_TX_OK;
++	}
++
++	if (!skb->len || skb->len > MTK_DPMAIF_SMEM_SLOT_SZ) {
++		dev_kfree_skb_any(skb);
++		ndev->stats.tx_dropped++;
++		return NETDEV_TX_OK;
++	}
++
++	if (skb_linearize(skb)) {
++		dev_kfree_skb_any(skb);
++		ndev->stats.tx_dropped++;
++		return NETDEV_TX_OK;
++	}
++
++	pkt_len = skb->len;
++
++	spin_lock_irqsave(&dp->smem_tx_lock, flags);
++
++	dpmaif_smem_reclaim_locked(dp, 0);
++
++	wr = readl(qinfo + offsetof(struct mtk_dpmaif_smem_qinfo, wr));
++	rel = readl(qinfo + offsetof(struct mtk_dpmaif_smem_qinfo, rel));
++	sz = readl(qinfo + offsetof(struct mtk_dpmaif_smem_qinfo, sz));
++
++	if (dp_ring_writeable(sz, rel, wr) < 2) {
++		netif_stop_queue(ndev);
++		spin_unlock_irqrestore(&dp->smem_tx_lock, flags);
++		return NETDEV_TX_BUSY;
++	}
++
++	buf_idx = dp->smem_buf_wr[0];
++	dp->smem_buf_wr[0] = dp_ring_next(MTK_DPMAIF_SMEM_UL_QSIZE, buf_idx, 1);
++
++	memcpy_toio(dp->smem_buf[0] + buf_idx * MTK_DPMAIF_SMEM_SLOT_SZ,
++		    skb->data, pkt_len);
++	buf_md_pa = (u64)dp->smem_buf_md_pa[0] +
++		    (u64)buf_idx * MTK_DPMAIF_SMEM_SLOT_SZ;
++
++	msg_drb.w0 = cpu_to_le32(FIELD_PREP(DPMAIF_DRB_DTYP_MASK, DPMAIF_DRB_DTYP_MSG) |
++				 FIELD_PREP(DPMAIF_DRB_CBIT_MASK, 1) |
++				 FIELD_PREP(DPMAIF_DRB_LEN_MASK, pkt_len));
++	msg_drb.w1 = cpu_to_le32(FIELD_PREP(DPMAIF_DRB_MSG_CH_MASK, nif->if_id));
++	memcpy_toio(drb_base + wr * sizeof(msg_drb), &msg_drb, sizeof(msg_drb));
++
++	next_idx = dp_ring_next(sz, wr, 1);
++	pd_drb.w0 = cpu_to_le32(FIELD_PREP(DPMAIF_DRB_DTYP_MASK, DPMAIF_DRB_DTYP_PD) |
++				FIELD_PREP(DPMAIF_DRB_CBIT_MASK, 0) |
++				FIELD_PREP(DPMAIF_DRB_ADDRH_MASK,
++					   upper_32_bits(buf_md_pa) & 0xffU) |
++				FIELD_PREP(DPMAIF_DRB_LEN_MASK, pkt_len));
++	pd_drb.w1 = cpu_to_le32(lower_32_bits(buf_md_pa));
++	memcpy_toio(drb_base + next_idx * sizeof(pd_drb), &pd_drb, sizeof(pd_drb));
++
++	/* Ensure payload and DRB descriptors are visible before advancing wr */
++	wmb();
++	writel(dp_ring_next(sz, next_idx, 1),
++	       qinfo + offsetof(struct mtk_dpmaif_smem_qinfo, wr));
++	/* Flush wr pointer before ringing MD doorbell */
++	wmb();
++	writel(DPMAIF_MD_SMEM_UL_DOORBELL,
++	       dp->pd_md_misc_base + DPMAIF_PD_MD_L1TISR0);
++
++	spin_unlock_irqrestore(&dp->smem_tx_lock, flags);
++
++	ndev->stats.tx_packets++;
++	ndev->stats.tx_bytes += pkt_len;
++	atomic_inc(&dp->ccci->dpmaif_tx_pkts);
++	dev_consume_skb_any(skb);
++
++	return NETDEV_TX_OK;
++}
++
++static int mtk_dpmaif_net_open(struct net_device *ndev)
++{
++	netif_carrier_on(ndev);
++	netif_start_queue(ndev);
++	return 0;
++}
++
++static int mtk_dpmaif_net_stop(struct net_device *ndev)
++{
++	netif_stop_queue(ndev);
++	netif_carrier_off(ndev);
++	return 0;
++}
++
++static const struct net_device_ops mtk_dpmaif_netdev_ops = {
++	.ndo_open = mtk_dpmaif_net_open,
++	.ndo_stop = mtk_dpmaif_net_stop,
++	.ndo_start_xmit = mtk_dpmaif_start_xmit,
++};
++
++static void mtk_dpmaif_wwan_setup(struct net_device *ndev)
++{
++	ndev->mtu = ETH_DATA_LEN;
++	ndev->max_mtu = ETH_DATA_LEN;
++	ndev->tx_queue_len = DEFAULT_TX_QUEUE_LEN;
++	ndev->flags = IFF_POINTOPOINT | IFF_NOARP;
++	ndev->type = ARPHRD_NONE;
++	ndev->features = NETIF_F_VLAN_CHALLENGED | NETIF_F_RXCSUM | NETIF_F_GRO;
++	ndev->hw_features = NETIF_F_RXCSUM | NETIF_F_GRO;
++	ndev->needs_free_netdev = true;
++	ndev->netdev_ops = &mtk_dpmaif_netdev_ops;
++}
++
++static int mtk_dpmaif_wwan_newlink(void *ctxt, struct net_device *ndev,
++				   u32 if_id, struct netlink_ext_ack *extack)
++{
++	struct mtk_ccci_dpmaif *dp = ctxt;
++	struct mtk_dpmaif_netif *nif;
++	int ret;
++
++	if (if_id >= MTK_DPMAIF_MAX_NETIF)
++		return -EINVAL;
++	if (READ_ONCE(dp->netifs[if_id]))
++		return -EEXIST;
++
++	nif = wwan_netdev_drvpriv(ndev);
++	nif->dp = dp;
++	nif->ndev = ndev;
++	nif->if_id = if_id;
++	WRITE_ONCE(dp->netifs[if_id], nif);
++
++	ret = register_netdevice(ndev);
++	if (ret) {
++		WRITE_ONCE(dp->netifs[if_id], NULL);
++		return ret;
++	}
++
++	netif_device_attach(ndev);
++	return 0;
++}
++
++static void mtk_dpmaif_wwan_dellink(void *ctxt, struct net_device *ndev,
++				    struct list_head *head)
++{
++	struct mtk_dpmaif_netif *nif = wwan_netdev_drvpriv(ndev);
++	struct mtk_ccci_dpmaif *dp = ctxt;
++
++	if (nif->if_id < MTK_DPMAIF_MAX_NETIF &&
++	    READ_ONCE(dp->netifs[nif->if_id]) == nif)
++		WRITE_ONCE(dp->netifs[nif->if_id], NULL);
++
++	unregister_netdevice_queue(ndev, head);
++}
++
++static const struct wwan_ops mtk_dpmaif_wwan_ops = {
++	.priv_size = sizeof(struct mtk_dpmaif_netif),
++	.setup = mtk_dpmaif_wwan_setup,
++	.newlink = mtk_dpmaif_wwan_newlink,
++	.dellink = mtk_dpmaif_wwan_dellink,
++};
++
++static int dpmaif_intr_hw_init(struct mtk_ccci_dpmaif *dp)
++{
++	int ret;
++
++	/* UL L2 interrupts */
++	writel(0xffffffffU, dp->pd_misc_base + DPMAIF_PD_AP_UL_L2TISAR0);
++	writel(DPMAIF_UL_L2INTR_EN_MSK,
++	       dp->pd_misc_base + DPMAIF_PD_AP_UL_L2TICR0);
++	writel(~(u32)DPMAIF_UL_L2INTR_EN_MSK,
++	       dp->pd_misc_base + DPMAIF_PD_AP_UL_L2TISR0);
++
++	ret = dpmaif_wait_clear(dp->pd_misc_base + DPMAIF_PD_AP_UL_L2TIMR0,
++				DPMAIF_UL_L2INTR_EN_MSK);
++	if (ret)
++		return ret;
++
++	/* DL L2 interrupts */
++	writel(0xffffffffU, dp->pd_misc_base + DPMAIF_PD_AP_DL_L2TISAR0);
++	writel(DPMAIF_DL_L2INTR_EN_MSK,
++	       dp->pd_misc_base + DPMAIF_PD_AP_DL_L2TIMCR0);
++	writel(~(u32)DPMAIF_DL_L2INTR_EN_MSK,
++	       dp->pd_misc_base + DPMAIF_PD_AP_DL_L2TIMSR0);
++	dpmaif_set_ao_dl_isr_mask(dp, ~(u32)DPMAIF_DL_L2INTR_EN_MSK);
++
++	ret = dpmaif_wait_clear(dp->pd_misc_base + DPMAIF_PD_AP_DL_L2TIMR0,
++				DPMAIF_DL_L2INTR_EN_MSK);
++	if (ret)
++		return ret;
++
++	writel(0xffffffffU, dp->pd_misc_base + DPMAIF_PD_AP_IP_BUSY);
++	writel(0, dp->pd_misc_base + DPMAIF_PD_AP_DLUL_IP_BUSY_MASK);
++	return 0;
++}
++
++static int dpmaif_rx_hw_init(struct mtk_ccci_dpmaif *dp)
++{
++	u32 val;
++	int ret;
++
++	/* BAT/PIT parameters in AO_DL */
++	val = readl(dp->ao_dl_base + DPMAIF_AO_DL_PKTINFO_CON0);
++	val &= ~(DPMAIF_BAT_REMAIN_MINSZ_MSK | DPMAIF_BAT_BID_MAXCNT_MSK);
++	val |= FIELD_PREP(DPMAIF_BAT_REMAIN_MINSZ_MSK, MTK_DPMAIF_BAT_REMAIN / 16U) |
++	       FIELD_PREP(DPMAIF_BAT_BID_MAXCNT_MSK, 1);
++	writel(val, dp->ao_dl_base + DPMAIF_AO_DL_PKTINFO_CON0);
++
++	writel(MTK_DPMAIF_HW_MTU, dp->ao_dl_base + DPMAIF_AO_DL_PKTINFO_CON1);
++
++	val = readl(dp->ao_dl_base + DPMAIF_AO_DL_PKTINFO_CON2);
++	val &= ~(DPMAIF_PIT_CHK_NUM_MSK | DPMAIF_BAT_BUF_SZ_MSK |
++		 DPMAIF_BAT_RSV_LEN_MSK);
++	val |= FIELD_PREP(DPMAIF_PIT_CHK_NUM_MSK, MTK_DPMAIF_CHK_PIT_NUM) |
++	       FIELD_PREP(DPMAIF_BAT_BUF_SZ_MSK, MTK_DPMAIF_PKT_SZ / 128U) |
++	       FIELD_PREP(DPMAIF_BAT_RSV_LEN_MSK, 0);
++	writel(val, dp->ao_dl_base + DPMAIF_AO_DL_PKTINFO_CON2);
++
++	val = readl(dp->ao_dl_base + DPMAIF_AO_DL_RDY_CHK_THRES);
++	val &= ~(DPMAIF_PKT_ALIGN_MSK | DPMAIF_BAT_CHK_THRES_MSK);
++	val |= DPMAIF_PKT_ALIGN_EN_BIT |
++	       FIELD_PREP(DPMAIF_BAT_CHK_THRES_MSK, MTK_DPMAIF_CHK_BAT_NUM) |
++	       DPMAIF_CHKSUM_ON_BIT;
++	writel(val, dp->ao_dl_base + DPMAIF_AO_DL_RDY_CHK_THRES);
++
++	/* Main BAT base/size (disabled until initial buffers are submitted) */
++	writel(lower_32_bits(dp->bat_dma),
++	       dp->pd_dl_base + DPMAIF_PD_DL_BAT_INIT_CON0);
++	val = FIELD_PREP(DPMAIF_ADDRH_MSK, upper_32_bits(dp->bat_dma) & 0xffU) |
++	      FIELD_PREP(DPMAIF_SIZE_MSK, MTK_DPMAIF_BAT_CNT);
++	writel(val, dp->pd_dl_base + DPMAIF_PD_DL_BAT_INIT_CON1);
++
++	/* PIT base/size + enable */
++	writel(lower_32_bits(dp->pit_dma),
++	       dp->pd_dl_base + DPMAIF_PD_DL_PIT_INIT_CON0);
++	val = FIELD_PREP(DPMAIF_ADDRH_MSK, upper_32_bits(dp->pit_dma) & 0xffU) |
++	      FIELD_PREP(DPMAIF_SIZE_MSK, MTK_DPMAIF_PIT_CNT);
++	writel(val, dp->pd_dl_base + DPMAIF_PD_DL_PIT_INIT_CON1);
++
++	val = readl(dp->pd_dl_base + DPMAIF_PD_DL_PIT_INIT_CON3);
++	val |= DPMAIF_PIT_EN_BIT;
++	writel(val, dp->pd_dl_base + DPMAIF_PD_DL_PIT_INIT_CON3);
++
++	ret = dpmaif_dl_bat_init_cmd(dp, DPMAIF_DL_BAT_INIT_ALLSET);
++	if (ret)
++		return ret;
++	ret = dpmaif_dl_pit_init_cmd(dp, DPMAIF_DL_PIT_INIT_ALLSET);
++	if (ret)
++		return ret;
++
++	/* Fragment BAT configuration (HW_FRG_FEATURE_ENABLE) */
++	val = readl(dp->ao_dl_base + DPMAIF_AO_DL_RDY_CHK_FRG_THRES);
++	val &= ~(DPMAIF_FRG_FEAT_EN_BIT | DPMAIF_FRG_BUF_SZ_MSK |
++		 DPMAIF_FRG_CHK_THRES_MSK);
++	val |= DPMAIF_FRG_FEAT_EN_BIT |
++	       FIELD_PREP(DPMAIF_FRG_BUF_SZ_MSK, MTK_DPMAIF_FRG_SZ / 128U) |
++	       FIELD_PREP(DPMAIF_FRG_CHK_THRES_MSK, MTK_DPMAIF_CHK_FRG_NUM);
++	writel(val, dp->ao_dl_base + DPMAIF_AO_DL_RDY_CHK_FRG_THRES);
++
++	writel(lower_32_bits(dp->frg_dma),
++	       dp->pd_dl_base + DPMAIF_PD_DL_BAT_INIT_CON0);
++	val = FIELD_PREP(DPMAIF_ADDRH_MSK, upper_32_bits(dp->frg_dma) & 0xffU) |
++	      FIELD_PREP(DPMAIF_SIZE_MSK, MTK_DPMAIF_BAT_CNT);
++	writel(val, dp->pd_dl_base + DPMAIF_PD_DL_BAT_INIT_CON1);
++
++	return dpmaif_dl_bat_init_cmd(dp, DPMAIF_DL_BAT_INIT_ALLSET |
++					  DPMAIF_DL_BAT_FRG_INIT);
++}
++
++static void dpmaif_tx_hw_init(struct mtk_ccci_dpmaif *dp)
++{
++	u32 q, arb;
++
++	for (q = 0; q < MTK_DPMAIF_HW_TXQ_NUM; q++) {
++		u32 words = (MTK_DPMAIF_HW_DRB_CNT * sizeof(struct mtk_dpmaif_drb)) / 4U;
++		u32 con1;
++
++		writel(lower_32_bits(dp->hw_drb_dma[q]),
++		       dp->pd_ul_base + DPMAIF_PD_UL_CHNL_CON0(q));
++		con1 = FIELD_PREP(DPMAIF_ADDRH_MSK,
++				  upper_32_bits(dp->hw_drb_dma[q]) & 0xffU) |
++		       FIELD_PREP(DPMAIF_SIZE_MSK, words);
++		writel(con1, dp->pd_ul_base + DPMAIF_PD_UL_CHNL_CON1(q));
++
++		arb = readl(dp->pd_ul_base + DPMAIF_PD_UL_CHNL_ARB0);
++		arb |= BIT(q) | BIT(q + 8);
++		writel(arb, dp->pd_ul_base + DPMAIF_PD_UL_CHNL_ARB0);
++	}
++}
++
++static void dpmaif_init_smem_ul(struct mtk_ccci_dpmaif *dp)
++{
++	void __iomem *base = dp->ccci->nc_smem_virt + NC_OFF_MD_DATA;
++	u32 md_pa = MTK_MD_NC_SMEM_MD_BASE + NC_OFF_MD_DATA;
++	u32 pos = 0, i;
++
++	memset_io(base, 0, NC_SZ_MD_DATA);
++
++	for (i = 0; i < MTK_DPMAIF_SMEM_UL_QNUM; i++) {
++		dp->smem_qinfo[i] = base + pos;
++		writel(MTK_DPMAIF_SMEM_UL_QSIZE,
++		       dp->smem_qinfo[i] +
++		       offsetof(struct mtk_dpmaif_smem_qinfo, sz));
++		dp->smem_buf_wr[i] = 0;
++		pos += sizeof(struct mtk_dpmaif_smem_qinfo);
++	}
++
++	for (i = 0; i < MTK_DPMAIF_SMEM_UL_QNUM; i++) {
++		dp->smem_drb[i] = base + pos;
++		pos += MTK_DPMAIF_SMEM_UL_QSIZE * sizeof(struct mtk_dpmaif_drb) * 2U;
++	}
++
++	for (i = 0; i < MTK_DPMAIF_SMEM_UL_QNUM; i++) {
++		dp->smem_buf[i] = base + pos;
++		dp->smem_buf_md_pa[i] = md_pa + pos;
++		pos += MTK_DPMAIF_SMEM_UL_QSIZE * MTK_DPMAIF_SMEM_SLOT_SZ;
++	}
++
++	/* Ensure SMEM UL layout is visible to MD before handshake */
++	wmb();
++	dev_info(dp->dev, "DPMAIF SMEM UL ready: used=0x%x/%u B md_pa=0x%08x\n",
++		 pos, NC_SZ_MD_DATA, md_pa);
++}
++
++int mtk_ccci_dpmaif_start(struct mtk_ccci_dev *ccci)
++{
++	struct mtk_ccci_dpmaif *dp = ccci->dpmaif;
++	int ret;
++
++	if (!dp || dp->started)
++		return 0;
++
++	dpmaif_init_smem_ul(dp);
++
++	if (ccci->infracfg) {
++		regmap_update_bits(ccci->infracfg, INFRA_DPMAIF_CTRL_REG,
++				   INFRA_DPMAIF_IP_BUSY_MASK,
++				   INFRA_DPMAIF_IP_BUSY_MASK);
++		regmap_update_bits(ccci->infracfg, INFRA_DPMAIF_CTRL_REG,
++				   INFRA_DPMAIF_MD2AP_WAKE_BIT, 0);
++	}
++
++	ret = clk_prepare_enable(dp->clk);
++	if (ret) {
++		dev_err(dp->dev, "failed to enable dpmaif clk: %d\n", ret);
++		return ret;
++	}
++
++	ret = dpmaif_intr_hw_init(dp);
++	if (ret) {
++		dev_err(dp->dev, "DPMAIF intr hw init failed: %d\n", ret);
++		goto err_clk;
++	}
++
++	dp->pit_rd_idx = 0;
++	dp->bat_wr_idx = 0;
++	dp->bat_rel_idx = 0;
++	dp->frg_wr_idx = 0;
++	dp->frg_rel_idx = 0;
++
++	ret = dpmaif_rx_hw_init(dp);
++	if (ret) {
++		dev_err(dp->dev, "DPMAIF rx hw init failed: %d\n", ret);
++		goto err_clk;
++	}
++
++	ret = dpmaif_alloc_bat_skbs(dp, MTK_DPMAIF_BAT_CNT - 1, GFP_KERNEL);
++	if (ret)
++		goto err_bufs;
++
++	ret = dpmaif_alloc_frg_pages(dp, MTK_DPMAIF_BAT_CNT - 1, GFP_KERNEL);
++	if (ret)
++		goto err_bufs;
++
++	ret = dpmaif_dl_add_bat_cnt(dp, MTK_DPMAIF_BAT_CNT - 1, true);
++	if (ret)
++		goto err_bufs;
++	ret = dpmaif_dl_add_bat_cnt(dp, MTK_DPMAIF_BAT_CNT - 1, false);
++	if (ret)
++		goto err_bufs;
++	ret = dpmaif_dl_bat_enable(dp, true, true);
++	if (ret)
++		goto err_bufs;
++	ret = dpmaif_dl_bat_enable(dp, true, false);
++	if (ret)
++		goto err_bufs;
++
++	dpmaif_tx_hw_init(dp);
++
++	dp->started = true;
++	napi_enable(&dp->napi);
++	enable_irq(dp->irq);
++	dp->irq_enabled = true;
++
++	dev_info(dp->dev, "DPMAIF v1 started (PIT=%u BAT=%u FRG=%u SMEM_UL=3x%u)\n",
++		 MTK_DPMAIF_PIT_CNT, MTK_DPMAIF_BAT_CNT, MTK_DPMAIF_BAT_CNT,
++		 MTK_DPMAIF_SMEM_UL_QSIZE);
++	return 0;
++
++err_bufs:
++	dpmaif_free_dl_buffers(dp);
++err_clk:
++	clk_disable_unprepare(dp->clk);
++	return ret;
++}
++
++int mtk_ccci_dpmaif_register_wwan(struct mtk_ccci_dev *ccci)
++{
++	struct mtk_ccci_dpmaif *dp = ccci->dpmaif;
++	int ret;
++
++	if (!dp || !dp->started || dp->wwan_registered)
++		return 0;
++
++	ret = wwan_register_ops(ccci->dev, &mtk_dpmaif_wwan_ops, dp, 0);
++	if (ret) {
++		dev_err(dp->dev, "wwan_register_ops failed: %d\n", ret);
++		return ret;
++	}
++
++	dp->wwan_registered = true;
++	dev_info(dp->dev, "registered WWAN netdev ops (default link id=0)\n");
++	return 0;
++}
++
++static void __iomem *dpmaif_iomap_idx(struct device *dev,
++				      struct device_node *np, int idx)
++{
++	struct resource res;
++
++	if (of_address_to_resource(np, idx, &res))
++		return NULL;
++
++	/*
++	 * MT6789's dpmaif DT node exposes 7 sub-block windows with 4 KiB
++	 * sizes that partially overlap (e.g. 0x10014000 and 0x10014400).
++	 * Use devm_ioremap() rather than exclusive request_mem_region().
++	 */
++	return devm_ioremap(dev, res.start, resource_size(&res));
++}
++
++int mtk_ccci_dpmaif_init(struct mtk_ccci_dev *ccci)
++{
++	struct device *dev = ccci->dev;
++	struct device_node *np;
++	struct mtk_ccci_dpmaif *dp;
++	u32 q;
++	int ret;
++
++	static_assert(sizeof(struct mtk_dpmaif_pit) == 12);
++	static_assert(sizeof(struct mtk_dpmaif_bat) == 8);
++	static_assert(sizeof(struct mtk_dpmaif_drb) == 8);
++	static_assert(sizeof(struct mtk_dpmaif_smem_qinfo) == 16);
++	static_assert((sizeof(struct mtk_dpmaif_smem_qinfo) +
++		       MTK_DPMAIF_SMEM_UL_QSIZE * sizeof(struct mtk_dpmaif_drb) * 2U +
++		       MTK_DPMAIF_SMEM_UL_QSIZE * MTK_DPMAIF_SMEM_SLOT_SZ) *
++		      MTK_DPMAIF_SMEM_UL_QNUM <= NC_SZ_MD_DATA);
++
++	np = of_parse_phandle(dev->of_node, "mediatek,dpmaif", 0);
++	if (!np) {
++		dev_info(dev, "no mediatek,dpmaif phandle; DPMAIF disabled\n");
++		return 0;
++	}
++
++	ret = dma_set_mask_and_coherent(dev, DMA_BIT_MASK(36));
++	if (ret) {
++		dev_err(dev, "failed to set 36-bit DMA mask for DPMAIF: %d\n", ret);
++		goto err_put;
++	}
++
++	dp = devm_kzalloc(dev, sizeof(*dp), GFP_KERNEL);
++	if (!dp) {
++		ret = -ENOMEM;
++		goto err_put;
++	}
++
++	dp->ccci = ccci;
++	dp->dev = dev;
++	spin_lock_init(&dp->smem_tx_lock);
++	INIT_WORK(&dp->smem_tx_work, mtk_dpmaif_smem_tx_work);
++	ratelimit_state_init(&dp->err_rs, HZ, 5);
++
++	dp->ao_ul_base = dpmaif_iomap_idx(dev, np, 0);
++	dp->ao_dl_base = dpmaif_iomap_idx(dev, np, 1);
++	dp->pd_ul_base = dpmaif_iomap_idx(dev, np, 2);
++	dp->pd_dl_base = dpmaif_iomap_idx(dev, np, 3);
++	dp->pd_misc_base = dpmaif_iomap_idx(dev, np, 4);
++	dp->pd_md_misc_base = dpmaif_iomap_idx(dev, np, 5);
++	dp->pd_sram_base = dpmaif_iomap_idx(dev, np, 6);
++	if (!dp->ao_ul_base || !dp->ao_dl_base || !dp->pd_ul_base ||
++	    !dp->pd_dl_base || !dp->pd_misc_base || !dp->pd_md_misc_base) {
++		dev_err(dev, "failed to map DPMAIF register windows\n");
++		ret = -ENOMEM;
++		goto err_put;
++	}
++
++	dp->irq = of_irq_get(np, 0);
++	if (dp->irq <= 0) {
++		ret = dp->irq ? dp->irq : -EINVAL;
++		dev_err(dev, "failed to get DPMAIF IRQ: %d\n", ret);
++		goto err_put;
++	}
++
++	dp->clk = of_clk_get_by_name(np, "dpmaif");
++	if (IS_ERR(dp->clk)) {
++		ret = PTR_ERR(dp->clk);
++		dev_err(dev, "failed to get DPMAIF clock: %d\n", ret);
++		goto err_put;
++	}
++
++	dp->pit_base = dmam_alloc_coherent(dev,
++					   MTK_DPMAIF_PIT_CNT * sizeof(*dp->pit_base),
++					   &dp->pit_dma, GFP_KERNEL);
++	dp->bat_base = dmam_alloc_coherent(dev,
++					   MTK_DPMAIF_BAT_CNT * sizeof(*dp->bat_base),
++					   &dp->bat_dma, GFP_KERNEL);
++	dp->frg_base = dmam_alloc_coherent(dev,
++					   MTK_DPMAIF_BAT_CNT * sizeof(*dp->frg_base),
++					   &dp->frg_dma, GFP_KERNEL);
++	dp->bat_skbs = devm_kcalloc(dev, MTK_DPMAIF_BAT_CNT,
++				    sizeof(*dp->bat_skbs), GFP_KERNEL);
++	dp->frg_pages = devm_kcalloc(dev, MTK_DPMAIF_BAT_CNT,
++				     sizeof(*dp->frg_pages), GFP_KERNEL);
++	if (!dp->pit_base || !dp->bat_base || !dp->frg_base ||
++	    !dp->bat_skbs || !dp->frg_pages) {
++		ret = -ENOMEM;
++		goto err_clk;
++	}
++
++	for (q = 0; q < MTK_DPMAIF_HW_TXQ_NUM; q++) {
++		dp->hw_drb_base[q] = dmam_alloc_coherent(dev,
++							 MTK_DPMAIF_HW_DRB_CNT *
++							 sizeof(struct mtk_dpmaif_drb),
++							 &dp->hw_drb_dma[q],
++							 GFP_KERNEL);
++		if (!dp->hw_drb_base[q]) {
++			ret = -ENOMEM;
++			goto err_clk;
++		}
++	}
++
++	dp->dummy_dev = alloc_netdev_dummy(0);
++	if (!dp->dummy_dev) {
++		ret = -ENOMEM;
++		goto err_clk;
++	}
++	netif_napi_add_weight(dp->dummy_dev, &dp->napi, mtk_dpmaif_napi_poll,
++			      MTK_DPMAIF_NAPI_BUDGET);
++
++	ret = devm_request_irq(dev, dp->irq, mtk_dpmaif_irq,
++			       IRQF_TRIGGER_HIGH | IRQF_NO_AUTOEN,
++			       "mtk-dpmaif", dp);
++	if (ret) {
++		dev_err(dev, "failed to request DPMAIF IRQ %d: %d\n", dp->irq, ret);
++		goto err_napi;
++	}
++
++	ccci->dpmaif = dp;
++	of_node_put(np);
++	return 0;
++
++err_napi:
++	netif_napi_del(&dp->napi);
++	free_netdev(dp->dummy_dev);
++err_clk:
++	clk_put(dp->clk);
++err_put:
++	of_node_put(np);
++	return ret;
++}
++
++void mtk_ccci_dpmaif_uninit(struct mtk_ccci_dev *ccci)
++{
++	struct mtk_ccci_dpmaif *dp = ccci->dpmaif;
++
++	if (!dp)
++		return;
++
++	if (dp->wwan_registered) {
++		wwan_unregister_ops(ccci->dev);
++		dp->wwan_registered = false;
++	}
++
++	if (dp->irq_enabled) {
++		disable_irq(dp->irq);
++		dp->irq_enabled = false;
++	}
++
++	if (dp->started) {
++		napi_disable(&dp->napi);
++		dp->started = false;
++		dpmaif_free_dl_buffers(dp);
++		clk_disable_unprepare(dp->clk);
++	}
++
++	cancel_work_sync(&dp->smem_tx_work);
++	netif_napi_del(&dp->napi);
++	free_netdev(dp->dummy_dev);
++	clk_put(dp->clk);
++	ccci->dpmaif = NULL;
++}
+-- 
+2.55.0
+
