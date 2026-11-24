@@ -50,8 +50,8 @@ as valid register values:
 |---|---|---|
 | `0` | Success (`SMC_OK`) | Proceed; consume `res.a1`–`res.a3`. |
 | `-1` (`SMCCC_RET_NOT_SUPPORTED`) | Unsupported SMC / sub-op | Return `-EOPNOTSUPP` and log error. |
-| `-15` (`0xfffffffffffffff1`) | BL31 MD security/verification gate failure | Return `-EIO`, abort boot, never interpret `a1`/`a2` as `boot_status`. |
-| Any other `< 0` | Vendor BL31 error | Return `-EIO` and log signed code. |
+| `-15` (`0xfffffffffffffff1`) | BL31 MD security/verification gate failure | Return `-EACCES`, abort boot, never interpret `a1`/`a2` as `boot_status`. |
+| Any other `< 0` | Vendor BL31 error | Return `-EACCES` and log signed code. |
 
 ---
 

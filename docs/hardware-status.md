@@ -16,7 +16,7 @@ Status legend:
 | Subsystem | Hardware / IC | Mainline Driver / DT Node | Status | Notes |
 |---|---|---|---|---|
 | **CPU / SMP** | MT6789 (2×A76 + 6×A55) | PSCI + `mtk-cpufreq-hw` | **Working** | 8 CPUs online (`2.0 GHz` little, `2.2 GHz` big) |
-| **RAM & pstore** | 8 GiB LPDDR4X (`7.69 GiB` usable in stock) | `memory@61000000`, `memory@140000000`, `ramoops@48090000` | **WIP** | Only **~3.88 GiB (~4 GiB)** exposed (`240 MiB` + `3,735 MiB` via U-Boot 2-bank fixup); 896 KiB ramoops works |
+| **RAM & pstore** | 8 GiB LPDDR4X (`7.69 GiB` usable in stock) | `memory@40000000` + 31 `no-map` carveouts, `ramoops@48090000` | **WIP** | Full ~7.69 GiB map + U-Boot `ARCH_FIXUP_FDT_MEMORY=n` landed; pending HW boot check (was ~3.88 GiB on `b1a3ae6`); ramoops works |
 | **Clocks** | `apmixedsys`, `topckgen`, `infra_ao`, `imp_iic_wrap`, `mmsys`, `mfgcfg` | `clk-mt6789-*` (`patches/01-clk/`) | **Working** | 0 HW-on clock leaks; `clk_disable_unused` clean |
 | **Power Domains** | SCPSYS (`md`, `mfg0..3`, `disp`, `audio`) | `mtk-pm-domains` (`10006000.syscon`) | **Working** | `mfg0/1` regulator-coupled; 0 deferred probes |
 | **Pinctrl / GPIO / EINT** | 188 pins + EINT | `pinctrl-mt6789` (`10005000.pinctrl`) | **Working** | Verified pinmux, active-low resets, EINT IRQs |
@@ -99,22 +99,25 @@ faults, clean `reboot: Restarting system`):
 
 ## 2. Work in Progress (Partially Working / Pending Verification)
 
-### 2.1 Full 8 GiB RAM Exposure (Currently ~4 GiB Usable)
-- **What works now:** Linux boots cleanly with 35-bit PA / 34-bit IOVA and
-  896 KiB persistent pstore/ramoops (`0x48090000`), seeing **3,975 MiB
-  (~3.88 GiB / 4 GiB)** (`Memory: 3796964K/4070400K available`).
-- **Why only ~4 GiB is visible:** Both `advan-x1-uboot`
-  (`CONFIG_NR_DRAM_BANKS=2` FDT memory fixup) and `dts/mt6789-advan-x1.dts`
-  currently expose only two conservative clean DRAM windows to avoid hitting
-  scattered LK/EMI-MPU reservations:
-  - Bank 0: `0x60000000..0x6effffff` (`240 MiB`)
-  - Bank 1: `0x140000000..0x2296fffff` (`3,735 MiB`)
-- **What's missing:** Stock LK `pl_lk.txt` exposes **7,878.45 MiB (~7.69 GiB)**
-  usable out of 8 GiB (`0x40000000..0x23fffffff`, minus `313.55 MiB` across
-  `RES[0..30]` for BL31, TEE/secmem, SSPM, MCUPM, SCP, RKP, modem, consys,
-  framebuffer, pstore, and `dramc-rk0/1`). Unlocking the remaining ~3.81 GiB
-  requires declaring the remaining stock `no-map` reserved-memory carveouts in
-  the mainline DTS and updating U-Boot's DRAM bank/FDT memory map.
+### 2.1 Full 8 GiB RAM Exposure (Implemented, Pending HW Verification)
+- **What was previously verified (`b1a3ae6`):** Linux booted cleanly with
+  35-bit PA / 34-bit IOVA and 896 KiB persistent pstore/ramoops (`0x48090000`),
+  seeing **3,975 MiB (~3.88 GiB / 4 GiB)** (`Memory: 3796964K/4070400K available`)
+  because `advan-x1-uboot` (`CONFIG_ARCH_FIXUP_FDT_MEMORY=y`, 2 banks)
+  overwrote `memory@61000000` with two conservative windows (`240 MiB` +
+  `3,735 MiB`).
+- **What just landed:**
+  - `advan-x1-uboot`: disabled `CONFIG_ARCH_FIXUP_FDT_MEMORY` so U-Boot stops
+    clobbering the kernel FIT DTB `/memory` node (matching upstream MediaTek
+    U-Boot boards), while expanding U-Boot's own clean high-DRAM banks to 3
+    banks (~5.23 GiB for UEFI) with zero secure holes mapped.
+  - `advan-x1-mainline`: replaced the 2 narrow memory nodes with full 8 GiB
+    `memory@40000000` (`0x40000000..0x23fffffff`) plus all **31 stock
+    `RES[0..30]` `no-map` carveouts** (`313.55 MiB`, exact `diff = 0x0` vs
+    `pl_lk.txt` → **7,878.45 MiB / ~7.69 GiB** usable RAM).
+- **Next step:** Flash rebuilt U-Boot (`lk_b` / inactive slot via Loki) +
+  rebuilt mainline FIT image and confirm `Memory: ~7.5G / ~7.69G` and
+  `0` SErrors/M4U faults on hardware.
 
 ### 2.2 Cellular Modem (Gen95 CCCI — Phase 5)
 - **What works now:** Phase 5.1 (9 Advan X1 `no-map` reserved-memory carveouts,

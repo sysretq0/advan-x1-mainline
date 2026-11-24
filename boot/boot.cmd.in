@@ -11,12 +11,13 @@
 
 echo "=== Advan X1 (MT6789) Mainline Linux U-Boot Loader ==="
 
-# Safe DRAM staging bounds inside verified clean 0x60000000..0x6F000000 window:
-#   0x61000000..0x667FFFFF : Decompressed Linux Image + BSS (88 MiB)
-#   0x68000000..0x6CFFFFFF : FIT image staging buffer (80 MiB, zero overlap)
-#   <= 0x6E000000          : Relocated FDT & initrd (inside Linux memory@61000000)
-setenv fdt_high 0x6e000000
-setenv initrd_high 0x6e000000
+# Safe DRAM staging bounds inside verified clean 0x60000000..0x6D000000 window
+# (U-Boot relocated heap/stack sits above ~0x6DD00000; Fastboot buffer is at 0x52000000):
+#   0x61000000..0x65FFFFFF : Decompressed Linux Image + BSS (80 MiB)
+#   0x68000000..0x6AFFFFFF : FIT image staging buffer (48 MiB, zero overlap)
+#   <= 0x6D000000          : Relocated FDT & initrd (cleanly below relocated U-Boot)
+setenv fdt_high 0x6d000000
+setenv initrd_high 0x6d000000
 setenv fit_addr 0x68000000
 
 # Defaults when invoked manually from U-Boot shell instead of bootflow
