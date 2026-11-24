@@ -1,15 +1,14 @@
 [Unit]
 Description=MediaTek MT6789 CCCI Read-Only NVRAM Filesystem Daemon
-DefaultDependencies=no
-After=systemd-udev-settle.service local-fs.target
+After=systemd-udev-trigger.service local-fs.target
 ConditionPathExists=/dev/ccci_fs
 
 [Service]
 Type=simple
 ExecStart=/usr/local/sbin/ccci-fsd-launch.sh
 Restart=no
-StandardOutput=journal+console
-StandardError=journal+console
+StandardOutput=kmsg+console
+StandardError=kmsg+console
 
 [Install]
 WantedBy=multi-user.target

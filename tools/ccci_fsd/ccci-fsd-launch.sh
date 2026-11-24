@@ -33,7 +33,12 @@ lock_ro_part() {
 	local label="$1"
 	local dev="/dev/disk/by-partlabel/$label"
 	local real_dev ro_val
+	local tries=0
 
+	while [ ! -b "$dev" ] && [ "$tries" -lt 50 ]; do
+		sleep 0.1
+		tries=$((tries + 1))
+	done
 	[ -b "$dev" ] || die "missing partition $dev"
 	real_dev="$(readlink -f "$dev")"
 	blockdev --setro "$real_dev" || die "blockdev --setro failed on $label ($real_dev)"
