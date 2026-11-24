@@ -1,0 +1,632 @@
+From 635fb8fb9b6dcf093d336f1e3e25d32505d5cb51 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Tue, 24 Nov 2026 18:24:03 +0000
+Subject: [PATCH] net: wwan: mtk_ccci: Add /dev/ccci_fs char bridge and sysfs
+ boot trigger
+
+Add /dev/ccci_fs miscdevice bridging CCIF0 Q4 (ch=14 RX <-> ch=15 TX)
+and decouple MD_KERNEL_BOOT_UP from early kernel probe:
+
+- Implement PORT_F_USER_HEADER packet bridge in mtk_ccci_fs.c with
+  poll/read/write, 64-packet RX queue, and 3476-byte wire MTU (CCCI_MTU
+  3456 + 16-byte header + 4-byte op_id).
+- Preserve userspace hdr.data[0] (bit 31 continuation flag) and
+  hdr.reserved (slot 0..4) verbatim on TX; kernel sets hdr.channel=15,
+  hdr.data[1]=len, ch=15's own monotonic seq_num, and Gen95 assert_bit.
+- Split mtk_ccci_park_md() into probe: verify BROM check=PASS /
+  MD_CHECK_DONE and immediately power MD MTCMOS OFF (state=parked) so
+  MD stays parked until userspace mounts read-only NVRAM overlays, opens
+  /dev/ccci_fs, and writes 1 to the new sysfs boot trigger.
+- Increase HS2 ACK timeout to 20s and expose fs_rx_count / fs_tx_count
+  read-only sysfs telemetry attributes.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ drivers/net/wwan/mtk_ccci/Makefile        |   2 +-
+ drivers/net/wwan/mtk_ccci/mtk_ccci.h      |  23 ++
+ drivers/net/wwan/mtk_ccci/mtk_ccci_core.c | 138 ++++++++----
+ drivers/net/wwan/mtk_ccci/mtk_ccci_fs.c   | 246 ++++++++++++++++++++++
+ 4 files changed, 369 insertions(+), 40 deletions(-)
+ create mode 100644 drivers/net/wwan/mtk_ccci/mtk_ccci_fs.c
+
+diff --git a/drivers/net/wwan/mtk_ccci/Makefile b/drivers/net/wwan/mtk_ccci/Makefile
+index f92bec6fa..92ab3d9ab 100644
+--- a/drivers/net/wwan/mtk_ccci/Makefile
++++ b/drivers/net/wwan/mtk_ccci/Makefile
+@@ -2,4 +2,4 @@
+ 
+ obj-$(CONFIG_MTK_CCCI) += mtk_ccci.o
+ 
+-mtk_ccci-y := mtk_ccci_core.o mtk_ccci_ringbuf.o mtk_ccci_rpc.o
++mtk_ccci-y := mtk_ccci_core.o mtk_ccci_ringbuf.o mtk_ccci_rpc.o mtk_ccci_fs.o
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci.h b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
+index f03eb8808..2f2fcc089 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci.h
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
+@@ -13,11 +13,14 @@
+ #include <linux/clk.h>
+ #include <linux/completion.h>
+ #include <linux/device.h>
++#include <linux/list.h>
++#include <linux/miscdevice.h>
+ #include <linux/regmap.h>
+ #include <linux/regulator/consumer.h>
+ #include <linux/spinlock.h>
+ #include <linux/types.h>
+ #include <linux/soc/mediatek/mtk_sip_svc.h>
++#include <linux/wait.h>
+ #include <linux/workqueue.h>
+ 
+ /* EL3 / BL31 SiP SMC sub-commands (verified on MT6789 BL31) */
+@@ -62,12 +65,16 @@
+ #define MTK_CCIF_DATA_QUEUE_MASK	0x00ff
+ #define MTK_CCIF_EXP_QUEUE_MASK		0xffff0000
+ #define MTK_CCIF_RPC_QUEUE		1
++#define MTK_CCIF_FS_QUEUE		4
+ 
+ /* CCCI header sequence / assert bits and channel limits */
+ #define MTK_CCCI_SEQ_MASK		GENMASK(14, 0)
+ #define MTK_CCCI_ASSERT_BIT		BIT(15)
+ #define MTK_CCCI_MAX_CH			256
+ #define MTK_CCCI_RX_BUF_SIZE		4096
++/* CCCI_MTU (3456) + sizeof(mtk_ccci_header) (16) + sizeof(op_id) (4) */
++#define MTK_CCCI_FS_MAX_PKT		3476U
++#define MTK_CCCI_FS_RX_QUEUE_MAX	64U
+ 
+ /* CCCI logical channels */
+ #define CCCI_CH_CONTROL_RX		0
+@@ -265,6 +272,7 @@ struct mtk_ccci_ringbuf {
+ 
+ enum mtk_ccci_state {
+ 	MTK_CCCI_STATE_INIT = 0,
++	MTK_CCCI_STATE_PARKED,
+ 	MTK_CCCI_STATE_BOOTING,
+ 	MTK_CCCI_STATE_HS1_DONE,
+ 	MTK_CCCI_STATE_READY,
+@@ -324,7 +332,18 @@ struct mtk_ccci_dev {
+ 	struct completion hs1_comp;
+ 	struct completion hs2_comp;
+ 
++	struct miscdevice fs_miscdev;
++	spinlock_t fs_rx_lock; /* protects fs_rx_list and fs_rx_qlen */
++	struct list_head fs_rx_list;
++	u32 fs_rx_qlen;
++	wait_queue_head_t fs_rx_wq;
++	atomic_t fs_open;
++	bool fs_closing;
++	atomic_t fs_rx_count;
++	atomic_t fs_tx_count;
++
+ 	enum mtk_ccci_state state;
++	atomic_t boot_triggered;
+ 	atomic_t hs1_done;
+ 	atomic_t hs2_done;
+ 	atomic_t wdt_count;
+@@ -342,4 +361,8 @@ int mtk_ccci_rb_write(struct mtk_ccci_ringbuf *rb, const void *src, u32 len);
+ int mtk_ccci_tx_send(struct mtk_ccci_dev *ccci, u32 q, void *buf, u32 len);
+ void mtk_ccci_rpc_handle(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len);
+ 
++int mtk_ccci_fs_register(struct mtk_ccci_dev *ccci);
++void mtk_ccci_fs_unregister(struct mtk_ccci_dev *ccci);
++void mtk_ccci_fs_rx(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len);
++
+ #endif /* __MTK_CCCI_H__ */
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+index 0e5e9ac14..85e0d365a 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+@@ -54,6 +54,7 @@ static const u32 mtk_ccif_exp_sz[MTK_CCIF_QUEUE_NUM] = {
+ 
+ static const char *const mtk_ccci_state_names[] = {
+ 	[MTK_CCCI_STATE_INIT]		= "init",
++	[MTK_CCCI_STATE_PARKED]		= "parked",
+ 	[MTK_CCCI_STATE_BOOTING]	= "booting",
+ 	[MTK_CCCI_STATE_HS1_DONE]	= "hs1_done",
+ 	[MTK_CCCI_STATE_READY]		= "ready",
+@@ -819,22 +820,9 @@ static void mtk_ccci_drain_queue(struct mtk_ccci_dev *ccci, u32 q)
+ 		case CCCI_CH_RPC_RX:
+ 			mtk_ccci_rpc_handle(ccci, ccci->rx_buf, ret);
+ 			break;
+-		case CCCI_CH_FS_RX: {
+-			u32 fs_op = 0;
+-
+-			if (ret >= sizeof(hdr) + sizeof(fs_op))
+-				memcpy(&fs_op, ccci->rx_buf + sizeof(hdr),
+-				       sizeof(fs_op));
+-			dev_info(ccci->dev,
+-				 "CCIF Q%u FS RX (log-only): len=%d op=0x%08x rsv=0x%08x\n",
+-				 q, ret, fs_op, hdr.reserved);
+-			if (cnt <= 32)
+-				print_hex_dump(KERN_INFO, "mtk-ccci fs: ",
+-					       DUMP_PREFIX_OFFSET, 16, 1,
+-					       ccci->rx_buf,
+-					       min_t(u32, ret, 64), true);
++		case CCCI_CH_FS_RX:
++			mtk_ccci_fs_rx(ccci, ccci->rx_buf, ret);
+ 			break;
+-		}
+ 		default:
+ 			if (cnt <= 32)
+ 				print_hex_dump(KERN_INFO, "mtk-ccci pkt: ",
+@@ -915,22 +903,19 @@ static irqreturn_t mtk_ccci_wdt_irq(int irq, void *data)
+ 	return IRQ_HANDLED;
+ }
+ 
+-static void mtk_ccci_boot_work(struct work_struct *work)
++static int mtk_ccci_park_md(struct mtk_ccci_dev *ccci)
+ {
+-	struct mtk_ccci_dev *ccci = container_of(work, struct mtk_ccci_dev, boot_work);
+ 	struct arm_smccc_res res;
+ 	bool brom_pass = false;
+ 	unsigned int pwr_sta = 0;
+ 	int ret, tries;
+ 
+-	ccci->state = MTK_CCCI_STATE_BOOTING;
+-
+ 	/* Adopt LK's ON MD MTCMOS state */
+ 	ret = pm_runtime_resume_and_get(ccci->dev);
+ 	if (ret) {
+ 		dev_err(ccci->dev, "initial pm_runtime_resume_and_get failed: %d\n", ret);
+-		ccci->state = MTK_CCCI_STATE_FAILED;
+-		return;
++		WRITE_ONCE(ccci->state, MTK_CCCI_STATE_FAILED);
++		return ret;
+ 	}
+ 
+ 	ret = mtk_ccci_smc(MTK_CCCI_SMC_POWER_CONFIG,
+@@ -939,8 +924,8 @@ static void mtk_ccci_boot_work(struct work_struct *work)
+ 		dev_err(ccci->dev,
+ 			"EL3 CCCI_CONTROL SMC rejected (%d, a0=0x%lx)\n",
+ 			ret, res.a0);
+-		ccci->state = MTK_CCCI_STATE_FAILED;
+-		return;
++		WRITE_ONCE(ccci->state, MTK_CCCI_STATE_FAILED);
++		return ret;
+ 	}
+ 	dev_info(ccci->dev, "pre-reset MD boot_status=0x%lx/0x%lx\n",
+ 		 res.a1, res.a2);
+@@ -948,8 +933,8 @@ static void mtk_ccci_boot_work(struct work_struct *work)
+ 	/*
+ 	 * When stock LK booted MD into BROM (boot_status != 0), poll BROM
+ 	 * completion and avoid touching EMI-MPU-locked md1img DRAM. When
+-	 * chainloaded via Loki -> U-Boot (boot_status == 0, EMI MPU unlocked),
+-	 * verify the md1rom reset vector in DRAM directly.
++	 * chainloaded without LK modem load (boot_status == 0), inspect the
++	 * md1rom reset vector in DRAM directly.
+ 	 */
+ 	if (res.a1 || res.a2) {
+ 		for (tries = 0; tries < 50; tries++) {
+@@ -980,20 +965,35 @@ static void mtk_ccci_boot_work(struct work_struct *work)
+ 		dev_err(ccci->dev,
+ 			"CCIF0 active before reset (rch=0x%x); refusing unsafe MTCMOS off\n",
+ 			readl(ccci->ccif_ap_base + APCCIF_RCHNUM));
+-		ccci->state = MTK_CCCI_STATE_FAILED;
+-		return;
++		WRITE_ONCE(ccci->state, MTK_CCCI_STATE_FAILED);
++		return -EBUSY;
+ 	}
+ 
+ 	/*
+-	 * Power off MD MTCMOS to cleanly reset MD out of LK's BROM stage
+-	 * (matches stock MT6789 md_start_platform -> md_cd_power_off).
++	 * Power off MD MTCMOS immediately so MD sits parked in cold reset
++	 * until userspace mounts NVRAM overlays, opens /dev/ccci_fs, and
++	 * triggers boot via sysfs.
+ 	 */
+ 	ret = pm_runtime_put_sync(ccci->dev);
+ 	if (ccci->scpsys)
+ 		regmap_read(ccci->scpsys, 0x16c, &pwr_sta);
+-	dev_info(ccci->dev, "MD MTCMOS OFF: ret=%d pwr_sta=0x%08x\n", ret, pwr_sta);
++	dev_info(ccci->dev, "MD MTCMOS OFF (parked): ret=%d pwr_sta=0x%08x\n",
++		 ret, pwr_sta);
+ 	mtk_ccci_smc(MTK_CCCI_SMC_FLIGHT_MODE_SET, 0, 0, &res);
+ 
++	WRITE_ONCE(ccci->state, MTK_CCCI_STATE_PARKED);
++	return 0;
++}
++
++static void mtk_ccci_boot_work(struct work_struct *work)
++{
++	struct mtk_ccci_dev *ccci = container_of(work, struct mtk_ccci_dev, boot_work);
++	struct arm_smccc_res res;
++	unsigned int pwr_sta = 0;
++	int ret;
++
++	WRITE_ONCE(ccci->state, MTK_CCCI_STATE_BOOTING);
++
+ 	/*
+ 	 * Reset CCIF0 hardware, clear AP+MD SRAM, and install the Gen95
+ 	 * 0x7274626e ("rtbn") + MDSS_DBG footer while MD is powered off
+@@ -1034,7 +1034,7 @@ static void mtk_ccci_boot_work(struct work_struct *work)
+ 	dev_info(ccci->dev, "MD MTCMOS ON: ret=%d pwr_sta=0x%08x\n", ret, pwr_sta);
+ 	if (ret) {
+ 		dev_err(ccci->dev, "MD MTCMOS power-on failed: %d\n", ret);
+-		ccci->state = MTK_CCCI_STATE_FAILED;
++		WRITE_ONCE(ccci->state, MTK_CCCI_STATE_FAILED);
+ 		return;
+ 	}
+ 
+@@ -1052,7 +1052,7 @@ static void mtk_ccci_boot_work(struct work_struct *work)
+ 		 res.a0, res.a1, res.a2, res.a3);
+ 	if (ret) {
+ 		dev_err(ccci->dev, "MD_KERNEL_BOOT_UP SMC failed (%d)\n", ret);
+-		ccci->state = MTK_CCCI_STATE_FAILED;
++		WRITE_ONCE(ccci->state, MTK_CCCI_STATE_FAILED);
+ 		return;
+ 	}
+ 
+@@ -1062,18 +1062,20 @@ static void mtk_ccci_boot_work(struct work_struct *work)
+ 			"HS1 timeout (5s)! boot_status=0x%lx/0x%lx\n",
+ 			res.a1, res.a2);
+ 		mtk_ccci_dump_timeout_state(ccci);
+-		ccci->state = MTK_CCCI_STATE_FAILED;
++		WRITE_ONCE(ccci->state, MTK_CCCI_STATE_FAILED);
+ 		return;
+ 	}
+ 
+-	if (!wait_for_completion_timeout(&ccci->hs2_comp, msecs_to_jiffies(10000))) {
++	if (!wait_for_completion_timeout(&ccci->hs2_comp, msecs_to_jiffies(20000))) {
+ 		mtk_ccci_smc(MTK_CCCI_SMC_POWER_CONFIG, MTK_CCCI_PWR_BOOT_STATUS, 0, &res);
+ 		dev_err(ccci->dev,
+-			"HS2 ACK timeout (10s)! boot_status=0x%lx/0x%lx ccif_rch=0x%x rx=%d rpc=%d\n",
++			"HS2 ACK timeout (20s)! boot_status=0x%lx/0x%lx ccif_rch=0x%x rx=%d rpc=%d fs_rx=%d fs_tx=%d\n",
+ 			res.a1, res.a2,
+ 			readl(ccci->ccif_ap_base + APCCIF_RCHNUM),
+ 			atomic_read(&ccci->rx_packets),
+-			atomic_read(&ccci->rpc_count));
++			atomic_read(&ccci->rpc_count),
++			atomic_read(&ccci->fs_rx_count),
++			atomic_read(&ccci->fs_tx_count));
+ 		WRITE_ONCE(ccci->state, MTK_CCCI_STATE_FAILED);
+ 	}
+ }
+@@ -1135,14 +1137,64 @@ static ssize_t rpc_count_show(struct device *dev, struct device_attribute *attr,
+ }
+ static DEVICE_ATTR_RO(rpc_count);
+ 
++static ssize_t fs_rx_count_show(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	struct mtk_ccci_dev *ccci = dev_get_drvdata(dev);
++
++	return sysfs_emit(buf, "%d\n", atomic_read(&ccci->fs_rx_count));
++}
++static DEVICE_ATTR_RO(fs_rx_count);
++
++static ssize_t fs_tx_count_show(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	struct mtk_ccci_dev *ccci = dev_get_drvdata(dev);
++
++	return sysfs_emit(buf, "%d\n", atomic_read(&ccci->fs_tx_count));
++}
++static DEVICE_ATTR_RO(fs_tx_count);
++
++static ssize_t boot_show(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	struct mtk_ccci_dev *ccci = dev_get_drvdata(dev);
++
++	return sysfs_emit(buf, "%d\n", atomic_read(&ccci->boot_triggered));
++}
++
++static ssize_t boot_store(struct device *dev, struct device_attribute *attr,
++			  const char *buf, size_t count)
++{
++	struct mtk_ccci_dev *ccci = dev_get_drvdata(dev);
++	bool val;
++	int ret;
++
++	ret = kstrtobool(buf, &val);
++	if (ret)
++		return ret;
++	if (!val)
++		return -EINVAL;
++
++	if (READ_ONCE(ccci->state) != MTK_CCCI_STATE_PARKED)
++		return -EBUSY;
++
++	if (atomic_cmpxchg(&ccci->boot_triggered, 0, 1) != 0)
++		return -EBUSY;
++
++	schedule_work(&ccci->boot_work);
++	return count;
++}
++static DEVICE_ATTR_RW(boot);
++
+ static struct attribute *mtk_ccci_attrs[] = {
+ 	&dev_attr_state.attr,
++	&dev_attr_boot.attr,
+ 	&dev_attr_hs1_done.attr,
+ 	&dev_attr_hs2_done.attr,
+ 	&dev_attr_wdt_count.attr,
+ 	&dev_attr_rx_packets.attr,
+ 	&dev_attr_lk_verified.attr,
+ 	&dev_attr_rpc_count.attr,
++	&dev_attr_fs_rx_count.attr,
++	&dev_attr_fs_tx_count.attr,
+ 	NULL,
+ };
+ ATTRIBUTE_GROUPS(mtk_ccci);
+@@ -1369,11 +1421,18 @@ static int mtk_ccci_probe(struct platform_device *pdev)
+ 	if (ret)
+ 		goto err_wq;
+ 
++	ret = mtk_ccci_fs_register(ccci);
++	if (ret) {
++		dev_err(&pdev->dev, "failed to register /dev/ccci_fs: %d\n", ret);
++		goto err_wq;
++	}
++
+ 	pm_runtime_enable(&pdev->dev);
+-	schedule_work(&ccci->boot_work);
++	mtk_ccci_park_md(ccci);
+ 
+-	dev_info(&pdev->dev, "MT6789 CCCI modem probed (nc=%pa c=%pa md=%pa)\n",
+-		 &ccci->nc_smem_phys, &ccci->c_smem_phys, &ccci->md_img_phys);
++	dev_info(&pdev->dev, "MT6789 CCCI modem probed (nc=%pa c=%pa md=%pa, state=%s)\n",
++		 &ccci->nc_smem_phys, &ccci->c_smem_phys, &ccci->md_img_phys,
++		 mtk_ccci_state_names[READ_ONCE(ccci->state)]);
+ 	return 0;
+ 
+ err_wq:
+@@ -1393,6 +1452,7 @@ static void mtk_ccci_remove(struct platform_device *pdev)
+ 		disable_irq(ccci->ccif_irq0);
+ 		disable_irq(ccci->ccif_irq1);
+ 	}
++	mtk_ccci_fs_unregister(ccci);
+ 	cancel_work_sync(&ccci->rx_work);
+ 	destroy_workqueue(ccci->rx_wq);
+ 
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_fs.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_fs.c
+new file mode 100644
+index 000000000..9dd6d0ca2
+--- /dev/null
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_fs.c
+@@ -0,0 +1,246 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * MediaTek MT6789 CCCI /dev/ccci_fs packet bridge (CCIF0 Q4 ch=14 <-> ch=15).
++ *
++ * Implements PORT_F_USER_HEADER semantics matching Gen95 ccci_fsd: userspace
++ * reads and writes complete packets starting with the 16-byte mtk_ccci_header.
++ * On TX, userspace hdr.data[0] (including bit 31 continuation flag) and
++ * hdr.reserved (concurrent request slot 0..4) are preserved verbatim; the
++ * kernel fills hdr.channel (15), hdr.data[1] (length), per-channel seq_num,
++ * and Gen95 assert_bit polarity.
++ *
++ * Copyright (c) 2026 sysretq0 <sysretq0@proton.me>
++ */
++
++#include <linux/delay.h>
++#include <linux/errno.h>
++#include <linux/fs.h>
++#include <linux/list.h>
++#include <linux/miscdevice.h>
++#include <linux/poll.h>
++#include <linux/slab.h>
++#include <linux/uaccess.h>
++
++#include "mtk_ccci.h"
++
++struct mtk_ccci_fs_pkt {
++	struct list_head node;
++	u32 len;
++	u8 data[] __counted_by(len);
++};
++
++static void mtk_ccci_fs_purge_rx(struct mtk_ccci_dev *ccci)
++{
++	struct mtk_ccci_fs_pkt *pkt, *tmp;
++	unsigned long flags;
++	LIST_HEAD(local);
++
++	spin_lock_irqsave(&ccci->fs_rx_lock, flags);
++	list_splice_init(&ccci->fs_rx_list, &local);
++	WRITE_ONCE(ccci->fs_rx_qlen, 0);
++	spin_unlock_irqrestore(&ccci->fs_rx_lock, flags);
++
++	list_for_each_entry_safe(pkt, tmp, &local, node) {
++		list_del(&pkt->node);
++		kfree(pkt);
++	}
++}
++
++void mtk_ccci_fs_rx(struct mtk_ccci_dev *ccci, const u8 *data, u32 len)
++{
++	struct mtk_ccci_fs_pkt *pkt;
++	unsigned long flags;
++
++	if (!data || len < sizeof(struct mtk_ccci_header) ||
++	    len > MTK_CCCI_FS_MAX_PKT) {
++		dev_warn_ratelimited(ccci->dev,
++				     "ccci_fs RX bad packet len=%u\n", len);
++		return;
++	}
++
++	pkt = kmalloc(struct_size(pkt, data, len), GFP_KERNEL);
++	if (!pkt)
++		return;
++
++	pkt->len = len;
++	memcpy(pkt->data, data, len);
++
++	spin_lock_irqsave(&ccci->fs_rx_lock, flags);
++	if (ccci->fs_rx_qlen >= MTK_CCCI_FS_RX_QUEUE_MAX) {
++		spin_unlock_irqrestore(&ccci->fs_rx_lock, flags);
++		dev_warn_ratelimited(ccci->dev,
++				     "ccci_fs RX queue full (%u), dropping\n",
++				     MTK_CCCI_FS_RX_QUEUE_MAX);
++		kfree(pkt);
++		return;
++	}
++	list_add_tail(&pkt->node, &ccci->fs_rx_list);
++	WRITE_ONCE(ccci->fs_rx_qlen, ccci->fs_rx_qlen + 1);
++	spin_unlock_irqrestore(&ccci->fs_rx_lock, flags);
++
++	atomic_inc(&ccci->fs_rx_count);
++	wake_up_interruptible(&ccci->fs_rx_wq);
++}
++
++static int mtk_ccci_fs_open(struct inode *inode, struct file *filp)
++{
++	struct miscdevice *mdev = filp->private_data;
++	struct mtk_ccci_dev *ccci = container_of(mdev, struct mtk_ccci_dev,
++						 fs_miscdev);
++
++	if (atomic_cmpxchg(&ccci->fs_open, 0, 1) != 0)
++		return -EBUSY;
++
++	filp->private_data = ccci;
++	nonseekable_open(inode, filp);
++	return 0;
++}
++
++static int mtk_ccci_fs_release(struct inode *inode, struct file *filp)
++{
++	struct mtk_ccci_dev *ccci = filp->private_data;
++
++	mtk_ccci_fs_purge_rx(ccci);
++	atomic_set(&ccci->fs_open, 0);
++	return 0;
++}
++
++static ssize_t mtk_ccci_fs_read(struct file *filp, char __user *buf,
++				size_t count, loff_t *ppos)
++{
++	struct mtk_ccci_dev *ccci = filp->private_data;
++	struct mtk_ccci_fs_pkt *pkt;
++	unsigned long flags;
++	ssize_t ret;
++
++	for (;;) {
++		spin_lock_irqsave(&ccci->fs_rx_lock, flags);
++		pkt = list_first_entry_or_null(&ccci->fs_rx_list,
++					       struct mtk_ccci_fs_pkt, node);
++		if (pkt) {
++			if (count < pkt->len) {
++				spin_unlock_irqrestore(&ccci->fs_rx_lock, flags);
++				return -EMSGSIZE;
++			}
++			list_del(&pkt->node);
++			WRITE_ONCE(ccci->fs_rx_qlen, ccci->fs_rx_qlen - 1);
++			spin_unlock_irqrestore(&ccci->fs_rx_lock, flags);
++			break;
++		}
++		spin_unlock_irqrestore(&ccci->fs_rx_lock, flags);
++
++		if (READ_ONCE(ccci->fs_closing))
++			return -ENODEV;
++
++		if (filp->f_flags & O_NONBLOCK)
++			return -EAGAIN;
++
++		ret = wait_event_interruptible(ccci->fs_rx_wq,
++					       READ_ONCE(ccci->fs_rx_qlen) > 0 ||
++					       READ_ONCE(ccci->fs_closing));
++		if (ret)
++			return ret;
++	}
++
++	if (copy_to_user(buf, pkt->data, pkt->len))
++		ret = -EFAULT;
++	else
++		ret = pkt->len;
++
++	kfree(pkt);
++	return ret;
++}
++
++static ssize_t mtk_ccci_fs_write(struct file *filp, const char __user *buf,
++				 size_t count, loff_t *ppos)
++{
++	struct mtk_ccci_dev *ccci = filp->private_data;
++	struct mtk_ccci_header *hdr;
++	enum mtk_ccci_state st;
++	u8 *kbuf;
++	int ret, tries;
++
++	if (count < sizeof(*hdr) || count > MTK_CCCI_FS_MAX_PKT)
++		return -EINVAL;
++
++	st = READ_ONCE(ccci->state);
++	if (st != MTK_CCCI_STATE_HS1_DONE && st != MTK_CCCI_STATE_READY &&
++	    st != MTK_CCCI_STATE_EXCEPTION)
++		return -ENODEV;
++
++	kbuf = memdup_user(buf, count);
++	if (IS_ERR(kbuf))
++		return PTR_ERR(kbuf);
++
++	/*
++	 * PORT_F_USER_HEADER: preserve hdr->data[0] (bit 31 continuation flag)
++	 * and hdr->reserved (slot 0..4) from userspace verbatim; enforce
++	 * channel=15 and data[1]=count, while mtk_ccci_tx_send() fills ch=15's
++	 * monotonic seq_num and Gen95 assert_bit.
++	 */
++	hdr = (struct mtk_ccci_header *)kbuf;
++	hdr->channel = CCCI_CH_FS_TX;
++	hdr->data[1] = (u32)count;
++
++	for (tries = 0; tries < 200; tries++) {
++		ret = mtk_ccci_tx_send(ccci, MTK_CCIF_FS_QUEUE, kbuf, count);
++		if (ret != -ENOSPC || (filp->f_flags & O_NONBLOCK))
++			break;
++		usleep_range(500, 1000);
++	}
++
++	kfree(kbuf);
++	if (ret)
++		return ret == -ENOSPC ? -EAGAIN : ret;
++
++	atomic_inc(&ccci->fs_tx_count);
++	return count;
++}
++
++static __poll_t mtk_ccci_fs_poll(struct file *filp, poll_table *wait)
++{
++	struct mtk_ccci_dev *ccci = filp->private_data;
++	__poll_t mask = EPOLLOUT | EPOLLWRNORM;
++	unsigned long flags;
++
++	poll_wait(filp, &ccci->fs_rx_wq, wait);
++
++	spin_lock_irqsave(&ccci->fs_rx_lock, flags);
++	if (ccci->fs_rx_qlen > 0)
++		mask |= EPOLLIN | EPOLLRDNORM;
++	spin_unlock_irqrestore(&ccci->fs_rx_lock, flags);
++
++	return mask;
++}
++
++static const struct file_operations mtk_ccci_fs_fops = {
++	.owner = THIS_MODULE,
++	.open = mtk_ccci_fs_open,
++	.release = mtk_ccci_fs_release,
++	.read = mtk_ccci_fs_read,
++	.write = mtk_ccci_fs_write,
++	.poll = mtk_ccci_fs_poll,
++};
++
++int mtk_ccci_fs_register(struct mtk_ccci_dev *ccci)
++{
++	spin_lock_init(&ccci->fs_rx_lock);
++	INIT_LIST_HEAD(&ccci->fs_rx_list);
++	init_waitqueue_head(&ccci->fs_rx_wq);
++	atomic_set(&ccci->fs_open, 0);
++
++	ccci->fs_miscdev.minor = MISC_DYNAMIC_MINOR;
++	ccci->fs_miscdev.name = "ccci_fs";
++	ccci->fs_miscdev.fops = &mtk_ccci_fs_fops;
++	ccci->fs_miscdev.parent = ccci->dev;
++
++	return misc_register(&ccci->fs_miscdev);
++}
++
++void mtk_ccci_fs_unregister(struct mtk_ccci_dev *ccci)
++{
++	WRITE_ONCE(ccci->fs_closing, true);
++	wake_up_interruptible_all(&ccci->fs_rx_wq);
++	misc_deregister(&ccci->fs_miscdev);
++	mtk_ccci_fs_purge_rx(ccci);
++}
+-- 
+2.55.0
+
