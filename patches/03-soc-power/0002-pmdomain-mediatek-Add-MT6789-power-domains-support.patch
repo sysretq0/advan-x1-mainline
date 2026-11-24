@@ -8,11 +8,17 @@ ISP, IPE, VDEC, VENC, DISP, AUDIO, CAM, CAM_RAWA, CAM_RAWB) and explicit
 MT6789 INFRACFG AXI bus protection configuration to the mtk-pm-domains
 driver.
 
+Also skip scpsys_power_off_internal() in scpsys_remove_one_domain() for
+domains marked MTK_SCPD_KEEP_DEFAULT_OFF or MTK_SCPD_ALWAYS_ON: on MT6789,
+the bootloader pre-loads and boots the modem (MT6789_POWER_DOMAIN_MD) with
+no EL3 MD-stop SMC, so powering off MD during error cleanup would hang
+TOP_AXI_PROT_EN_MD.
+
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  drivers/pmdomain/mediatek/mt6789-pm-domains.h | 344 ++++++++++++++++++
- drivers/pmdomain/mediatek/mtk-pm-domains.c    |   5 +
- 2 files changed, 349 insertions(+)
+ drivers/pmdomain/mediatek/mtk-pm-domains.c    |  19 +-
+ 2 files changed, 357 insertions(+), 6 deletions(-)
  create mode 100644 drivers/pmdomain/mediatek/mt6789-pm-domains.h
 
 diff --git a/drivers/pmdomain/mediatek/mt6789-pm-domains.h b/drivers/pmdomain/mediatek/mt6789-pm-domains.h
@@ -377,7 +383,28 @@ index 5f85db3fc..5b21bc46b 100644
  #include "mt6795-pm-domains.h"
  #include "mt6858-pm-domains.h"
  #include "mt6893-pm-domains.h"
-@@ -1287,6 +1288,10 @@ static const struct of_device_id scpsys_of_match[] = {
+@@ -1100,12 +1101,14 @@ static void scpsys_remove_one_domain(struct scpsys_domain *pd)
+ 			"failed to remove domain '%s' : %d - state may be inconsistent\n",
+ 			pd->genpd.name, ret);
+ 
+-	if (scpsys->soc_data->type == SCPSYS_MTCMOS_TYPE_HW_VOTER) {
+-		if (scpsys_hwv_domain_is_enable_done(pd))
+-			scpsys_hwv_power_off_internal(pd);
+-	} else {
+-		if (scpsys_domain_is_on(pd) || MTK_SCPD_CAPS(pd, MTK_SCPD_SIMPLE_PWRSEQ))
+-			scpsys_power_off_internal(pd);
++	if (!MTK_SCPD_CAPS(pd, MTK_SCPD_KEEP_DEFAULT_OFF | MTK_SCPD_ALWAYS_ON)) {
++		if (scpsys->soc_data->type == SCPSYS_MTCMOS_TYPE_HW_VOTER) {
++			if (scpsys_hwv_domain_is_enable_done(pd))
++				scpsys_hwv_power_off_internal(pd);
++		} else {
++			if (scpsys_domain_is_on(pd) || MTK_SCPD_CAPS(pd, MTK_SCPD_SIMPLE_PWRSEQ))
++				scpsys_power_off_internal(pd);
++		}
+ 	}
+ 
+ 	clk_bulk_put(pd->num_clks, pd->clks);
+@@ -1287,6 +1290,10 @@ static const struct of_device_id scpsys_of_match[] = {
  		.compatible = "mediatek,mt6735-power-controller",
  		.data = &mt6735_scpsys_data,
  	},

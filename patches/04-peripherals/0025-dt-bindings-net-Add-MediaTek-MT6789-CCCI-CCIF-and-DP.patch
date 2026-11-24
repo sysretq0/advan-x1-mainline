@@ -1,0 +1,344 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Tue, 24 Nov 2026 00:20:00 +0000
+Subject: [PATCH] dt-bindings: net: Add MediaTek MT6789 CCCI, CCIF, and DPMAIF bindings
+
+Add devicetree binding schemas for the MediaTek MT6789 cellular modem
+subsystems:
+- mediatek,mt6789-ccif: Cross-Core Interface (CCIF0 AP-MD and CCIF2
+  AP-SCP) hardware mailboxes with shared SRAM.
+- mediatek,mt6789-dpmaif: Data Plane Modem Application Interface v1
+  (DPMAIF) packet DMA engine.
+- mediatek,mt6789-ccci: Top-level CCCI cellular modem controller linking
+  MD RGU watchdog, SCPSYS MD power domain, CCIF mailboxes, DPMAIF data
+  engine, modem supplies, and EMI MPU reserved memory regions.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ .../bindings/net/mediatek,mt6789-ccci.yaml    | 131 ++++++++++++++++++
+ .../bindings/net/mediatek,mt6789-dpmaif.yaml  |  85 ++++++++++++
+ .../soc/mediatek/mediatek,mt6789-ccif.yaml    |  83 ++++++++++++
+ 3 files changed, 299 insertions(+)
+ create mode 100644 Documentation/devicetree/bindings/net/mediatek,mt6789-ccci.yaml
+ create mode 100644 Documentation/devicetree/bindings/net/mediatek,mt6789-dpmaif.yaml
+ create mode 100644 Documentation/devicetree/bindings/soc/mediatek/mediatek,mt6789-ccif.yaml
+
+diff --git a/Documentation/devicetree/bindings/net/mediatek,mt6789-ccci.yaml b/Documentation/devicetree/bindings/net/mediatek,mt6789-ccci.yaml
+new file mode 100644
+index 000000000..111111111
+--- /dev/null
++++ b/Documentation/devicetree/bindings/net/mediatek,mt6789-ccci.yaml
+@@ -0,0 +1,131 @@
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/net/mediatek,mt6789-ccci.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: MediaTek MT6789 CCCI Cellular Modem Controller
++
++maintainers:
++  - sysretq0 <324514544+sysretq0@users.noreply.github.com>
++
++description:
++  The MediaTek Cross-Core Communication Interface (CCCI) modem controller on
++  MT6789 coordinates the integrated Gen95 (MT6295M) cellular modem via the MD
++  watchdog/RGU block, SCPSYS MD power domain, CCIF0/CCIF2 mailboxes, DPMAIF
++  data plane engine, and EMI MPU protected shared/firmware memory regions.
++
++properties:
++  compatible:
++    const: mediatek,mt6789-ccci
++
++  reg:
++    items:
++      - description: MD TOPRGU / watchdog register region
++
++  reg-names:
++    items:
++      - const: md-rgu
++
++  interrupts:
++    items:
++      - description: MD watchdog interrupt
++
++  interrupt-names:
++    items:
++      - const: md-wdt
++
++  power-domains:
++    maxItems: 1
++
++  vmodem-supply:
++    description: Modem core buck regulator supply
++
++  vsram-supply:
++    description: Modem SRAM regulator supply
++
++  mediatek,ccif:
++    $ref: /schemas/types.yaml#/definitions/phandle
++    description: Phandle to the AP-MD CCIF0 mailbox node
++
++  mediatek,ccif-scp:
++    $ref: /schemas/types.yaml#/definitions/phandle
++    description: Phandle to the AP-SCP CCIF2 mailbox node for CCISM
++
++  mediatek,dpmaif:
++    $ref: /schemas/types.yaml#/definitions/phandle
++    description: Phandle to the DPMAIF packet DMA engine node
++
++  mediatek,scpsys:
++    $ref: /schemas/types.yaml#/definitions/phandle
++    description: Phandle to the SCPSYS syscon node for SRCLKEN O1 control
++
++  mediatek,srclken-o1:
++    $ref: /schemas/types.yaml#/definitions/uint32
++    description: Bitmask for SPM SRCLKEN O1 modem clock request control
++
++  mediatek,power-flow-config:
++    $ref: /schemas/types.yaml#/definitions/uint32
++    description: Bitmask selecting SoC-specific modem power-on steps
++
++  memory-region:
++    minItems: 3
++    maxItems: 8
++    description:
++      Phandles to reserved-memory nodes for AP-MD non-cacheable SMEM,
++      AP-MD cacheable SMEM, bootloader CCCI tag memory, and optionally
++      md1img firmware DRAM regions.
++
++  memory-region-names:
++    minItems: 3
++    maxItems: 8
++    items:
++      enum:
++        - nc-smem
++        - c-smem
++        - ccci-tag
++        - md-mem0
++        - md-mem1
++        - md-mem2
++        - md-mem3
++
++required:
++  - compatible
++  - reg
++  - reg-names
++  - interrupts
++  - interrupt-names
++  - power-domains
++  - mediatek,ccif
++  - mediatek,dpmaif
++
++additionalProperties: false
++
++examples:
++  - |
++    #include <dt-bindings/interrupt-controller/arm-gic.h>
++    #include <dt-bindings/interrupt-controller/irq.h>
++    #include <dt-bindings/power/mt6789-power.h>
++    soc {
++        #address-cells = <2>;
++        #size-cells = <2>;
++
++        modem@d0cf000 {
++            compatible = "mediatek,mt6789-ccci";
++            reg = <0x00 0x0d0cf000 0x00 0x1000>;
++            reg-names = "md-rgu";
++            interrupts = <GIC_SPI 110 IRQ_TYPE_EDGE_RISING>;
++            interrupt-names = "md-wdt";
++            power-domains = <&spm MT6789_POWER_DOMAIN_MD>;
++            mediatek,ccif = <&ccif0>;
++            mediatek,ccif-scp = <&ccif2>;
++            mediatek,dpmaif = <&dpmaif>;
++            mediatek,scpsys = <&scpsys>;
++            mediatek,srclken-o1 = <0x200000>;
++            mediatek,power-flow-config = <0x12>;
++            memory-region = <&md_nc_smem>, <&md_c_smem>, <&ccci_tag_mem>;
++            memory-region-names = "nc-smem", "c-smem", "ccci-tag";
++            vmodem-supply = <&mt6366_vmodem_reg>;
++            vsram-supply = <&mt6366_vsram_core_reg>;
++        };
++    };
+diff --git a/Documentation/devicetree/bindings/net/mediatek,mt6789-dpmaif.yaml b/Documentation/devicetree/bindings/net/mediatek,mt6789-dpmaif.yaml
+new file mode 100644
+index 000000000..222222222
+--- /dev/null
++++ b/Documentation/devicetree/bindings/net/mediatek,mt6789-dpmaif.yaml
+@@ -0,0 +1,85 @@
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/net/mediatek,mt6789-dpmaif.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: MediaTek MT6789 DPMAIF v1 Cellular Data-Plane DMA Engine
++
++maintainers:
++  - sysretq0 <324514544+sysretq0@users.noreply.github.com>
++
++description:
++  The Data Plane Modem Application Interface (DPMAIF) v1 on MediaTek MT6789
++  provides high-throughput packet DMA rings (PIT/BAT downlink and DRB uplink)
++  between the application processor and the integrated Gen95 cellular modem.
++
++properties:
++  compatible:
++    const: mediatek,mt6789-dpmaif
++
++  reg:
++    items:
++      - description: Always-on UL configuration registers
++      - description: Always-on DL configuration registers
++      - description: Power-down UL ring registers
++      - description: Power-down DL ring registers
++      - description: Power-down miscellaneous IRQ and status registers
++      - description: Power-down MD-side miscellaneous registers
++      - description: Power-down internal SRAM registers
++
++  reg-names:
++    items:
++      - const: ao-ul
++      - const: ao-dl
++      - const: pd-ul
++      - const: pd-dl
++      - const: pd-misc
++      - const: pd-md-misc
++      - const: pd-sram
++
++  interrupts:
++    maxItems: 1
++
++  clocks:
++    maxItems: 1
++
++  clock-names:
++    items:
++      - const: dpmaif
++
++required:
++  - compatible
++  - reg
++  - reg-names
++  - interrupts
++  - clocks
++  - clock-names
++
++additionalProperties: false
++
++examples:
++  - |
++    #include <dt-bindings/clock/mt6789-clk.h>
++    #include <dt-bindings/interrupt-controller/arm-gic.h>
++    #include <dt-bindings/interrupt-controller/irq.h>
++    soc {
++        #address-cells = <2>;
++        #size-cells = <2>;
++
++        dpmaif@10014000 {
++            compatible = "mediatek,mt6789-dpmaif";
++            reg = <0x00 0x10014000 0x00 0x1000>,
++                  <0x00 0x10014400 0x00 0x1000>,
++                  <0x00 0x1022d000 0x00 0x1000>,
++                  <0x00 0x1022d100 0x00 0x1000>,
++                  <0x00 0x1022d400 0x00 0x1000>,
++                  <0x00 0x1022c000 0x00 0x1000>,
++                  <0x00 0x1022e000 0x00 0x1000>;
++            reg-names = "ao-ul", "ao-dl", "pd-ul", "pd-dl",
++                        "pd-misc", "pd-md-misc", "pd-sram";
++            interrupts = <GIC_SPI 241 IRQ_TYPE_LEVEL_HIGH>;
++            clocks = <&infracfg_ao CLK_IFRAO_DPMAIF_MAIN>;
++            clock-names = "dpmaif";
++        };
++    };
+diff --git a/Documentation/devicetree/bindings/soc/mediatek/mediatek,mt6789-ccif.yaml b/Documentation/devicetree/bindings/soc/mediatek/mediatek,mt6789-ccif.yaml
+new file mode 100644
+index 000000000..333333333
+--- /dev/null
++++ b/Documentation/devicetree/bindings/soc/mediatek/mediatek,mt6789-ccif.yaml
+@@ -0,0 +1,83 @@
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/soc/mediatek/mediatek,mt6789-ccif.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: MediaTek MT6789 Cross-Core Interface (CCIF) Mailbox
++
++maintainers:
++  - sysretq0 <324514544+sysretq0@users.noreply.github.com>
++
++description:
++  The MediaTek Cross-Core Interface (CCIF) provides doorbell channels and a
++  512-byte shared SRAM window between the application processor, the cellular
++  modem (CCIF0), and the System Companion Processor (CCIF2).
++
++properties:
++  compatible:
++    const: mediatek,mt6789-ccif
++
++  reg:
++    items:
++      - description: AP-side CCIF register and SRAM window
++      - description: Peer-side (MD) CCIF register window
++
++  reg-names:
++    items:
++      - const: ap
++      - const: md
++
++  interrupts:
++    minItems: 1
++    maxItems: 2
++    description: AP-side CCIF data interrupts (present on CCIF0)
++
++  clocks:
++    minItems: 2
++    maxItems: 6
++
++  clock-names:
++    minItems: 2
++    maxItems: 6
++    items:
++      enum:
++        - ccif-ap
++        - ccif-md
++        - ccif1-ap
++        - ccif1-md
++        - ccif2-ap
++        - ccif2-md
++        - ccif4-md
++        - ccif5-md
++
++required:
++  - compatible
++  - reg
++  - reg-names
++  - clocks
++  - clock-names
++
++additionalProperties: false
++
++examples:
++  - |
++    #include <dt-bindings/clock/mt6789-clk.h>
++    #include <dt-bindings/interrupt-controller/arm-gic.h>
++    #include <dt-bindings/interrupt-controller/irq.h>
++    soc {
++        #address-cells = <2>;
++        #size-cells = <2>;
++
++        ccif@10209000 {
++            compatible = "mediatek,mt6789-ccif";
++            reg = <0x00 0x10209000 0x00 0x1000>,
++                  <0x00 0x1020a000 0x00 0x1000>;
++            reg-names = "ap", "md";
++            interrupts = <GIC_SPI 226 IRQ_TYPE_LEVEL_HIGH>,
++                         <GIC_SPI 227 IRQ_TYPE_LEVEL_HIGH>;
++            clocks = <&infracfg_ao CLK_IFRAO_CCIF_AP>,
++                     <&infracfg_ao CLK_IFRAO_CCIF_MD>;
++            clock-names = "ccif-ap", "ccif-md";
++        };
++    };
++-- 
++2.55.0

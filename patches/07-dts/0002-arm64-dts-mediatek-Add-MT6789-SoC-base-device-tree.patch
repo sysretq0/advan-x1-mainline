@@ -11,16 +11,16 @@ and display pipeline.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- arch/arm64/boot/dts/mediatek/mt6789.dtsi | 1536 ++++++++++++++++++++++
- 1 file changed, 1536 insertions(+)
+ arch/arm64/boot/dts/mediatek/mt6789.dtsi | 1604 ++++++++++++++++++++++
+ 1 file changed, 1604 insertions(+)
  create mode 100644 arch/arm64/boot/dts/mediatek/mt6789.dtsi
 
 diff --git a/arch/arm64/boot/dts/mediatek/mt6789.dtsi b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
 new file mode 100644
-index 0000000..a7794e9
+index 000000000..111111111
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
-@@ -0,0 +1,1536 @@
+@@ -0,0 +1,1604 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * MediaTek MT6789 (Helio G99) SoC base device tree — mainline shape.
@@ -284,6 +284,22 @@ index 0000000..a7794e9
 +			interrupts = <GIC_PPI 9 (GIC_CPU_MASK_SIMPLE(8) | IRQ_TYPE_LEVEL_HIGH)>;
 +		};
 +
++		modem: modem@d0cf000 {
++			compatible = "mediatek,mt6789-ccci";
++			reg = <0x00 0x0d0cf000 0x00 0x1000>;
++			reg-names = "md-rgu";
++			interrupts = <GIC_SPI 110 IRQ_TYPE_EDGE_RISING>;
++			interrupt-names = "md-wdt";
++			power-domains = <&spm MT6789_POWER_DOMAIN_MD>;
++			mediatek,ccif = <&ccif0>;
++			mediatek,ccif-scp = <&ccif2>;
++			mediatek,dpmaif = <&dpmaif>;
++			mediatek,scpsys = <&scpsys>;
++			mediatek,srclken-o1 = <0x200000>;
++			mediatek,power-flow-config = <0x12>;
++			status = "disabled";
++		};
++
 +		topckgen: clock-controller@10000000 {
 +			compatible = "mediatek,mt6789-topckgen", "syscon";
 +			reg = <0x00 0x10000000 0x00 0x1000>;
@@ -309,6 +325,12 @@ index 0000000..a7794e9
 +				#power-domain-cells = <1>;
 +
 +				/* power domain of the SoC */
++				md: power-domain@0 {
++					reg = <MT6789_POWER_DOMAIN_MD>;
++					mediatek,infracfg = <&infracfg_ao>;
++					#power-domain-cells = <0>;
++				};
++
 +				mfg0: power-domain@2 {
 +					reg = <MT6789_POWER_DOMAIN_MFG0>;
 +					clocks = <&topckgen CLK_TOP_MFG_PLL_SEL>;
@@ -574,6 +596,23 @@ index 0000000..a7794e9
 +			status = "disabled";
 +		};
 +
++		dpmaif: dpmaif@10014000 {
++			compatible = "mediatek,mt6789-dpmaif";
++			reg = <0x00 0x10014000 0x00 0x1000>,
++			      <0x00 0x10014400 0x00 0x1000>,
++			      <0x00 0x1022d000 0x00 0x1000>,
++			      <0x00 0x1022d100 0x00 0x1000>,
++			      <0x00 0x1022d400 0x00 0x1000>,
++			      <0x00 0x1022c000 0x00 0x1000>,
++			      <0x00 0x1022e000 0x00 0x1000>;
++			reg-names = "ao-ul", "ao-dl", "pd-ul", "pd-dl",
++				    "pd-misc", "pd-md-misc", "pd-sram";
++			interrupts = <GIC_SPI 241 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&infracfg_ao CLK_IFRAO_DPMAIF_MAIN>;
++			clock-names = "dpmaif";
++			status = "disabled";
++		};
++
 +		pwrap: pwrap@10026000 {
 +			compatible = "mediatek,mt6789-pwrap", "syscon";
 +			reg = <0x00 0x10026000 0x00 0x1000>;
@@ -582,6 +621,35 @@ index 0000000..a7794e9
 +			clocks = <&infracfg_ao CLK_IFRAO_PMIC_AP>,
 +				 <&infracfg_ao CLK_IFRAO_PMIC_TMR>;
 +			clock-names = "spi", "wrap";
++			status = "disabled";
++		};
++
++		ccif0: ccif@10209000 {
++			compatible = "mediatek,mt6789-ccif";
++			reg = <0x00 0x10209000 0x00 0x1000>,
++			      <0x00 0x1020a000 0x00 0x1000>;
++			reg-names = "ap", "md";
++			interrupts = <GIC_SPI 226 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 227 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&infracfg_ao CLK_IFRAO_CCIF_AP>,
++				 <&infracfg_ao CLK_IFRAO_CCIF_MD>,
++				 <&infracfg_ao CLK_IFRAO_CCIF1_AP>,
++				 <&infracfg_ao CLK_IFRAO_CCIF1_MD>,
++				 <&infracfg_ao CLK_IFRAO_CCIF4_MD>,
++				 <&infracfg_ao CLK_IFRAO_CCIF5_MD>;
++			clock-names = "ccif-ap", "ccif-md", "ccif1-ap",
++				      "ccif1-md", "ccif4-md", "ccif5-md";
++			status = "disabled";
++		};
++
++		ccif2: ccif@1023c000 {
++			compatible = "mediatek,mt6789-ccif";
++			reg = <0x00 0x1023c000 0x00 0x1000>,
++			      <0x00 0x1023d000 0x00 0x1000>;
++			reg-names = "ap", "md";
++			clocks = <&infracfg_ao CLK_IFRAO_CCIF2_AP>,
++				 <&infracfg_ao CLK_IFRAO_CCIF2_MD>;
++			clock-names = "ccif2-ap", "ccif2-md";
 +			status = "disabled";
 +		};
 +
@@ -1559,4 +1627,3 @@ index 0000000..a7794e9
 +};
 -- 
 2.55.0
-

@@ -283,6 +283,19 @@ if [ -r /sys/kernel/debug/pm_genpd/pm_genpd_summary ]; then
     GENPD_SUM=$(awk 'NR>2 && NF>=2 && $1 !~ /^\// && $1 !~ /^-/ {printf "%s=%s ", $1, $2}' /sys/kernel/debug/pm_genpd/pm_genpd_summary 2>/dev/null)
     log "VP-4.7 genpd: ${GENPD_SUM}"
 fi
+# Phase 5.1 Gate telemetry: sync_state, deferred probes, and MD reserved-memory
+SPM_SYNC=$(cat /sys/devices/platform/soc/10006000.syscon:power-controller/state_synced 2>/dev/null || echo "n/a")
+UNSYNCED=""
+for sf in /sys/devices/platform/*/state_synced /sys/devices/platform/*/*/state_synced; do
+    [ -r "$sf" ] || continue
+    if [ "$(cat "$sf" 2>/dev/null)" = "0" ]; then
+        UNSYNCED="${UNSYNCED} $(basename "$(dirname "$sf")")"
+    fi
+done
+DEF_PROBES=$(tr '\n' '; ' < /sys/kernel/debug/devices_deferred 2>/dev/null || true)
+RSV_MD=$(ls -d /sys/firmware/devicetree/base/reserved-memory/memory@* 2>/dev/null | xargs -r -n1 basename 2>/dev/null | tr '\n' ' ')
+log "Gate-5.1: spm_synced=${SPM_SYNC} unsynced=${UNSYNCED:-none} deferred=${DEF_PROBES:-none}"
+log "Gate-5.1 reserved-mem: ${RSV_MD:-none}"
 if [ -r /sys/kernel/debug/clk/clk_summary ]; then
     CLK_ON=$(awk 'NR>3 && $2>0 {c++} END {print c+0}' /sys/kernel/debug/clk/clk_summary 2>/dev/null)
     CLK_AUD=$(awk 'NR>3 && $1 ~ /(pwrap|ulposc|atb|dpmaif|btif|ccif|debugsys|cldma)/ {printf "%s=%s(%s) ", $1, $2, $5}' /sys/kernel/debug/clk/clk_summary 2>/dev/null)

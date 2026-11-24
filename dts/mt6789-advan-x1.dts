@@ -78,6 +78,57 @@
 			ecc-size = <0>;
 			no-map;
 		};
+
+		/*
+		 * Advan X1 LK-configured EMI MPU regions for the integrated
+		 * Gen95 modem (md1img DRAM, AP-MD SMEM, CCCI tags, SCP DRAM).
+		 * Verified from stock runtime_merged.dts and pl_lk.txt; note
+		 * md1img DRAM sits 32 MiB lower (0xdc000000) than Q25.
+		 */
+		md_c_smem: memory@8c000000 {
+			reg = <0x00 0x8c000000 0x00 0x016a0000>;
+			no-map;
+		};
+
+		md_nc_smem: memory@8e000000 {
+			reg = <0x00 0x8e000000 0x00 0x00e10000>;
+			no-map;
+		};
+
+		scp_share_mem: memory@8f000000 {
+			reg = <0x00 0x8f000000 0x00 0x007a0000>;
+			no-map;
+		};
+
+		ccci_tag_mem: memory@bf7f0000 {
+			reg = <0x00 0xbf7f0000 0x00 0x00010000>;
+			no-map;
+		};
+
+		scp_mem: memory@bf800000 {
+			reg = <0x00 0xbf800000 0x00 0x00600000>;
+			no-map;
+		};
+
+		md_mem0: memory@dc000000 {
+			reg = <0x00 0xdc000000 0x00 0x013f0000>;
+			no-map;
+		};
+
+		md_mem1: memory@ddc00000 {
+			reg = <0x00 0xddc00000 0x00 0x00430000>;
+			no-map;
+		};
+
+		md_mem2: memory@de800000 {
+			reg = <0x00 0xde800000 0x00 0x02c40000>;
+			no-map;
+		};
+
+		md_mem3: memory@e3200000 {
+			reg = <0x00 0xe3200000 0x00 0x00e00000>;
+			no-map;
+		};
 	};
 
 	memory@61000000 {
@@ -727,6 +778,17 @@
 
 &mfg1 {
 	domain-supply = <&mt6366_vgpu_reg>;
+};
+
+&modem {
+	memory-region = <&md_nc_smem>, <&md_c_smem>, <&ccci_tag_mem>,
+			<&md_mem0>, <&md_mem1>, <&md_mem2>, <&md_mem3>;
+	memory-region-names = "nc-smem", "c-smem", "ccci-tag",
+			      "md-mem0", "md-mem1", "md-mem2", "md-mem3";
+	vmodem-supply = <&mt6366_vmodem_reg>;
+	vsram-supply = <&mt6366_vsram_core_reg>;
+	/* Enabled in Phase 5.2 once the CCCI transport driver lands */
+	status = "disabled";
 };
 
 &pio {
