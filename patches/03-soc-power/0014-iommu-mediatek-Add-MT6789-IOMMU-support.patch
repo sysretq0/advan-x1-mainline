@@ -1,5 +1,5 @@
 From d33326a3fa7b756534cb049837dec032b0f5f618 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Tue, 24 Nov 2026 12:55:49 +0000
 Subject: [PATCH] iommu/mediatek: Add MT6789 IOMMU support
 
@@ -12,7 +12,7 @@ Enabling display IOMMU allows mediatek-disp-ovl and mediatek-disp-rdma
 to scan out DMA-BUF framebuffers allocated above 4 GiB without hitting
 32-bit swiotlb bounce-buffer exhaustion on 8 GiB devices.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/iommu/mtk_iommu.c | 30 ++++++++++++++++++++++++++++++
  1 file changed, 30 insertions(+)

@@ -1,5 +1,5 @@
 From 3fe94cd2e32a44156613da2afbb4cdcfcc008208 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Mon, 23 Nov 2026 12:19:31 +0000
 Subject: [PATCH] power: supply: bq25890: Add Southchip SC89601A support
 
@@ -15,7 +15,7 @@ D+/D- lines, blocking USB gadget enumeration. Skip the destructive
 chip reset and explicitly clear ICO/HVDCP/MaxCharge/DPDM detection bits
 in REG02 during initialization for SC89601A.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/power/supply/bq25890_charger.c | 36 ++++++++++++++++++++++++--
  1 file changed, 34 insertions(+), 2 deletions(-)

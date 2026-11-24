@@ -1,5 +1,5 @@
 From b4aeb5fb1426b101035a975608af5ac202b27090 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Mon, 23 Nov 2026 21:42:00 +0000
 Subject: [PATCH] phy: mediatek: tphy: Add MT6789 USB2 PHY wakeup and OTG
  session forcing
@@ -20,7 +20,7 @@ on power-on and asserts the U2PHYDTM1 OTG force/session bits in
 u2_phy_instance_power_on() and u2_phy_instance_set_mode(), matching the
 downstream MT6789 PHY initialization sequence.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/phy/mediatek/phy-mtk-tphy.c | 64 ++++++++++++++++++++++++++++-
  1 file changed, 63 insertions(+), 1 deletion(-)

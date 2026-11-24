@@ -1,5 +1,5 @@
 From 451a0a824985cf4980ba9f0007796023490eb2e2 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 04:29:42 +0000
 Subject: [PATCH] dt-bindings: watchdog: mediatek: Add MT6789 compatible and
  reboot-mode
@@ -9,7 +9,7 @@ syscon/simple-mfd compatible form and optional reboot-mode child node
 used by TOPRGU WDT_NONRST_REG (offset 0x24) for bootloader/recovery
 reboot reasons.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  .../devicetree/bindings/watchdog/mediatek,mtk-wdt.yaml   | 9 +++++++++
  1 file changed, 9 insertions(+)

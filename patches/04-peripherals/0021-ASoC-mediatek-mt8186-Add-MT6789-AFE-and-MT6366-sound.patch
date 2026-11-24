@@ -1,5 +1,5 @@
 From e150856df9de9c403a6aae2035e689544dfbc0bb Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Mon, 23 Nov 2026 16:49:36 +0000
 Subject: [PATCH] ASoC: mediatek: mt8186: Add MT6789 AFE and MT6366 sound card
  support
@@ -15,7 +15,7 @@ including AFE_AUD_PAD_TOP) to mt8186-afe-pcm, and add the mt6789-mt6366
 machine driver with common FE playback/capture ops, PCM constraints,
 and AFE runtime PM resume across card registration.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  sound/soc/mediatek/Kconfig                 |  11 +
  sound/soc/mediatek/mt8186/Makefile         |   1 +
@@ -66,7 +66,7 @@ index 0000000..94db35f
 +/*
 + * MediaTek MT6789 with MT6366 (MT6358) PMIC ASoC machine driver
 + *
-+ * Copyright (C) 2026 sysretq0 <324514544+sysretq0@users.noreply.github.com>
++ * Copyright (C) 2026 sysretq0 <sysretq0@proton.me>
 + */
 +
 +#include <linux/module.h>
@@ -339,7 +339,7 @@ index 0000000..94db35f
 +};
 +module_platform_driver(mt6789_mt6366_driver);
 +
-+MODULE_AUTHOR("sysretq0 <324514544+sysretq0@users.noreply.github.com>");
++MODULE_AUTHOR("sysretq0 <sysretq0@proton.me>");
 +MODULE_DESCRIPTION("MediaTek MT6789-MT6366 ALSA SoC machine driver");
 +MODULE_LICENSE("GPL");
 diff --git a/sound/soc/mediatek/mt8186/mt8186-afe-pcm.c b/sound/soc/mediatek/mt8186/mt8186-afe-pcm.c

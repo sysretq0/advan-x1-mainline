@@ -1,5 +1,5 @@
 From fb88551043612c0b8a800f74fe9c885428f69758 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 04:29:53 +0000
 Subject: [PATCH 1/7] dt-bindings: phy: mediatek: dsi-phy: Add MT6789
  compatible
@@ -7,7 +7,7 @@ Subject: [PATCH 1/7] dt-bindings: phy: mediatek: dsi-phy: Add MT6789
 Document the mediatek,mt6789-mipi-tx compatible string in
 mediatek,dsi-phy.yaml.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  Documentation/devicetree/bindings/phy/mediatek,dsi-phy.yaml | 1 +
  1 file changed, 1 insertion(+)

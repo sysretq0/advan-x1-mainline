@@ -1,5 +1,5 @@
 From 36ad6ff871c34d7309b1468adc71be70c2acf87c Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 04:29:34 +0000
 Subject: [PATCH 06/11] dt-bindings: arm: mediatek: mmsys: Add MT6789
  compatible
@@ -7,7 +7,7 @@ Subject: [PATCH 06/11] dt-bindings: arm: mediatek: mmsys: Add MT6789
 Document the mediatek,mt6789-mmsys compatible string in the MediaTek
 MMSYS devicetree binding.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  .../devicetree/bindings/arm/mediatek/mediatek,mmsys.yaml         | 1 +
  1 file changed, 1 insertion(+)

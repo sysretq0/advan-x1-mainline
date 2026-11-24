@@ -1,5 +1,5 @@
 From f475d59fffaa86cec4815e9bc6cecb861cb2b304 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 04:29:43 +0000
 Subject: [PATCH 07/11] dt-bindings: thermal: mediatek: lvts: Add MT6789
  support
@@ -7,7 +7,7 @@ Subject: [PATCH 07/11] dt-bindings: thermal: mediatek: lvts: Add MT6789
 Document the mediatek,mt6789-lvts compatible string and add MT6789
 thermal sensor IDs to mediatek,lvts-thermal.h.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  .../bindings/thermal/mediatek,lvts-thermal.yaml    |  2 ++
  .../dt-bindings/thermal/mediatek,lvts-thermal.h    | 14 ++++++++++++++

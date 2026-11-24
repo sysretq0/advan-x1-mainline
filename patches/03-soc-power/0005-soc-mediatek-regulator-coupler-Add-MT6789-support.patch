@@ -1,12 +1,12 @@
 From 2b9143285573216e2e4cabc94c08c41c84cac30b Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 04:29:33 +0000
 Subject: [PATCH 05/11] soc: mediatek: regulator-coupler: Add MT6789 support
 
 Add mediatek,mt6789 to the MediaTek voltage regulator coupler match
 list so coupled GPU/SRAM rails track voltage constraints properly.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/soc/mediatek/mtk-regulator-coupler.c | 3 ++-
  1 file changed, 2 insertions(+), 1 deletion(-)

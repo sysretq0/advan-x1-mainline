@@ -1,5 +1,5 @@
 From b1df6af133cfc6c20dffe942782b007af9a1620a Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 04:29:29 +0000
 Subject: [PATCH 4/4] clk: mediatek: Add MT6789 MMSYS clock driver
 
@@ -7,7 +7,7 @@ Add MultiMedia subsystem (MMSYS) clock gate driver for MediaTek MT6789,
 providing clock gates for OVL, RDMA, COLOR, CCORR, AAL, GAMMA,
 POSTMASK, DITHER, DSC, DSI, mutex, and SMI blocks.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/clk/mediatek/Makefile        |  3 +-
  drivers/clk/mediatek/clk-mt6789-mm.c | 82 ++++++++++++++++++++++++++++

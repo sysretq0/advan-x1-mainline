@@ -1,12 +1,12 @@
 From 69eebf4abe66ad2909182b694e84f1f48ba949da Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Mon, 23 Nov 2026 12:54:32 +0000
 Subject: [PATCH] pinctrl: mediatek: Add MT6789 pinctrl driver
 
 Add PARIS pinctrl, GPIO, and EINT driver support for the MediaTek
 MT6789 SoC across its 189 pins and 7 IOCFG register banks.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/pinctrl/mediatek/Kconfig              |   12 +
  drivers/pinctrl/mediatek/Makefile             |    1 +

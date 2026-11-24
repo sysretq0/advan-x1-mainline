@@ -1,5 +1,5 @@
 From a876c36ba7b48037adc653118f615fbdeadc0039 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Tue, 24 Nov 2026 00:20:00 +0000
 Subject: [PATCH] dt-bindings: net: Add MediaTek MT6789 CCCI, CCIF, and DPMAIF
  bindings
@@ -14,7 +14,7 @@ subsystems:
   MD RGU watchdog, SCPSYS MD power domain, CCIF mailboxes, DPMAIF data
   engine, modem supplies, and EMI MPU reserved memory regions.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  .../bindings/net/mediatek,mt6789-ccci.yaml    | 136 ++++++++++++++++++
  .../bindings/net/mediatek,mt6789-dpmaif.yaml  |  86 +++++++++++

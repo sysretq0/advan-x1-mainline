@@ -1,5 +1,5 @@
 From 4acda147740e78a89f259666c6a9de80a77cf57c Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Mon, 23 Nov 2026 12:19:29 +0000
 Subject: [PATCH] dt-bindings: power: supply: bq25890: Add Southchip SC89601A
  compatible
@@ -7,7 +7,7 @@ Subject: [PATCH] dt-bindings: power: supply: bq25890: Add Southchip SC89601A
 Add the Southchip vendor prefix and document the register-compatible
 Southchip SC89601A battery charger in the BQ25890 binding.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  Documentation/devicetree/bindings/power/supply/bq25890.yaml | 1 +
  Documentation/devicetree/bindings/vendor-prefixes.yaml      | 2 ++

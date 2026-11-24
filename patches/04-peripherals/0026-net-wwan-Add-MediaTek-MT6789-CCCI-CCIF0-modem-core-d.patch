@@ -1,5 +1,5 @@
 From 9fc2fbbb5476bc2c40895659164ddbc828845426 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Tue, 24 Nov 2026 03:47:43 +0000
 Subject: [PATCH] net: wwan: Add MediaTek MT6789 CCCI/CCIF0 modem core driver
 
@@ -14,7 +14,7 @@ integrated cellular modem (Phase 5.2):
   handles CCIF0 data0/data1 and MD WDT interrupts, and performs the
   HS1/HS2 runtime feature negotiation.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/net/wwan/Kconfig                     |   14 +
  drivers/net/wwan/Makefile                    |    1 +
@@ -83,7 +83,7 @@ index 0000000..1df583f
 +/*
 + * MediaTek MT6789 CCCI cellular modem transport definitions.
 + *
-+ * Copyright (c) 2026 sysretq0 <324514544+sysretq0@users.noreply.github.com>
++ * Copyright (c) 2026 sysretq0 <sysretq0@proton.me>
 + */
 +
 +#ifndef __MTK_CCCI_H__
@@ -420,7 +420,7 @@ index 0000000..a9acd56
 + * verification, EL3 SiP SMC boot handshake, CCIF0 mailbox, MD WDT IRQ,
 + * and HS1/HS2 runtime feature negotiation).
 + *
-+ * Copyright (c) 2026 sysretq0 <324514544+sysretq0@users.noreply.github.com>
++ * Copyright (c) 2026 sysretq0 <sysretq0@proton.me>
 + */
 +
 +#include <linux/arm-smccc.h>
@@ -1720,7 +1720,7 @@ index 0000000..a9acd56
 +};
 +module_platform_driver(mtk_ccci_driver);
 +
-+MODULE_AUTHOR("sysretq0 <324514544+sysretq0@users.noreply.github.com>");
++MODULE_AUTHOR("sysretq0 <sysretq0@proton.me>");
 +MODULE_DESCRIPTION("MediaTek MT6789 CCCI Cellular Modem Core Driver");
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_ringbuf.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_ringbuf.c
@@ -1733,7 +1733,7 @@ index 0000000..f4a49fa
 +/*
 + * MediaTek CCCI shared-memory ringbuffer helpers for CCIF queues.
 + *
-+ * Copyright (c) 2026 sysretq0 <324514544+sysretq0@users.noreply.github.com>
++ * Copyright (c) 2026 sysretq0 <sysretq0@proton.me>
 + */
 +
 +#include <linux/align.h>

@@ -1,12 +1,12 @@
 From 4f864adbeb65c4535c7e827266dd4827274b62e0 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 04:29:29 +0000
 Subject: [PATCH] dt-bindings: pinctrl: mediatek: Add MT6789 pinctrl bindings
 
 Add devicetree schema and pinfunc header for the MediaTek MT6789
 (Helio G99) pin controller.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  .../pinctrl/mediatek,mt6789-pinctrl.yaml      |  151 +++
  include/dt-bindings/pinctrl/mt6789-pinfunc.h  | 1136 +++++++++++++++++

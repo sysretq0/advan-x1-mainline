@@ -1,11 +1,11 @@
 From 5966e2afb6fd2b298f9008f29e73e84997ccda88 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 04:29:49 +0000
 Subject: [PATCH 11/11] pwm: mediatek-disp: Add MT6789 DISP PWM support
 
 Add mediatek,mt6789-disp-pwm match entry to pwm-mtk-disp.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/pwm/pwm-mtk-disp.c | 11 +++++++++++
  1 file changed, 11 insertions(+)

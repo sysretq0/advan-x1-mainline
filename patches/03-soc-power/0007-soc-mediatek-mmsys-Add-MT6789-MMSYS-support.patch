@@ -1,5 +1,5 @@
 From f1b5d848a23f1487bb8566dc2246b70d0401ec20 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 04:29:34 +0000
 Subject: [PATCH 07/11] soc: mediatek: mmsys: Add MT6789 MMSYS support
 
@@ -7,7 +7,7 @@ Add MT6789 MMSYS routing table and platform data to mtk-mmsys for the
 OVL0 -> RDMA0 -> COLOR0 -> CCORR0 -> AAL0 -> GAMMA0 -> POSTMASK0 ->
 DITHER0 -> DSC_WRAP0 -> DSI0 display pipeline.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/soc/mediatek/mt6789-mmsys.h | 70 +++++++++++++++++++++++++++++
  drivers/soc/mediatek/mtk-mmsys.c    | 10 +++++

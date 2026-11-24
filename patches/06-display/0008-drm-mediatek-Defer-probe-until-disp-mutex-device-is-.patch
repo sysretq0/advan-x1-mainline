@@ -1,5 +1,5 @@
 From e4828fb2358d9169e444f439032eec706b87bbc4 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Tue, 24 Nov 2026 09:30:01 +0000
 Subject: [PATCH] drm/mediatek: Defer probe until disp-mutex device is bound
 
@@ -16,7 +16,7 @@ so the component master only binds once disp-mutex is ready, and guard
 mtk_drm_bind() the same way without dropping private->mutex_node on
 -EPROBE_DEFER.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/gpu/drm/mediatek/mtk_drm_drv.c | 19 ++++++++++++++++---
  1 file changed, 16 insertions(+), 3 deletions(-)

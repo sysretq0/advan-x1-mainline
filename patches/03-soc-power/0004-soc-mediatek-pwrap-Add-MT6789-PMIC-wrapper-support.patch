@@ -1,12 +1,12 @@
 From 7b8a6053b9f8f29da43e07cb98d195b6cc102e2e Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 04:29:32 +0000
 Subject: [PATCH] soc: mediatek: pwrap: Add MT6789 PMIC wrapper support
 
 Add MT6789 PMIC wrapper register map and platform data to
 mtk-pmic-wrap for communicating with the MT6366/MT6358 PMIC.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/soc/mediatek/mtk-pmic-wrap.c | 29 ++++++++++++++++++++++++++++
  1 file changed, 29 insertions(+)

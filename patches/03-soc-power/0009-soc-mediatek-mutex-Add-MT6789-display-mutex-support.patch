@@ -1,12 +1,12 @@
 From 11a5e0d8d1846515613aa51de75a4f010ef86e12 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 04:29:35 +0000
 Subject: [PATCH 09/11] soc: mediatek: mutex: Add MT6789 display mutex support
 
 Add MT6789 display mutex MOD0/SOF mapping and driver data to
 mtk-mutex.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/soc/mediatek/mtk-mutex.c | 23 +++++++++++++++++++++++
  1 file changed, 23 insertions(+)

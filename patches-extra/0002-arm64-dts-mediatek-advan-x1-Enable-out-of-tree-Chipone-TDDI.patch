@@ -1,5 +1,5 @@
 From 40b985be597d33efd9a2bf35ea2c7ebee4f82a99 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 04:30:01 +0000
 Subject: [PATCH] arm64: dts: mediatek: advan-x1: Enable out-of-tree Chipone
  TDDI touch
@@ -7,7 +7,7 @@ Subject: [PATCH] arm64: dts: mediatek: advan-x1: Enable out-of-tree Chipone
 Add the out-of-tree chipone-tddi SPI touchscreen child node on spi0
 for optional local builds with patches-extra/.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts | 13 +++++++++++++
  1 file changed, 13 insertions(+)

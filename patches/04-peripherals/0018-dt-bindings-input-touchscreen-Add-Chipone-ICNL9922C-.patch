@@ -1,5 +1,5 @@
 From b0513a3f3a526236a667afde7af9ec67786d7457 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Mon, 23 Nov 2026 14:15:47 +0000
 Subject: [PATCH] dt-bindings: input: touchscreen: Add Chipone ICNL9922C SPI
  TDDI binding
@@ -7,7 +7,7 @@ Subject: [PATCH] dt-bindings: input: touchscreen: Add Chipone ICNL9922C SPI
 Add the devicetree binding for the Chipone ICNL9922C SPI TDDI
 touchscreen controller using the Chipone TCS protocol.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  .../touchscreen/chipone,icnl9922c-ts.yaml     | 66 +++++++++++++++++++
  1 file changed, 66 insertions(+)

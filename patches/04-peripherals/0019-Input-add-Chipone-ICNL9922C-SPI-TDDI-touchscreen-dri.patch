@@ -1,5 +1,5 @@
 From 0c740c547b7230974070c803841cda113fa7982a Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Mon, 23 Nov 2026 16:52:39 +0000
 Subject: [PATCH] Input: add Chipone ICNL9922C SPI TDDI touchscreen driver
 
@@ -10,7 +10,7 @@ SRAM CRC verification, asynchronous SRAM firmware loading
 (chipone/icnl9922c.bin), and drm_panel_follower synchronization so
 SRAM firmware is loaded after the shared TDDI display panel reset.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/input/touchscreen/Kconfig             |  14 +
  drivers/input/touchscreen/Makefile            |   1 +
@@ -65,7 +65,7 @@ index 000000000..1e3371dac
 +/*
 + * Chipone ICNL9922C SPI TDDI touchscreen driver (TCS + DRW SRAM boot)
 + *
-+ * Copyright (C) 2026 sysretq0 <324514544+sysretq0@users.noreply.github.com>
++ * Copyright (C) 2026 sysretq0 <sysretq0@proton.me>
 + */
 +
 +#include <drm/drm_panel.h>
@@ -962,7 +962,7 @@ index 000000000..1e3371dac
 +};
 +module_spi_driver(icnl9922c_driver);
 +
-+MODULE_AUTHOR("sysretq0 <324514544+sysretq0@users.noreply.github.com>");
++MODULE_AUTHOR("sysretq0 <sysretq0@proton.me>");
 +MODULE_DESCRIPTION("Chipone ICNL9922C SPI TDDI Touchscreen Driver");
 +MODULE_LICENSE("GPL");
 -- 

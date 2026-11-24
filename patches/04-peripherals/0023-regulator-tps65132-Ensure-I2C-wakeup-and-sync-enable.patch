@@ -1,5 +1,5 @@
 From 3a43af92aecbc3692e8cfe3dfda3b69b2b1621d4 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Mon, 23 Nov 2026 21:10:00 +0000
 Subject: [PATCH] regulator: tps65132: Sync enable GPIO state and wait for I2C
  wakeup
@@ -19,7 +19,7 @@ the I2C slave is awake and fails permanently with -ENXIO.
   regulator-always-on in DT, assert its enable GPIO and wait 5-6 ms before
   machine_constraints_voltage() performs I2C register access.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/regulator/tps65132-regulator.c | 22 ++++++++++++++++++++++
  1 file changed, 22 insertions(+)

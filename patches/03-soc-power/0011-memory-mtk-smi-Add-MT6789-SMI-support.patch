@@ -1,12 +1,12 @@
 From f8fae36bff77c3bd2b25b2e3b27cbfad79c24423 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 04:29:37 +0000
 Subject: [PATCH 11/11] memory: mtk-smi: Add MT6789 SMI support
 
 Add MT6789 SMI Common and LARB platform data including GALS support,
 MMU bus selection mask, and per-port outstanding request depth table.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/memory/mtk-smi.c | 45 ++++++++++++++++++++++++++++++++++++++++
  1 file changed, 45 insertions(+)

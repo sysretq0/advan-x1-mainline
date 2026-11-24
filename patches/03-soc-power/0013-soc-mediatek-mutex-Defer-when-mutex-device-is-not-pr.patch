@@ -1,5 +1,5 @@
 From 41c184238a2e91403d83ffc34b9e5b73407ae656 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Tue, 24 Nov 2026 09:30:00 +0000
 Subject: [PATCH] soc: mediatek: mutex: Defer when mutex device is not probed
  yet
@@ -13,7 +13,7 @@ NULL pointer dereference at offset 0x19 (mtx->mutex[0].claimed).
 
 Return ERR_PTR(-EPROBE_DEFER) if dev_get_drvdata(dev) is NULL.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/soc/mediatek/mtk-mutex.c | 3 +++
  1 file changed, 3 insertions(+)

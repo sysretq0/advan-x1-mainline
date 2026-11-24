@@ -1,5 +1,5 @@
 From 9f17e6c16ea8202efd685c651bcdef1d62de90b8 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 04:29:28 +0000
 Subject: [PATCH 3/4] clk: mediatek: Add MT6789 IMP I2C wrapper clock driver
 
@@ -7,7 +7,7 @@ Add clock gate driver for the four MediaTek MT6789 IMP I2C wrapper
 clock controllers (imp_iic_wrap_c, imp_iic_wrap_en, imp_iic_wrap_n,
 and imp_iic_wrap_w).
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/clk/mediatek/Makefile                 |  2 +-
  .../clk/mediatek/clk-mt6789-imp_iic_wrap.c    | 97 +++++++++++++++++++
@@ -35,7 +35,7 @@ index 000000000..e1b1b0245
 @@ -0,0 +1,97 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
-+ * Copyright (c) 2026 sysretq0 <324514544+sysretq0@users.noreply.github.com>
++ * Copyright (c) 2026 sysretq0 <sysretq0@proton.me>
 + * Author: sysretq0
 + */
 +

@@ -1,12 +1,12 @@
 From c74f11ee1939bad4fc10413a15b340e56b6a76e1 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Mon, 23 Nov 2026 12:19:26 +0000
 Subject: [PATCH] soc: mediatek: socinfo: Add MT6789 SoC support
 
 Add MediaTek MT6789 (Helio G99) entry to the socinfo lookup table
 matching the non-secure eFuse words at offsets 0x4c and 0x50.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/soc/mediatek/mtk-socinfo.c | 1 +
  1 file changed, 1 insertion(+)

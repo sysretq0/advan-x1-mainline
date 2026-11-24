@@ -1,5 +1,5 @@
 From a53167d38f1e7ac36d54c8de5d09b0a6151dbeb8 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 04:29:45 +0000
 Subject: [PATCH] thermal/drivers/mediatek/lvts: Add per-SoC zero-MSR guard and
  start settle delay
@@ -12,7 +12,7 @@ other MediaTek SoCs untouched.
 Bound consecutive raw-zero retries per sensor so a permanently dead
 sensor returns -EIO rather than masking thermal faults indefinitely.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/thermal/mediatek/lvts_thermal.c | 18 ++++++++++++++++++
  1 file changed, 18 insertions(+)

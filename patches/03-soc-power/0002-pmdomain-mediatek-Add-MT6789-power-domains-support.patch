@@ -1,5 +1,5 @@
 From 13bcae6aee347a228453189ac7c8fdc618b8f972 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 04:29:31 +0000
 Subject: [PATCH 02/11] pmdomain: mediatek: Add MT6789 power domains support
 
@@ -14,7 +14,7 @@ the bootloader pre-loads and boots the modem (MT6789_POWER_DOMAIN_MD) with
 no EL3 MD-stop SMC, so powering off MD during error cleanup would hang
 TOP_AXI_PROT_EN_MD.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/pmdomain/mediatek/mt6789-pm-domains.h | 344 ++++++++++++++++++
  drivers/pmdomain/mediatek/mtk-pm-domains.c    |  19 +-

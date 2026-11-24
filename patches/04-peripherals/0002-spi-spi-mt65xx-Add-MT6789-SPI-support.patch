@@ -1,5 +1,5 @@
 From dea2206f819f6e007e6753d16c24132a00806587 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 04:29:38 +0000
 Subject: [PATCH 02/11] spi: spi-mt65xx: Add MT6789 SPI support
 
@@ -9,7 +9,7 @@ SPI_CONTROLLER_MUST_TX.  Like other pre-IPM MediaTek SPI controllers,
 MT6789 requires RX DMA to be active during TX DMA transfers to prevent
 RX FIFO overflow and transfer corruption on large writes.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/spi/spi-mt65xx.c | 18 +++++++++++++++++-
  1 file changed, 17 insertions(+), 1 deletion(-)

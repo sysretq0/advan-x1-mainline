@@ -4,8 +4,8 @@
 > The historical `f3d8e93` Phases 0–5 plan below is **100% complete**. The follow-up post-`2b74552` deviation remediation tracks:
 > - **Phase 1 (`WP-1.0`–`WP-1.5`, commit `3b1f69f`):** **COMPLETE & HARDWARE-VERIFIED** (`console-ramoops-3b1f69f.log` — 88.67 s Wayland session, 0 Panfrost/GPU errors, clean `userrequested` reboot, all 13 LVTS zones healthy, `nfc0` & CCCI probed cleanly).
 > - **Phase 2 (`WP-2.1`–`WP-2.4` + Docs Consolidation, commit `e204148`):** **COMPLETE & HARDWARE-VERIFIED** (`console-ramoops-e204148.log` — 146.49 s Wayland session, `disp_iommu` bound `larb0`/`larb1` with `ovl0`/`rdma0` in `iommu group 0`, **0 `mediatek-disp-ovl: swiotlb buffer is full`** (`#0012` closed), 0 runtime M4U faults, `mtk-wdt` + `syscon-reboot-mode` clean, `clk-mt6789-mfgcfg` HW readback clean).
-> - **Phase 3 (`WP-3.1`–`WP-3.4` + M4U Handover Polish):** **IMPLEMENTED** — OVL0 bootloader-splash DMA halt in `mtk_disp_ovl_probe()` (`06-display/0004`), `M7` clocks verified & documented (`01-clk/0002`, 0 HW-on leaks), `M9` GPIO85/107 verified & documented (`dts/mt6789-advan-x1.dts`), `M11` NFC `VP-4.5` diagnostic fixed (`initramfs/init`), `M14` spurious `mediatek,pre-emphasis = <1>` removed (`dts/mt6789.dtsi`), and `B3-02/04/07/08/10` oracle-verified & documented (`docs/ccci-sip-abi.md`, `docs/upstream-deviation-audit.md`).
-> - **Phase 4 (Pre-Upstream Deferred):** `M8` (8 unused PDs), `B2-02` (DDP stub), `B2-05` (`priv->dsc` clear on stop).
+> - **Phase 3 (`WP-3.1`–`WP-3.4` + M4U Handover Polish, commit `b1a3ae6`):** **COMPLETE & HARDWARE-VERIFIED** (`console-ramoops-b1a3ae6.log` — 198.63 s Wayland session, **0 M4U faults**, 0.8 ms DSI handover, 0 swiotlb/Panfrost/deferred errors, live `st_nci` IRQ 16, USB gadget clean without spurious `pre-emphasis`).
+> - **Phase 4 (Pre-Upstream):** `B2-05` (`priv->dsc = NULL` in `mtk_dsc_stop()`) **resolved** + patch author/SOB email updated to `sysretq0@proton.me`; `M8` (8 unused PDs needing multimedia clock nodes) and `B2-02` (DDP stub) remain deferred for pre-upstream/camera bring-up.
 >
 > ---
 >

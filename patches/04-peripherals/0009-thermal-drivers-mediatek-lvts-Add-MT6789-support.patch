@@ -1,5 +1,5 @@
 From bbafe5e10ca97eee2beea60e4e8a10df80500834 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 04:29:46 +0000
 Subject: [PATCH] thermal/drivers/mediatek/lvts: Add MT6789 support
 
@@ -7,7 +7,7 @@ Add LVTS thermal controller data, V5 manual RCK calibration, and OF match
 entry for the MediaTek MT6789 SoC (4 controllers, 13 sensors in filtered
 mode).
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/thermal/mediatek/lvts_thermal.c      |  201 +-
  drivers/thermal/mediatek/lvts_thermal.c.orig | 2238 ++++++++++++++++++

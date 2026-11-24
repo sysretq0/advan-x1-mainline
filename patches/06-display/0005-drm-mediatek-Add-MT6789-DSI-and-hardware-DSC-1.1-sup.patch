@@ -1,6 +1,6 @@
-From a5f488e8a69d91011affedf7349bf9d25822ecb1 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
-Date: Sun, 22 Nov 2026 04:29:56 +0000
+From 04c350ccd88b2024be020906134ec0f8adb65168 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Tue, 24 Nov 2026 14:05:54 +0000
 Subject: [PATCH] drm/mediatek: Add MT6789 DSI and hardware DSC 1.1 support
 
 Add MediaTek MT6789 MIPI-DSI controller support (N6/N4 D-PHY timing,
@@ -11,14 +11,14 @@ bootloader OVL_BGCLR_SEL_IN on the head DDP component (i == 0) in
 mtk_crtc_ddp_hw_init() so OVL0 uses its internal background color
 rather than stalling on a clock-gated bootloader OVL0_2L.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/gpu/drm/mediatek/mtk_crtc.c     |  13 +-
- drivers/gpu/drm/mediatek/mtk_ddp_comp.c | 205 +++++++++++-
+ drivers/gpu/drm/mediatek/mtk_ddp_comp.c | 206 +++++++++++-
  drivers/gpu/drm/mediatek/mtk_ddp_comp.h |  17 +
  drivers/gpu/drm/mediatek/mtk_disp_drv.h |   3 +
  drivers/gpu/drm/mediatek/mtk_dsi.c      | 405 +++++++++++++++++++-----
- 5 files changed, 562 insertions(+), 81 deletions(-)
+ 5 files changed, 563 insertions(+), 81 deletions(-)
 
 diff --git a/drivers/gpu/drm/mediatek/mtk_crtc.c b/drivers/gpu/drm/mediatek/mtk_crtc.c
 index 1941222..52dd02b 100644
@@ -55,7 +55,7 @@ index 1941222..52dd02b 100644
  
  		mtk_ddp_comp_config(comp, width, height, vrefresh, bpc, NULL);
 diff --git a/drivers/gpu/drm/mediatek/mtk_ddp_comp.c b/drivers/gpu/drm/mediatek/mtk_ddp_comp.c
-index 2826145..83eeaf8 100644
+index 2826145..3e59654 100644
 --- a/drivers/gpu/drm/mediatek/mtk_ddp_comp.c
 +++ b/drivers/gpu/drm/mediatek/mtk_ddp_comp.c
 @@ -12,6 +12,7 @@
@@ -299,7 +299,15 @@ index 2826145..83eeaf8 100644
  	/* write with mask to reserve the value set in mtk_dsc_config */
  	mtk_ddp_write_mask(NULL, DSC_EN, &priv->cmdq_reg, priv->regs, DISP_REG_DSC_CON, DSC_EN);
  }
-@@ -314,12 +501,14 @@ static const struct mtk_ddp_comp_funcs ddp_dsc = {
+@@ -215,6 +402,7 @@ static void mtk_dsc_stop(struct device *dev)
+ 	struct mtk_ddp_comp_dev *priv = dev_get_drvdata(dev);
+ 
+ 	writel_relaxed(0x0, priv->regs + DISP_REG_DSC_CON);
++	priv->dsc = NULL;
+ }
+ 
+ static void mtk_od_config(struct device *dev, unsigned int w,
+@@ -314,12 +502,14 @@ static const struct mtk_ddp_comp_funcs ddp_dsc = {
  	.config = mtk_dsc_config,
  	.start = mtk_dsc_start,
  	.stop = mtk_dsc_stop,
@@ -314,7 +322,7 @@ index 2826145..83eeaf8 100644
  };
  
  static const struct mtk_ddp_comp_funcs ddp_gamma = {
-@@ -704,6 +893,8 @@ int mtk_ddp_comp_init(struct device *dev, struct device_node *node, struct mtk_d
+@@ -704,6 +894,8 @@ int mtk_ddp_comp_init(struct device *dev, struct device_node *node, struct mtk_d
  		dev_dbg(comp->dev, "get mediatek,gce-client-reg fail!\n");
  #endif
  

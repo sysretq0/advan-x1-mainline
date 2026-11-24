@@ -1,5 +1,5 @@
 From 73067a173c64a86e38603a085b89ca5dac3f55da Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 04:29:53 +0000
 Subject: [PATCH 2/7] phy: mediatek: mipi-dsi: Add MT6789 MIPI-TX PHY support
 
@@ -7,7 +7,7 @@ Add MediaTek MT6789 MIPI-TX D-PHY support to phy-mtk-mipi-dsi,
 including bootloader PLL/PRE_OE handover preservation and cold-start
 PLL/lane configuration.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  .../phy/mediatek/phy-mtk-mipi-dsi-mt8183.c    | 173 ++++++++++++++++++
  drivers/phy/mediatek/phy-mtk-mipi-dsi.c       |   1 +

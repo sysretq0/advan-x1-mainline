@@ -1,12 +1,12 @@
 From c0f427b322b278845d6d948f2cf460ee0564f17e Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 04:29:40 +0000
 Subject: [PATCH] i2c: mt65xx: Add MT6789 I2C support
 
 Add mediatek,mt6789-i2c match entry using mt8188_compat (regs_v3,
 dma_sync=0) to i2c-mt65xx.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/i2c/busses/i2c-mt65xx.c | 1 +
  1 file changed, 1 insertion(+)

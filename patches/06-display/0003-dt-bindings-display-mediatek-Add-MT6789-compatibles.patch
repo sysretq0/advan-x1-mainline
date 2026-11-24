@@ -1,12 +1,12 @@
 From c472e355c3598b6b2fa646b49f394131a19d0944 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 04:29:54 +0000
 Subject: [PATCH 3/7] dt-bindings: display: mediatek: Add MT6789 compatibles
 
 Document MediaTek MT6789 display pipeline compatibles (OVL, RDMA,
 COLOR, CCORR, AAL, GAMMA, POSTMASK, DITHER, DSC, and DSI).
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  .../devicetree/bindings/display/mediatek/mediatek,aal.yaml    | 1 +
  .../devicetree/bindings/display/mediatek/mediatek,ccorr.yaml  | 1 +

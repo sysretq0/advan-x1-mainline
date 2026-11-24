@@ -1,5 +1,5 @@
 From fab07402f6546f62059257ae38ba0cf3b7c1963b Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Mon, 23 Nov 2026 12:19:32 +0000
 Subject: [PATCH] dt-bindings: power: supply: Add CellWise CW2217 fuel gauge
  binding
@@ -7,7 +7,7 @@ Subject: [PATCH] dt-bindings: power: supply: Add CellWise CW2217 fuel gauge
 Document Device Tree bindings for the CellWise CW2215/CW2217 I2C
 single-cell battery fuel gauge.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  .../power/supply/cellwise,cw2217.yaml         | 54 +++++++++++++++++++
  1 file changed, 54 insertions(+)

@@ -1,11 +1,11 @@
 From eb57935d5f8314043b2b94690143c80f3ce37f76 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 04:29:39 +0000
 Subject: [PATCH 03/11] dt-bindings: i2c: mt65xx: Add MT6789 compatible
 
 Document the mediatek,mt6789-i2c compatible string in i2c-mt65xx.yaml.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  Documentation/devicetree/bindings/i2c/i2c-mt65xx.yaml | 1 +
  1 file changed, 1 insertion(+)

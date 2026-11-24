@@ -1,5 +1,5 @@
 From 6a0d25d0c50ffc6202b194023037c688196073e7 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Mon, 23 Nov 2026 14:15:48 +0000
 Subject: [PATCH] ASoC: dt-bindings: mediatek: Add MT6789 AFE and MT6366 sound
  card bindings
@@ -8,7 +8,7 @@ Extend the MT8186 AFE PCM binding with the compatible MediaTek MT6789
 audio front-end (power-domains and optional reset) and add the MT6789
 with MT6366 PMIC ASoC sound card binding.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  .../sound/mediatek,mt6789-mt6366-sound.yaml   | 68 +++++++++++++++++++
  .../bindings/sound/mt8186-afe-pcm.yaml        | 20 +++++-

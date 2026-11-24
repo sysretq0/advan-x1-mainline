@@ -1,5 +1,5 @@
 From c9d1ef0fde45f8b7a453e2637937a3ba35d169c0 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Tue, 24 Nov 2026 13:41:37 +0000
 Subject: [PATCH] arm64: dts: mediatek: Add MT6789 SoC base device tree
 
@@ -9,7 +9,7 @@ SCPSYS power domains, keypad, PMIC wrapper, UART, SPI, I2C, UFS, USB,
 LVTS thermal with CPU/GPU cooling, Mali-G57 GPU, SMI, MMSYS, DISP PWM,
 and display pipeline.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  arch/arm64/boot/dts/mediatek/mt6789.dtsi | 1624 ++++++++++++++++++++++
  1 file changed, 1624 insertions(+)

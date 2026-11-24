@@ -1,12 +1,12 @@
 From b617dea907303fd7f01d3a9a4743b19ccec1a8a0 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Tue, 24 Nov 2026 13:40:48 +0000
 Subject: [PATCH] clk: mediatek: Add MT6789 core clock drivers
 
 Add clock drivers for the MediaTek MT6789 apmixedsys PLLs, topckgen
 muxes and dividers, and infracfg_ao peripheral clock gates and resets.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/clk/mediatek/Kconfig                 |  11 +
  drivers/clk/mediatek/Makefile                |   2 +

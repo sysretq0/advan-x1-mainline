@@ -1,5 +1,5 @@
 From c1560f844947255c35eda70bc2cc5e01fa382409 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 04:29:27 +0000
 Subject: [PATCH] dt-bindings: clock: mediatek: Add MT6789 clock and reset
  bindings
@@ -8,7 +8,7 @@ Add devicetree bindings and clock/reset ID headers for the MediaTek
 MT6789 (Helio G99) clock controllers (apmixedsys, topckgen,
 infracfg_ao, IMP I2C wrappers, and MMSYS).
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  .../bindings/clock/mediatek,mt6789-clock.yaml |  48 ++
  .../clock/mediatek,mt6789-sys-clock.yaml      |  53 +++

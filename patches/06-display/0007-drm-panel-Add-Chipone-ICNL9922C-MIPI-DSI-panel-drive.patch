@@ -1,5 +1,5 @@
 From 7f8b6873cfc7ce8b7001bb2fae0b917c7b909543 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 04:29:57 +0000
 Subject: [PATCH 7/7] drm/panel: Add Chipone ICNL9922C MIPI-DSI panel driver
 
@@ -7,7 +7,7 @@ Add MIPI-DSI panel driver for the Chipone ICNL9922C 1080x2460 4-lane
 VESA DSC 1.1 video-mode LCD panel (60/90/120 Hz) found on the
 Advan X1.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/gpu/drm/panel/Kconfig                 |  10 +
  drivers/gpu/drm/panel/Makefile                |   1 +
@@ -58,7 +58,7 @@ index 000000000..02fab7b40
 +/*
 + * Chipone ICNL9922C MIPI-DSI Panel Driver (BOE 6.78" 1080x2460)
 + *
-+ * Copyright (c) 2026 sysretq0 <324514544+sysretq0@users.noreply.github.com>
++ * Copyright (c) 2026 sysretq0 <sysretq0@proton.me>
 + */
 +
 +#include <linux/delay.h>
@@ -616,7 +616,7 @@ index 000000000..02fab7b40
 +};
 +module_mipi_dsi_driver(icnl9922c_driver);
 +
-+MODULE_AUTHOR("sysretq0 <324514544+sysretq0@users.noreply.github.com>");
++MODULE_AUTHOR("sysretq0 <sysretq0@proton.me>");
 +MODULE_DESCRIPTION("Chipone ICNL9922C MIPI-DSI panel driver");
 +MODULE_LICENSE("GPL");
 -- 

@@ -16,7 +16,7 @@
 >   - `M10` (`watchdog@10007000`): added `syscon` + `simple-mfd` + `reboot-mode` (`offset = 0x24`, `mask = 0x0f`) in lockstep with `mediatek,mtk-wdt.yaml` (`04-peripherals/0006`).
 >   - `M2b`: documented EL3 SiP SMC ABI & Loki handover contract in [`docs/ccci-sip-abi.md`](./ccci-sip-abi.md).
 >   - `M5` / `B2-01` / `B2-04`: converged `clk-mt6789-mfgcfg.c` (`01-clk/0005`) with spinlock-guarded `MFG_CG_CON` hardware readback and documented the `MFG_TOP_CONFIG` reset + Panfrost `clk_prepare()` invariant.
-> - **Implemented in Phase 3 (Hardware Verification Sweep + M4U Handover Polish):**
+> - **Resolved & Hardware-Verified in Phase 3 (`b1a3ae6`, `console-ramoops-b1a3ae6.log` — 198.63 s Wayland session, 0 M4U faults, 0 swiotlb/Panfrost errors, 0 deferred probes, `st_nci` IRQ 16 active):**
 >   - **M4U Splash-Handover Polish (`06-display/0004`):** In `mtk_disp_ovl_probe()`, halt active bootloader splash DMA (`DISP_REG_OVL_SRC_CON = 0`, clear `INTEN`/`INTSTA`, `DISP_REG_OVL_EN = DISP_OVL_BYPASS_SHADOW`) as soon as `ovl0` probes so physical LK framebuffer (`0xfe007000..0xfffff000`) reads do not fault in `disp_iommu` during the 12 ms window before `mediatek-drm` binds and stops DSI VDO mode.
 >   - **`M7` / `B3-01` / `B2-03` (`01-clk/0002`):** Verified via `boot-diag-e204148/last-clk_summary.log` — **0** clocks leaked HW-enabled with SW count 0; 12 of 19 vendor `mt6789-clkitg.dtsi` bring-up clocks are actively claimed by mainline drivers and 7 gate off cleanly; only the 3 `CLK_IS_CRITICAL` clocks (`scp_sel`, `ifrao_66mp_mclkp`, `ifrao_cpum`) stay enabled without a consumer. Refined rationale comments in `clk-mt6789-infra_ao.c`.
 >   - **`M9` / `B3-05` (`dts/mt6789-advan-x1.dts`):** Verified via `last-gpio.log` (`gpio-85` panel & `gpio-107` touch both `out hi ACTIVE LOW` while running) and driver calls (`1`=assert physical LOW, `0`=deassert physical HIGH); documented gpiod active-low semantics vs stock raw-GPIO `0x00`.
@@ -32,7 +32,8 @@
 >   - `M14` YAML complaints (`ccif.yaml` 2-item `items:` and `ccci.yaml` `*-supply`) and `04-peripherals/0018` `panel: true` already conform to dtschema.
 >   - `scripts/verify_patches.sh` is tracked in git (not gitignored).
 > - **Remaining Open Items (Phase 4 — Pre-Upstream Deferred):**
->   - `M8` (8 unused power domains when camera/ISP/video are enabled), `B2-02` (DDP no-op stub), `B2-05` (`priv->dsc` NULL clear on stop).
+>   - `B2-05` (`priv->dsc = NULL` in `mtk_dsc_stop()`, `06-display/0005`) **resolved**; patch series email updated to `sysretq0@proton.me`.
+>   - Deferred until pre-upstream / camera bring-up: `M8` (8 unused power domains requiring `imgsys`/`ipesys`/`vdec`/`venc`/`camsys` clock nodes), `B2-02` (DDP no-op stub).
 >
 > ---
 >

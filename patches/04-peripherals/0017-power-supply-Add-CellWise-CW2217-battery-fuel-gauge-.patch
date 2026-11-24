@@ -1,5 +1,5 @@
 From 4bdf73df435ab383656437e29833da585bb521b7 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Mon, 23 Nov 2026 12:19:33 +0000
 Subject: [PATCH] power: supply: Add CellWise CW2217 battery fuel gauge driver
 
@@ -11,7 +11,7 @@ and run the restart/sleep/program/active initialization sequence only
 when the IC is asleep, unconfigured, or mismatched, preserving warm
 reboot SOC tracking.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/power/supply/Kconfig          |  11 +
  drivers/power/supply/Makefile         |   1 +
@@ -63,7 +63,7 @@ index 0000000..b78d4bf
 +/*
 + * CellWise CW2215/CW2217 Battery Fuel Gauge driver
 + *
-+ * Copyright (c) 2026 sysretq0 <324514544+sysretq0@users.noreply.github.com>
++ * Copyright (c) 2026 sysretq0 <sysretq0@proton.me>
 + */
 +
 +#include <linux/delay.h>
@@ -524,7 +524,7 @@ index 0000000..b78d4bf
 +};
 +module_i2c_driver(cw2217_driver);
 +
-+MODULE_AUTHOR("sysretq0 <324514544+sysretq0@users.noreply.github.com>");
++MODULE_AUTHOR("sysretq0 <sysretq0@proton.me>");
 +MODULE_DESCRIPTION("CellWise CW2215/CW2217 Battery Fuel Gauge driver");
 +MODULE_LICENSE("GPL");
 -- 

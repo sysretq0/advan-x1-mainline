@@ -1,5 +1,5 @@
 From 48f20a6c390f655f61b89b85f1fa20e8609078c4 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Mon, 23 Nov 2026 18:00:00 +0000
 Subject: [PATCH] dt-bindings: ufs/usb/phy: mediatek: Add MT6789 compatibles
 
@@ -7,7 +7,7 @@ Document MediaTek MT6789 compatible strings for UFS host controller
 (including its 7 clocks, optional resets/reset-names, and optional
 external M-PHY node), MUSB controller, and USB2 T-PHY v2.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  .../bindings/phy/mediatek,tphy.yaml           |  1 +
  .../devicetree/bindings/ufs/mediatek,ufs.yaml | 64 +++++++++++++++----

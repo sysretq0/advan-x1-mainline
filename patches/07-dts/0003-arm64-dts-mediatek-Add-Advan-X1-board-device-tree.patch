@@ -1,5 +1,5 @@
 From 5d9b963d5b314a7eff8fa629fa864b935dfa9cbc Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Tue, 24 Nov 2026 13:41:39 +0000
 Subject: [PATCH] arm64: dts: mediatek: Add Advan X1 board device tree
 
@@ -7,7 +7,7 @@ Add board device tree for the Advan X1 smartphone (MediaTek MT6789,
 MT6366 PMIC with AUXADC/RTC/codec/keys/regulators, hardware keypad,
 vibrator, TPS65132 display bias, and Chipone ICNL9922C DSI panel).
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  .../boot/dts/mediatek/mt6789-advan-x1.dts     | 1050 +++++++++++++++++
  1 file changed, 1050 insertions(+)
@@ -23,7 +23,7 @@ index 0000000..f7fd662
 +/*
 + * Device Tree Source for the Advan X1 smartphone (MediaTek MT6789).
 + *
-+ * Copyright (c) 2026 sysretq0 <324514544+sysretq0@users.noreply.github.com>
++ * Copyright (c) 2026 sysretq0 <sysretq0@proton.me>
 + */
 +
 +/dts-v1/;

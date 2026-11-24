@@ -1,12 +1,12 @@
 From 6193d1e6422d16b1a95d3ffafc1b31eb9b4feff2 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 04:29:31 +0000
 Subject: [PATCH 01/11] dt-bindings: power: mediatek: Add MT6789 power domains
 
 Add devicetree bindings and power domain ID header for the MediaTek
 MT6789 SCPSYS power controller.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  .../bindings/mfd/mediatek,mt8195-scpsys.yaml  |  1 +
  .../power/mediatek,power-controller.yaml      |  1 +

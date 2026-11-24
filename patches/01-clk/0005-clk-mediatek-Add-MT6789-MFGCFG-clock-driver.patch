@@ -1,5 +1,5 @@
 From 1cb6ae243e07a37c4d54096dcfc7067613214c0a Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Tue, 24 Nov 2026 09:52:00 +0000
 Subject: [PATCH] clk: mediatek: Add MT6789 MFGCFG clock driver
 
@@ -18,7 +18,7 @@ active-state flag so clk_disable_unused and clk_summary verify real
 hardware gate state while MFG1 is active without touching MFG_TOP_CONFIG
 MMIO while MFG1 is powered off.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/clk/mediatek/Makefile            |   2 +-
  drivers/clk/mediatek/clk-mt6789-mfgcfg.c | 188 +++++++++++++++++++++++

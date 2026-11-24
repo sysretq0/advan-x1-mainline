@@ -1,5 +1,5 @@
 From 2a1f961f5b72d129625f8f008f9db9ab50ba0fd1 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Tue, 24 Nov 2026 13:41:31 +0000
 Subject: [PATCH] drm/mediatek: Add MT6789 display pipeline support
 
@@ -13,7 +13,7 @@ a 48992-byte RDMA0 FIFO (3062 16-byte entries) with zero video-mode
 output valid threshold (0x8bf60000), and a clean RDMA0 soft-reset when
 handing over from an active bootloader pipeline.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/gpu/drm/mediatek/mtk_disp_aal.c   |  1 +
  drivers/gpu/drm/mediatek/mtk_disp_ccorr.c |  2 +

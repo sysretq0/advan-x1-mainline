@@ -1,5 +1,5 @@
 From 6280dcb888ba8380c4e96671378a960c10902a89 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 17:55:00 +0000
 Subject: [PATCH] Input: mtk-pmic-keys - Fix MT6358 long-press reset bit
  positions
@@ -16,7 +16,7 @@ inadvertently disabling hardware long-press reset.
 
 Use the correct bit positions for mt6358_regs.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/input/keyboard/mtk-pmic-keys.c | 10 +++++++---
  1 file changed, 7 insertions(+), 3 deletions(-)

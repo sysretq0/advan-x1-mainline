@@ -1,5 +1,5 @@
 From 1313131313131313131313131313131313131313 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Wed, 18 Nov 2026 14:30:00 +0000
 Subject: [PATCH 13/13] input: touchscreen: Add Chipone TDDI touchscreen driver
 
@@ -11,7 +11,7 @@ Embed stock 71,792-byte ver: 0104 ICNL9922C firmware in volatile
 SRAM for reliable SRAM-BOOT initialization. Transition to normal
 mode in probe without firmware flash to protect panel runtime.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
 diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
 index 9b9ae8ac3..03431c0fc 100644

@@ -1,12 +1,12 @@
 From ab7df16b9e7995ec7291cb8c7940561d05f4d488 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 04:29:48 +0000
 Subject: [PATCH 10/11] dt-bindings: pwm: mediatek: disp: Add MT6789 compatible
 
 Document the mediatek,mt6789-disp-pwm compatible string in
 mediatek,pwm-disp.yaml.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  Documentation/devicetree/bindings/pwm/mediatek,pwm-disp.yaml | 1 +
  1 file changed, 1 insertion(+)
