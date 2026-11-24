@@ -18,7 +18,7 @@ new file mode 100644
 index 000000000..111111111
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
-@@ -0,0 +1,1048 @@
+@@ -0,0 +1,1046 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Device Tree Source for the Advan X1 smartphone (MediaTek MT6789).
@@ -793,8 +793,6 @@ index 000000000..111111111
 +
 +&gpu {
 +	mali-supply = <&mt6366_vgpu_reg>;
-+	assigned-clocks = <&topckgen CLK_TOP_MFG_PLL_SEL>;
-+	assigned-clock-parents = <&topckgen CLK_TOP_MFGPLL>;
 +	status = "okay";
 +};
 +

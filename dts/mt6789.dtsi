@@ -686,20 +686,13 @@
 				     <GIC_SPI 397 IRQ_TYPE_LEVEL_HIGH>,
 				     <GIC_SPI 396 IRQ_TYPE_LEVEL_HIGH>;
 			interrupt-names = "job", "mmu", "gpu";
-			clocks = <&mfgcfg CLK_MFGCFG_BG3D>;
+			clocks = <&topckgen CLK_TOP_MFG_PLL_SEL>;
 			power-domains = <&spm MT6789_POWER_DOMAIN_MFG2>,
 					<&spm MT6789_POWER_DOMAIN_MFG3>;
 			power-domain-names = "core0", "core1";
 			operating-points-v2 = <&gpu_opp_table>;
 			#cooling-cells = <2>;
 			status = "disabled";
-		};
-
-		mfgcfg: clock-controller@13fbf000 {
-			compatible = "mediatek,mt6789-mfgcfg", "syscon";
-			reg = <0x00 0x13fbf000 0x00 0x1000>;
-			power-domains = <&spm MT6789_POWER_DOMAIN_MFG1>;
-			#clock-cells = <1>;
 		};
 
 		spi1: spi@11010000 {

@@ -772,8 +772,6 @@
 
 &gpu {
 	mali-supply = <&mt6366_vgpu_reg>;
-	assigned-clocks = <&topckgen CLK_TOP_MFG_PLL_SEL>;
-	assigned-clock-parents = <&topckgen CLK_TOP_MFGPLL>;
 	status = "okay";
 };
 
