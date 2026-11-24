@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Tue, 24 Nov 2026 09:30:00 +0000
+Subject: [PATCH] soc: mediatek: mutex: Defer when mutex device is not probed yet
+
+mtk_mutex_get() dereferences dev_get_drvdata(dev) without checking if
+the disp-mutex platform device has finished probing. When the display
+power domain controller defers (for example waiting for a domain-supply
+regulator), mediatek-drm can reach mtk_mutex_get() while the mutex
+platform_device exists in DT but its driver has not bound yet, causing a
+NULL pointer dereference at offset 0x19 (mtx->mutex[0].claimed).
+
+Return ERR_PTR(-EPROBE_DEFER) if dev_get_drvdata(dev) is NULL.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/soc/mediatek/mtk-mutex.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/soc/mediatek/mtk-mutex.c b/drivers/soc/mediatek/mtk-mutex.c
+index 111111111..222222222 100644
+--- a/drivers/soc/mediatek/mtk-mutex.c
++++ b/drivers/soc/mediatek/mtk-mutex.c
+@@ -872,6 +872,9 @@ struct mtk_mutex *mtk_mutex_get(struct device *dev)
+ 	struct mtk_mutex_ctx *mtx = dev_get_drvdata(dev);
+ 	int i;
+ 
++	if (!mtx)
++		return ERR_PTR(-EPROBE_DEFER);
++
+ 	for (i = 0; i < MTK_MUTEX_MAX_HANDLES; i++)
+ 		if (!mtx->mutex[i].claimed) {
+ 			mtx->mutex[i].claimed = true;
+-- 
+2.55.0
