@@ -1,4 +1,4 @@
-From 04cbaab006b51aafe5c40aed1b4a2e1b324ce2a7 Mon Sep 17 00:00:00 2001
+From 6644cf9ca9f505de85414af9432ae32008f02262 Mon Sep 17 00:00:00 2001
 From: sysretq0 <sysretq0@proton.me>
 Date: Tue, 24 Nov 2026 20:35:40 +0000
 Subject: [PATCH] net: wwan: mtk_ccci: Add DPMAIF v1 and SMEM UL WWAN data
@@ -25,9 +25,9 @@ Signed-off-by: sysretq0 <sysretq0@proton.me>
  drivers/net/wwan/Kconfig                    |    4 +-
  drivers/net/wwan/mtk_ccci/Makefile          |    3 +-
  drivers/net/wwan/mtk_ccci/mtk_ccci.h        |   13 +
- drivers/net/wwan/mtk_ccci/mtk_ccci_core.c   |   57 +-
- drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c | 1423 +++++++++++++++++++
- 5 files changed, 1492 insertions(+), 8 deletions(-)
+ drivers/net/wwan/mtk_ccci/mtk_ccci_core.c   |   61 +-
+ drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c | 1455 +++++++++++++++++++
+ 5 files changed, 1528 insertions(+), 8 deletions(-)
  create mode 100644 drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c
 
 diff --git a/drivers/net/wwan/Kconfig b/drivers/net/wwan/Kconfig
@@ -100,7 +100,7 @@ index aef6a87ec..46b5e5358 100644
 +
  #endif /* __MTK_CCCI_H__ */
 diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
-index 34c9d42d6..0f5257f57 100644
+index 34c9d42d6..6b34aa641 100644
 --- a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
 +++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
 @@ -1102,10 +1102,17 @@ static irqreturn_t mtk_ccci_ccif_irq1(int irq, void *data)
@@ -125,19 +125,23 @@ index 34c9d42d6..0f5257f57 100644
  	}
  	return IRQ_HANDLED;
  }
-@@ -1219,6 +1226,11 @@ static void mtk_ccci_boot_work(struct work_struct *work)
- 	 */
- 	mtk_ccif_hw_reset(ccci);
+@@ -1256,6 +1263,15 @@ static void mtk_ccci_boot_work(struct work_struct *work)
+ 		return;
+ 	}
  
++	/*
++	 * Start DPMAIF v1 hardware and SMEM UL rings after MD MTCMOS is ON
++	 * (bus protection released) and before releasing MD boot slave.
++	 */
 +	ret = mtk_ccci_dpmaif_start(ccci);
 +	if (ret)
 +		dev_warn(ccci->dev, "DPMAIF start failed (%d); continuing without IP data plane\n",
 +			 ret);
 +
- 	if (ccci->vmodem) {
- 		ret = regulator_set_voltage(ccci->vmodem, 825000, 825000);
- 		if (ret)
-@@ -1298,8 +1310,10 @@ static void mtk_ccci_boot_work(struct work_struct *work)
+ 	enable_irq(ccci->ccif_irq0);
+ 	enable_irq(ccci->ccif_irq1);
+ 	enable_irq(ccci->wdt_irq);
+@@ -1298,8 +1314,10 @@ static void mtk_ccci_boot_work(struct work_struct *work)
  		return;
  	}
  
@@ -149,7 +153,7 @@ index 34c9d42d6..0f5257f57 100644
  }
  
  /* Read-only sysfs telemetry attributes for Gate 5.2 verification */
-@@ -1391,6 +1405,30 @@ static ssize_t at_tx_count_show(struct device *dev, struct device_attribute *att
+@@ -1391,6 +1409,30 @@ static ssize_t at_tx_count_show(struct device *dev, struct device_attribute *att
  }
  static DEVICE_ATTR_RO(at_tx_count);
  
@@ -180,7 +184,7 @@ index 34c9d42d6..0f5257f57 100644
  static ssize_t boot_show(struct device *dev, struct device_attribute *attr, char *buf)
  {
  	struct mtk_ccci_dev *ccci = dev_get_drvdata(dev);
-@@ -1435,6 +1473,9 @@ static struct attribute *mtk_ccci_attrs[] = {
+@@ -1435,6 +1477,9 @@ static struct attribute *mtk_ccci_attrs[] = {
  	&dev_attr_fs_tx_count.attr,
  	&dev_attr_at_rx_count.attr,
  	&dev_attr_at_tx_count.attr,
@@ -190,7 +194,7 @@ index 34c9d42d6..0f5257f57 100644
  	NULL,
  };
  ATTRIBUTE_GROUPS(mtk_ccci);
-@@ -1682,6 +1723,11 @@ static int mtk_ccci_probe(struct platform_device *pdev)
+@@ -1682,6 +1727,11 @@ static int mtk_ccci_probe(struct platform_device *pdev)
  		goto err_fs;
  	}
  
@@ -202,7 +206,7 @@ index 34c9d42d6..0f5257f57 100644
  	pm_runtime_enable(&pdev->dev);
  	mtk_ccci_park_md(ccci);
  
-@@ -1709,6 +1755,7 @@ static void mtk_ccci_remove(struct platform_device *pdev)
+@@ -1709,6 +1759,7 @@ static void mtk_ccci_remove(struct platform_device *pdev)
  		disable_irq(ccci->ccif_irq0);
  		disable_irq(ccci->ccif_irq1);
  	}
@@ -212,10 +216,10 @@ index 34c9d42d6..0f5257f57 100644
  	mtk_ccci_fs_unregister(ccci);
 diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c
 new file mode 100644
-index 000000000..fbf1c2c59
+index 000000000..7aef2e630
 --- /dev/null
 +++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c
-@@ -0,0 +1,1423 @@
+@@ -0,0 +1,1455 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * MediaTek MT6789 CCCI DPMAIF v1 + SMEM UL WWAN network data plane.
@@ -284,6 +288,7 @@ index 000000000..fbf1c2c59
 +#define DPMAIF_PD_DL_PIT_INIT_CON0	0x0028
 +#define DPMAIF_PD_DL_PIT_INIT_CON1	0x002c
 +#define DPMAIF_PD_DL_PIT_INIT_CON3	0x0034
++#define DPMAIF_PD_DL_DBG_STA1		0x00b4
 +
 +/* DPMAIF v1 PD_MISC registers (0x1022d400) */
 +#define DPMAIF_PD_AP_UL_L2TISAR0	0x0000
@@ -296,6 +301,7 @@ index 000000000..fbf1c2c59
 +#define DPMAIF_PD_AP_DL_L2TIMSR0	0x005c
 +#define DPMAIF_PD_AP_IP_BUSY		0x0060
 +#define DPMAIF_PD_AP_DLUL_IP_BUSY_MASK	0x0064
++#define DPMAIF_PD_AP_CODA_VER		0x006c
 +
 +/* DPMAIF v1 PD_MD_MISC doorbell (0x1022c000) */
 +#define DPMAIF_PD_MD_L1TISR0		0x001c
@@ -1234,6 +1240,23 @@ index 000000000..fbf1c2c59
 +	return 0;
 +}
 +
++static void dpmaif_dump_init_regs(struct mtk_ccci_dpmaif *dp, const char *step)
++{
++	u32 cg3 = 0;
++
++	if (dp->ccci->infracfg)
++		regmap_read(dp->ccci->infracfg, 0x00c8, &cg3);
++
++	dev_err(dp->dev,
++		"DPMAIF %s timeout: coda=0x%08x bat_init=0x%08x pit_init=0x%08x dbg1=0x%08x cg3=0x%08x clk=%lu\n",
++		step,
++		readl(dp->pd_misc_base + DPMAIF_PD_AP_CODA_VER),
++		readl(dp->pd_dl_base + DPMAIF_PD_DL_BAT_INIT),
++		readl(dp->pd_dl_base + DPMAIF_PD_DL_PIT_INIT),
++		readl(dp->pd_dl_base + DPMAIF_PD_DL_DBG_STA1),
++		cg3, clk_get_rate(dp->clk));
++}
++
 +static int dpmaif_rx_hw_init(struct mtk_ccci_dpmaif *dp)
 +{
 +	u32 val;
@@ -1266,15 +1289,19 @@ index 000000000..fbf1c2c59
 +	/* Main BAT base/size (disabled until initial buffers are submitted) */
 +	writel(lower_32_bits(dp->bat_dma),
 +	       dp->pd_dl_base + DPMAIF_PD_DL_BAT_INIT_CON0);
-+	val = FIELD_PREP(DPMAIF_ADDRH_MSK, upper_32_bits(dp->bat_dma) & 0xffU) |
-+	      FIELD_PREP(DPMAIF_SIZE_MSK, MTK_DPMAIF_BAT_CNT);
++	val = readl(dp->pd_dl_base + DPMAIF_PD_DL_BAT_INIT_CON1);
++	val &= ~(DPMAIF_ADDRH_MSK | DPMAIF_SIZE_MSK | DPMAIF_BAT_EN_BIT);
++	val |= FIELD_PREP(DPMAIF_ADDRH_MSK, upper_32_bits(dp->bat_dma) & 0xffU) |
++	       FIELD_PREP(DPMAIF_SIZE_MSK, MTK_DPMAIF_BAT_CNT);
 +	writel(val, dp->pd_dl_base + DPMAIF_PD_DL_BAT_INIT_CON1);
 +
 +	/* PIT base/size + enable */
 +	writel(lower_32_bits(dp->pit_dma),
 +	       dp->pd_dl_base + DPMAIF_PD_DL_PIT_INIT_CON0);
-+	val = FIELD_PREP(DPMAIF_ADDRH_MSK, upper_32_bits(dp->pit_dma) & 0xffU) |
-+	      FIELD_PREP(DPMAIF_SIZE_MSK, MTK_DPMAIF_PIT_CNT);
++	val = readl(dp->pd_dl_base + DPMAIF_PD_DL_PIT_INIT_CON1);
++	val &= ~(DPMAIF_ADDRH_MSK | DPMAIF_SIZE_MSK);
++	val |= FIELD_PREP(DPMAIF_ADDRH_MSK, upper_32_bits(dp->pit_dma) & 0xffU) |
++	       FIELD_PREP(DPMAIF_SIZE_MSK, MTK_DPMAIF_PIT_CNT);
 +	writel(val, dp->pd_dl_base + DPMAIF_PD_DL_PIT_INIT_CON1);
 +
 +	val = readl(dp->pd_dl_base + DPMAIF_PD_DL_PIT_INIT_CON3);
@@ -1282,11 +1309,15 @@ index 000000000..fbf1c2c59
 +	writel(val, dp->pd_dl_base + DPMAIF_PD_DL_PIT_INIT_CON3);
 +
 +	ret = dpmaif_dl_bat_init_cmd(dp, DPMAIF_DL_BAT_INIT_ALLSET);
-+	if (ret)
++	if (ret) {
++		dpmaif_dump_init_regs(dp, "bat_init");
 +		return ret;
++	}
 +	ret = dpmaif_dl_pit_init_cmd(dp, DPMAIF_DL_PIT_INIT_ALLSET);
-+	if (ret)
++	if (ret) {
++		dpmaif_dump_init_regs(dp, "pit_init");
 +		return ret;
++	}
 +
 +	/* Fragment BAT configuration (HW_FRG_FEATURE_ENABLE) */
 +	val = readl(dp->ao_dl_base + DPMAIF_AO_DL_RDY_CHK_FRG_THRES);
@@ -1299,12 +1330,17 @@ index 000000000..fbf1c2c59
 +
 +	writel(lower_32_bits(dp->frg_dma),
 +	       dp->pd_dl_base + DPMAIF_PD_DL_BAT_INIT_CON0);
-+	val = FIELD_PREP(DPMAIF_ADDRH_MSK, upper_32_bits(dp->frg_dma) & 0xffU) |
-+	      FIELD_PREP(DPMAIF_SIZE_MSK, MTK_DPMAIF_BAT_CNT);
++	val = readl(dp->pd_dl_base + DPMAIF_PD_DL_BAT_INIT_CON1);
++	val &= ~(DPMAIF_ADDRH_MSK | DPMAIF_SIZE_MSK | DPMAIF_BAT_EN_BIT);
++	val |= FIELD_PREP(DPMAIF_ADDRH_MSK, upper_32_bits(dp->frg_dma) & 0xffU) |
++	       FIELD_PREP(DPMAIF_SIZE_MSK, MTK_DPMAIF_BAT_CNT);
 +	writel(val, dp->pd_dl_base + DPMAIF_PD_DL_BAT_INIT_CON1);
 +
-+	return dpmaif_dl_bat_init_cmd(dp, DPMAIF_DL_BAT_INIT_ALLSET |
-+					  DPMAIF_DL_BAT_FRG_INIT);
++	ret = dpmaif_dl_bat_init_cmd(dp, DPMAIF_DL_BAT_INIT_ALLSET |
++					 DPMAIF_DL_BAT_FRG_INIT);
++	if (ret)
++		dpmaif_dump_init_regs(dp, "frg_bat_init");
++	return ret;
 +}
 +
 +static void dpmaif_tx_hw_init(struct mtk_ccci_dpmaif *dp)
