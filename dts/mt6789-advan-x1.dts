@@ -37,7 +37,8 @@
 		compatible = "pwm-backlight";
 		pwms = <&disp_pwm0 0 39385>;
 		brightness-levels = <0 1024 2048 4096 8192 16384 32768 65535>;
-		default-brightness-level = <5>;
+		num-interpolated-steps = <16>;
+		default-brightness-level = <80>;
 		status = "okay";
 	};
 
@@ -270,6 +271,8 @@
 		interrupts = <9 IRQ_TYPE_EDGE_FALLING>;
 		touchscreen-size-x = <1080>;
 		touchscreen-size-y = <2460>;
+		touchscreen-x-mm = <70>;
+		touchscreen-y-mm = <160>;
 	};
 };
 

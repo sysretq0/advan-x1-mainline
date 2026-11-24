@@ -9,8 +9,8 @@ vibrator, TPS65132 display bias, and Chipone ICNL9922C DSI panel).
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- .../boot/dts/mediatek/mt6789-advan-x1.dts     | 1043 ++++++++++++++++++++++
- 1 file changed, 1043 insertions(+)
+ .../boot/dts/mediatek/mt6789-advan-x1.dts     | 1046 ++++++++++++++++++++++
+ 1 file changed, 1046 insertions(+)
  create mode 100644 arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
 
 diff --git a/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
@@ -18,7 +18,7 @@ new file mode 100644
 index 000000000..111111111
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
-@@ -0,0 +1,1043 @@
+@@ -0,0 +1,1046 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Device Tree Source for the Advan X1 smartphone (MediaTek MT6789).
@@ -58,7 +58,8 @@ index 000000000..111111111
 +		compatible = "pwm-backlight";
 +		pwms = <&disp_pwm0 0 39385>;
 +		brightness-levels = <0 1024 2048 4096 8192 16384 32768 65535>;
-+		default-brightness-level = <5>;
++		num-interpolated-steps = <16>;
++		default-brightness-level = <80>;
 +		status = "okay";
 +	};
 +
@@ -291,6 +292,8 @@ index 000000000..111111111
 +		interrupts = <9 IRQ_TYPE_EDGE_FALLING>;
 +		touchscreen-size-x = <1080>;
 +		touchscreen-size-y = <2460>;
++		touchscreen-x-mm = <70>;
++		touchscreen-y-mm = <160>;
 +	};
 +};
 +

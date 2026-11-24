@@ -14,8 +14,8 @@ Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  drivers/input/touchscreen/Kconfig             |  14 +
  drivers/input/touchscreen/Makefile            |   1 +
- drivers/input/touchscreen/chipone_icnl9922c.c | 885 ++++++++++++++++++
- 3 files changed, 900 insertions(+)
+ drivers/input/touchscreen/chipone_icnl9922c.c | 904 ++++++++++++++++++
+ 3 files changed, 919 insertions(+)
  create mode 100644 drivers/input/touchscreen/chipone_icnl9922c.c
 
 diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
@@ -60,7 +60,7 @@ new file mode 100644
 index 000000000..1e3371dac
 --- /dev/null
 +++ b/drivers/input/touchscreen/chipone_icnl9922c.c
-@@ -0,0 +1,885 @@
+@@ -0,0 +1,904 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Chipone ICNL9922C SPI TDDI touchscreen driver (TCS + DRW SRAM boot)
@@ -77,9 +77,11 @@ index 000000000..1e3371dac
 +#include <linux/input/mt.h>
 +#include <linux/input/touchscreen.h>
 +#include <linux/interrupt.h>
++#include <linux/math.h>
 +#include <linux/module.h>
 +#include <linux/mutex.h>
 +#include <linux/of.h>
++#include <linux/property.h>
 +#include <linux/spi/spi.h>
 +#include <linux/unaligned.h>
 +#include <linux/workqueue.h>
@@ -521,6 +523,7 @@ index 000000000..1e3371dac
 +		x = le16_to_cpu(msg->x);
 +		y = le16_to_cpu(msg->y);
 +		touchscreen_report_pos(ts->input, &ts->prop, x, y, true);
++		input_report_abs(ts->input, ABS_MT_TOUCH_MAJOR, msg->pressure);
 +		input_report_abs(ts->input, ABS_MT_PRESSURE, msg->pressure);
 +	}
 +
@@ -534,6 +537,7 @@ index 000000000..1e3371dac
 +				  u16 res_x, u16 res_y)
 +{
 +	struct device *dev = &ts->spi->dev;
++	u32 x_mm = 0, y_mm = 0;
 +	int ret;
 +
 +	if (ts->input)
@@ -547,16 +551,27 @@ index 000000000..1e3371dac
 +	ts->input->id.bustype = BUS_SPI;
 +
 +	input_set_abs_params(ts->input, ABS_MT_POSITION_X, 0,
-+			     res_x ? res_x : 1079, 0, 0);
++			     res_x ? res_x - 1 : 1079, 0, 0);
 +	input_set_abs_params(ts->input, ABS_MT_POSITION_Y, 0,
-+			     res_y ? res_y : 2459, 0, 0);
++			     res_y ? res_y - 1 : 2459, 0, 0);
++	input_set_abs_params(ts->input, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
 +	input_set_abs_params(ts->input, ABS_MT_PRESSURE, 0, 255, 0, 0);
 +
 +	touchscreen_parse_properties(ts->input, true, &ts->prop);
 +	if (!ts->prop.max_x)
-+		ts->prop.max_x = res_x ? res_x : 1079;
++		ts->prop.max_x = res_x ? res_x - 1 : 1079;
 +	if (!ts->prop.max_y)
-+		ts->prop.max_y = res_y ? res_y : 2459;
++		ts->prop.max_y = res_y ? res_y - 1 : 2459;
++	if (!device_property_read_u32(dev, "touchscreen-x-mm", &x_mm) && x_mm)
++		input_abs_set_res(ts->input,
++				  ts->prop.swap_x_y ? ABS_MT_POSITION_Y :
++						      ABS_MT_POSITION_X,
++				  DIV_ROUND_CLOSEST(ts->prop.max_x + 1, x_mm));
++	if (!device_property_read_u32(dev, "touchscreen-y-mm", &y_mm) && y_mm)
++		input_abs_set_res(ts->input,
++				  ts->prop.swap_x_y ? ABS_MT_POSITION_X :
++						      ABS_MT_POSITION_Y,
++				  DIV_ROUND_CLOSEST(ts->prop.max_y + 1, y_mm));
 +
 +	ret = input_mt_init_slots(ts->input, ICNL9922C_MAX_TOUCH_POINTS,
 +				  INPUT_MT_DIRECT | INPUT_MT_DROP_UNUSED);
@@ -785,6 +800,10 @@ index 000000000..1e3371dac
 +	if (ts->irq_enabled) {
 +		disable_irq(ts->spi->irq);
 +		ts->irq_enabled = false;
++	}
++	if (ts->input) {
++		input_mt_sync_frame(ts->input);
++		input_sync(ts->input);
 +	}
 +	mutex_unlock(&ts->lock);
 +

@@ -41,10 +41,15 @@ if [ -d /sys/kernel/config/usb_gadget ]; then
     echo "Advan" > strings/0x409/manufacturer
     echo "Advan X1 Mainline" > strings/0x409/product
     mkdir -p configs/c.1/strings/0x409
-    echo "ACM" > configs/c.1/strings/0x409/configuration
+    echo "ACM+NCM" > configs/c.1/strings/0x409/configuration
     echo 500 > configs/c.1/MaxPower
     mkdir -p functions/acm.usb0
     ln -sf functions/acm.usb0 configs/c.1/
+    if mkdir -p functions/ncm.usb0 2>/dev/null; then
+        echo "02:ad:1a:01:00:02" > functions/ncm.usb0/dev_addr 2>/dev/null || true
+        echo "02:ad:1a:01:00:01" > functions/ncm.usb0/host_addr 2>/dev/null || true
+        ln -sf functions/ncm.usb0 configs/c.1/
+    fi
 
     # Wait up to 3 seconds for UDC registration
     UDC=""
