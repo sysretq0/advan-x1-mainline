@@ -705,7 +705,7 @@
 			};
 
 			mt6366_vsram_gpu_reg: vsram-gpu {
-				regulator-name = "vsram-gpu";
+				regulator-name = "vsram_gpu";
 				regulator-min-microvolt = <750000>;
 				regulator-max-microvolt = <1050000>;
 				regulator-ramp-delay = <6250>;
@@ -772,15 +772,17 @@
 
 &gpu {
 	mali-supply = <&mt6366_vgpu_reg>;
+	assigned-clocks = <&topckgen CLK_TOP_MFG_PLL_SEL>;
+	assigned-clock-parents = <&topckgen CLK_TOP_MFGPLL>;
 	status = "okay";
 };
 
 &mfg0 {
-	domain-supply = <&mt6366_vsram_gpu_reg>;
+	domain-supply = <&mt6366_vgpu_reg>;
 };
 
 &mfg1 {
-	domain-supply = <&mt6366_vgpu_reg>;
+	domain-supply = <&mt6366_vsram_gpu_reg>;
 };
 
 &modem {

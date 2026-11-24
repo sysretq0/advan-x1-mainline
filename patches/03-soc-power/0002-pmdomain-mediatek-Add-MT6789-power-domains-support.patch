@@ -147,7 +147,7 @@ index 000000000..e28c54a46
 +		.pwr_sta2nd_offs = 0x170,
 +		.sram_pdn_bits = BIT(8),
 +		.sram_pdn_ack_bits = BIT(12),
-+		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
++		.caps = MTK_SCPD_KEEP_DEFAULT_OFF | MTK_SCPD_DOMAIN_SUPPLY,
 +	},
 +	[MT6789_POWER_DOMAIN_MFG1] = {
 +		.name = "mfg1",
@@ -179,7 +179,7 @@ index 000000000..e28c54a46
 +					MT6789_TOP_AXI_PROT_EN_2_CLR,
 +					MT6789_TOP_AXI_PROT_EN_2_STA1),
 +		},
-+		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
++		.caps = MTK_SCPD_KEEP_DEFAULT_OFF | MTK_SCPD_DOMAIN_SUPPLY,
 +	},
 +	[MT6789_POWER_DOMAIN_MFG2] = {
 +		.name = "mfg2",

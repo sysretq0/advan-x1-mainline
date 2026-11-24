@@ -3,30 +3,27 @@ From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 04:29:51 +0000
 Subject: [PATCH] dt-bindings: gpu: mali-bifrost: Add MT6789 compatible
 
-Document the mediatek,mt6789-mali compatible string (2 power domains:
-core0, core1) in arm,mali-bifrost.yaml.
+Document the mediatek,mt6789-mali Valhall compatible string (2 power
+domains: core0, core1) in arm,mali-bifrost.yaml.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- Documentation/devicetree/bindings/gpu/arm,mali-bifrost.yaml | 5 +++++
- 1 file changed, 5 insertions(+)
+ Documentation/devicetree/bindings/gpu/arm,mali-bifrost.yaml | 2 ++
+ 1 file changed, 2 insertions(+)
 
 diff --git a/Documentation/devicetree/bindings/gpu/arm,mali-bifrost.yaml b/Documentation/devicetree/bindings/gpu/arm,mali-bifrost.yaml
-index ece2b63..3b29aff 100644
+index ece2b63..9c41f20 100644
 --- a/Documentation/devicetree/bindings/gpu/arm,mali-bifrost.yaml
 +++ b/Documentation/devicetree/bindings/gpu/arm,mali-bifrost.yaml
-@@ -36,6 +36,10 @@ properties:
-               - rockchip,rk3576-mali
-               - samsung,exynos850-mali
-           - const: arm,mali-bifrost # Mali Bifrost GPU model/revision is fully discoverable
-+      - items:
-+          - const: mediatek,mt6789-mali
-+          - const: mediatek,mt8186-mali
-+          - const: arm,mali-valhall-jm
+@@ -44,6 +44,7 @@ properties:
        - items:
            - enum:
-               - mediatek,mt8195-mali
-@@ -232,6 +236,7 @@ allOf:
+               - allwinner,sun55i-a523-mali
++              - mediatek,mt6789-mali
+               - mediatek,mt8188-mali
+               - mediatek,mt8192-mali
+               - mediatek,mt8370-mali
+@@ -232,6 +233,7 @@ allOf:
          compatible:
            contains:
              enum:
@@ -36,4 +33,3 @@ index ece2b63..3b29aff 100644
      then:
 -- 
 2.55.0
-

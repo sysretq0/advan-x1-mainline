@@ -1,0 +1,186 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Tue, 24 Nov 2026 08:24:00 +0000
+Subject: [PATCH 5/5] clk: mediatek: Add MT6789 MFGCFG clock driver
+
+Add the MediaTek MT6789 GPU MFGCFG clock gate driver (CLK_MFGCFG_BG3D)
+with runtime PM integration and MFG_TOP_CONFIG external CG / AXI bridge
+initialization on enable (matching MT6789 gpufreq hardware sequence).
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/clk/mediatek/Makefile            |   2 +-
+ drivers/clk/mediatek/clk-mt6789-mfgcfg.c | 149 +++++++++++++++++++++++
+ 2 files changed, 150 insertions(+), 1 deletion(-)
+ create mode 100644 drivers/clk/mediatek/clk-mt6789-mfgcfg.c
+
+diff --git a/drivers/clk/mediatek/Makefile b/drivers/clk/mediatek/Makefile
+index 0290929dd..8b745d1a1 100644
+--- a/drivers/clk/mediatek/Makefile
++++ b/drivers/clk/mediatek/Makefile
+@@ -25,7 +25,7 @@ obj-$(CONFIG_COMMON_CLK_MT6779_MFGCFG) += clk-mt6779-mfg.o
+ obj-$(CONFIG_COMMON_CLK_MT6779_AUDSYS) += clk-mt6779-aud.o
+ obj-$(CONFIG_COMMON_CLK_MT6789) += clk-mt6789-apmixedsys.o clk-mt6789-topckgen.o \
+ 				   clk-mt6789-infra_ao.o clk-mt6789-imp_iic_wrap.o \
+-				   clk-mt6789-mm.o
++				   clk-mt6789-mm.o clk-mt6789-mfgcfg.o
+ obj-$(CONFIG_COMMON_CLK_MT6795) += clk-mt6795-apmixedsys.o clk-mt6795-infracfg.o \
+ 				   clk-mt6795-pericfg.o clk-mt6795-topckgen.o
+ obj-$(CONFIG_COMMON_CLK_MT6795_MFGCFG) += clk-mt6795-mfg.o
+diff --git a/drivers/clk/mediatek/clk-mt6789-mfgcfg.c b/drivers/clk/mediatek/clk-mt6789-mfgcfg.c
+new file mode 100644
+index 000000000..111111111
+--- /dev/null
++++ b/drivers/clk/mediatek/clk-mt6789-mfgcfg.c
+@@ -0,0 +1,149 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Copyright (c) 2022 MediaTek Inc.
++ * Copyright (c) 2026 sysretq0
++ */
++
++#include <linux/bits.h>
++#include <linux/clk-provider.h>
++#include <linux/mfd/syscon.h>
++#include <linux/module.h>
++#include <linux/platform_device.h>
++#include <linux/pm_runtime.h>
++#include <linux/regmap.h>
++
++#include <dt-bindings/clock/mt6789-clk.h>
++
++#define MFG_CG_CON			0x0000
++#define MFG_CG_SET			0x0004
++#define MFG_CG_CLR			0x0008
++#define MFG_BG3D_CG_BIT			BIT(0)
++
++#define MFG_ASYNC_CON			0x0020
++#define MFG_ASYNC_CON_1			0x0024
++#define MFG_GLOBAL_CON			0x00b0
++#define MFG_QCHANNEL_CON		0x00b4
++#define MFG_I2M_PROTECTOR_CFG_00	0x0f60
++
++struct mt6789_mfgcfg_clk {
++	struct clk_hw hw;
++	struct regmap *regmap;
++};
++
++static inline struct mt6789_mfgcfg_clk *to_mt6789_mfgcfg_clk(struct clk_hw *hw)
++{
++	return container_of(hw, struct mt6789_mfgcfg_clk, hw);
++}
++
++static int mt6789_mfgcfg_bg3d_enable(struct clk_hw *hw)
++{
++	struct mt6789_mfgcfg_clk *mfg = to_mt6789_mfgcfg_clk(hw);
++
++	regmap_write(mfg->regmap, MFG_CG_CLR, MFG_BG3D_CG_BIT);
++
++	/*
++	 * Program MT6789 MFG_TOP_CONFIG external CGs and AXI bridge
++	 * (matches __gpufreq_external_cg_control in MT6789 gpufreq).
++	 */
++	regmap_set_bits(mfg->regmap, MFG_ASYNC_CON, GENMASK(25, 22));
++	regmap_update_bits(mfg->regmap, MFG_GLOBAL_CON,
++			   GENMASK(10, 8) | BIT(19), BIT(19));
++	regmap_set_bits(mfg->regmap, MFG_QCHANNEL_CON, BIT(4));
++	regmap_set_bits(mfg->regmap, MFG_ASYNC_CON_1, BIT(0));
++	regmap_set_bits(mfg->regmap, MFG_I2M_PROTECTOR_CFG_00, BIT(0));
++
++	return 0;
++}
++
++static void mt6789_mfgcfg_bg3d_disable(struct clk_hw *hw)
++{
++	struct mt6789_mfgcfg_clk *mfg = to_mt6789_mfgcfg_clk(hw);
++
++	regmap_write(mfg->regmap, MFG_CG_SET, MFG_BG3D_CG_BIT);
++}
++
++static int mt6789_mfgcfg_bg3d_is_enabled(struct clk_hw *hw)
++{
++	struct mt6789_mfgcfg_clk *mfg = to_mt6789_mfgcfg_clk(hw);
++	unsigned int val;
++
++	regmap_read(mfg->regmap, MFG_CG_CON, &val);
++
++	return !(val & MFG_BG3D_CG_BIT);
++}
++
++static const struct clk_ops mt6789_mfgcfg_clk_ops = {
++	.is_enabled = mt6789_mfgcfg_bg3d_is_enabled,
++	.enable = mt6789_mfgcfg_bg3d_enable,
++	.disable = mt6789_mfgcfg_bg3d_disable,
++};
++
++static const char * const mfgcfg_bg3d_parents[] = { "top_mfg_pll" };
++
++static int clk_mt6789_mfgcfg_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct device_node *node = dev->of_node;
++	struct clk_hw_onecell_data *clk_data;
++	struct mt6789_mfgcfg_clk *mfg;
++	struct clk_init_data init = {
++		.name = "mfgcfg_bg3d",
++		.ops = &mt6789_mfgcfg_clk_ops,
++		.parent_names = mfgcfg_bg3d_parents,
++		.num_parents = ARRAY_SIZE(mfgcfg_bg3d_parents),
++		.flags = CLK_SET_RATE_PARENT,
++	};
++	int ret;
++
++	mfg = devm_kzalloc(dev, sizeof(*mfg), GFP_KERNEL);
++	if (!mfg)
++		return -ENOMEM;
++
++	mfg->regmap = syscon_node_to_regmap(node);
++	if (IS_ERR(mfg->regmap))
++		return PTR_ERR(mfg->regmap);
++
++	clk_data = devm_kzalloc(dev, struct_size(clk_data, hws, CLK_MFGCFG_NR_CLK),
++				GFP_KERNEL);
++	if (!clk_data)
++		return -ENOMEM;
++	clk_data->num = CLK_MFGCFG_NR_CLK;
++
++	ret = devm_pm_runtime_enable(dev);
++	if (ret)
++		return ret;
++
++	ret = pm_runtime_resume_and_get(dev);
++	if (ret)
++		return ret;
++
++	mfg->hw.init = &init;
++	ret = devm_clk_hw_register(dev, &mfg->hw);
++	if (ret)
++		goto err_put;
++
++	clk_data->hws[CLK_MFGCFG_BG3D] = &mfg->hw;
++	ret = devm_of_clk_add_hw_provider(dev, of_clk_hw_onecell_get, clk_data);
++
++err_put:
++	pm_runtime_put(dev);
++	return ret;
++}
++
++static const struct of_device_id of_match_clk_mt6789_mfgcfg[] = {
++	{ .compatible = "mediatek,mt6789-mfgcfg" },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(of, of_match_clk_mt6789_mfgcfg);
++
++static struct platform_driver clk_mt6789_mfgcfg_drv = {
++	.probe = clk_mt6789_mfgcfg_probe,
++	.driver = {
++		.name = "clk-mt6789-mfgcfg",
++		.of_match_table = of_match_clk_mt6789_mfgcfg,
++	},
++};
++module_platform_driver(clk_mt6789_mfgcfg_drv);
++
++MODULE_DESCRIPTION("MediaTek MT6789 GPU MFGCFG clock driver");
++MODULE_LICENSE("GPL");
+-- 
+2.55.0

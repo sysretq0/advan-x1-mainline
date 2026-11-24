@@ -18,7 +18,7 @@ new file mode 100644
 index 000000000..111111111
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
-@@ -0,0 +1,1046 @@
+@@ -0,0 +1,1048 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Device Tree Source for the Advan X1 smartphone (MediaTek MT6789).
@@ -726,7 +726,7 @@ index 000000000..111111111
 +			};
 +
 +			mt6366_vsram_gpu_reg: vsram-gpu {
-+				regulator-name = "vsram-gpu";
++				regulator-name = "vsram_gpu";
 +				regulator-min-microvolt = <750000>;
 +				regulator-max-microvolt = <1050000>;
 +				regulator-ramp-delay = <6250>;
@@ -793,15 +793,17 @@ index 000000000..111111111
 +
 +&gpu {
 +	mali-supply = <&mt6366_vgpu_reg>;
++	assigned-clocks = <&topckgen CLK_TOP_MFG_PLL_SEL>;
++	assigned-clock-parents = <&topckgen CLK_TOP_MFGPLL>;
 +	status = "okay";
 +};
 +
 +&mfg0 {
-+	domain-supply = <&mt6366_vsram_gpu_reg>;
++	domain-supply = <&mt6366_vgpu_reg>;
 +};
 +
 +&mfg1 {
-+	domain-supply = <&mt6366_vgpu_reg>;
++	domain-supply = <&mt6366_vsram_gpu_reg>;
 +};
 +
 +&modem {

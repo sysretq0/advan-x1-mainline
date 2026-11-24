@@ -20,7 +20,7 @@ new file mode 100644
 index 000000000..111111111
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
-@@ -0,0 +1,1605 @@
+@@ -0,0 +1,1611 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * MediaTek MT6789 (Helio G99) SoC base device tree — mainline shape.
@@ -703,20 +703,26 @@ index 000000000..111111111
 +
 +		gpu: gpu@13000000 {
 +			compatible = "mediatek,mt6789-mali",
-+				     "mediatek,mt8186-mali",
 +				     "arm,mali-valhall-jm";
 +			reg = <0x00 0x13000000 0x00 0x4000>;
 +			interrupts = <GIC_SPI 398 IRQ_TYPE_LEVEL_HIGH>,
 +				     <GIC_SPI 397 IRQ_TYPE_LEVEL_HIGH>,
 +				     <GIC_SPI 396 IRQ_TYPE_LEVEL_HIGH>;
 +			interrupt-names = "job", "mmu", "gpu";
-+			clocks = <&topckgen CLK_TOP_MFG_PLL_SEL>;
++			clocks = <&mfgcfg CLK_MFGCFG_BG3D>;
 +			power-domains = <&spm MT6789_POWER_DOMAIN_MFG2>,
 +					<&spm MT6789_POWER_DOMAIN_MFG3>;
 +			power-domain-names = "core0", "core1";
 +			operating-points-v2 = <&gpu_opp_table>;
 +			#cooling-cells = <2>;
 +			status = "disabled";
++		};
++
++		mfgcfg: clock-controller@13fbf000 {
++			compatible = "mediatek,mt6789-mfgcfg", "syscon";
++			reg = <0x00 0x13fbf000 0x00 0x1000>;
++			power-domains = <&spm MT6789_POWER_DOMAIN_MFG1>;
++			#clock-cells = <1>;
 +		};
 +
 +		spi1: spi@11010000 {
