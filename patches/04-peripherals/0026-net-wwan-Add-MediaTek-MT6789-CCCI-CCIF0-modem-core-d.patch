@@ -1,18 +1,19 @@
-From dbae318eae296d07078039ecc3879935b35b0afd Mon Sep 17 00:00:00 2001
+From ac3c432ac3ed8b8ab416409771c2827df5c572c3 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
-Date: Tue, 24 Nov 2026 03:47:43 +0000
+Date: Tue, 24 Nov 2026 04:55:36 +0000
 Subject: [PATCH] net: wwan: Add MediaTek MT6789 CCCI/CCIF0 modem core driver
 
-Add clean mainline driver for the MediaTek MT6789 (Helio G99 / Gen95)
-integrated cellular modem (Phase 5.2):
-- Verifies LK md1img pre-load via ccci_tag_mem without touching
-  EMI-MPU-protected md1img DRAM from the AP CPU.
-- Executes the EL3 SiP SMC boot handshake (MTK_SIP_KERNEL_CCCI_CONTROL:
-  MD_CHECK_DONE, MD_FLIGHT_MODE_SET, MD_KERNEL_BOOT_UP), SPM SRCLKEN O1
-  configuration, vmodem/vsram 825 mV regulators, and MD MTCMOS cycle.
-- Initializes Gen95 CCIF0 normal/exception ringbuffers in AP-MD SMEM,
-  handles CCIF0 data0/data1 and MD WDT interrupts, and performs the
-  HS1/HS2 runtime feature negotiation.
+Add a clean mainline driver for the MediaTek MT6789 (Helio G99) Gen95
+cellular modem transport over AP-MD CCIF0 mailbox and shared memory.
+
+The driver verifies LK md1img pre-load via the ccci_tag_mem handoff
+region without touching EMI-MPU-protected modem DRAM, runs the verified
+MT6789 EL3 SiP SMC boot and MD MTCMOS power-cycle sequence (resetting
+MD cleanly out of LK's BROM stage before releasing the boot slave),
+initializes the 16 Gen95 CCIF0 normal/exception ringbuffers in
+non-cacheable SMEM, performs CCIF0 SRAM HS1/HS2 runtime feature
+negotiation (50 features), monitors the MD WDT IRQ, and exposes
+read-only sysfs status telemetry.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
@@ -20,16 +21,16 @@ Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
  drivers/net/wwan/Makefile                    |    1 +
  drivers/net/wwan/mtk_ccci/Makefile           |    5 +
  drivers/net/wwan/mtk_ccci/mtk_ccci.h         |  318 +++++
- drivers/net/wwan/mtk_ccci/mtk_ccci_core.c    | 1148 ++++++++++++++++++
+ drivers/net/wwan/mtk_ccci/mtk_ccci_core.c    | 1159 ++++++++++++++++++
  drivers/net/wwan/mtk_ccci/mtk_ccci_ringbuf.c |  213 ++++
- 6 files changed, 1700 insertions(+)
+ 6 files changed, 1711 insertions(+)
  create mode 100644 drivers/net/wwan/mtk_ccci/Makefile
  create mode 100644 drivers/net/wwan/mtk_ccci/mtk_ccci.h
  create mode 100644 drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
  create mode 100644 drivers/net/wwan/mtk_ccci/mtk_ccci_ringbuf.c
 
 diff --git a/drivers/net/wwan/Kconfig b/drivers/net/wwan/Kconfig
-index 958dbc7..3063866 100644
+index 958dbc734..306386653 100644
 --- a/drivers/net/wwan/Kconfig
 +++ b/drivers/net/wwan/Kconfig
 @@ -121,6 +121,21 @@ config MTK_T7XX
@@ -55,7 +56,7 @@ index 958dbc7..3063866 100644
  
  endmenu
 diff --git a/drivers/net/wwan/Makefile b/drivers/net/wwan/Makefile
-index 3960c0a..f76a779 100644
+index 3960c0ae2..f76a77984 100644
 --- a/drivers/net/wwan/Makefile
 +++ b/drivers/net/wwan/Makefile
 @@ -14,3 +14,4 @@ obj-$(CONFIG_QCOM_BAM_DMUX) += qcom_bam_dmux.o
@@ -65,7 +66,7 @@ index 3960c0a..f76a779 100644
 +obj-$(CONFIG_MTK_CCCI) += mtk_ccci/
 diff --git a/drivers/net/wwan/mtk_ccci/Makefile b/drivers/net/wwan/mtk_ccci/Makefile
 new file mode 100644
-index 0000000..b394724
+index 000000000..b3947240c
 --- /dev/null
 +++ b/drivers/net/wwan/mtk_ccci/Makefile
 @@ -0,0 +1,5 @@
@@ -76,7 +77,7 @@ index 0000000..b394724
 +mtk_ccci-y := mtk_ccci_core.o mtk_ccci_ringbuf.o
 diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci.h b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
 new file mode 100644
-index 0000000..c6776bd
+index 000000000..c6776bde1
 --- /dev/null
 +++ b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
 @@ -0,0 +1,318 @@
@@ -400,10 +401,10 @@ index 0000000..c6776bd
 +#endif /* __MTK_CCCI_H__ */
 diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
 new file mode 100644
-index 0000000..5e2a61d
+index 000000000..5e12280e7
 --- /dev/null
 +++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
-@@ -0,0 +1,1148 @@
+@@ -0,0 +1,1159 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * MediaTek MT6789 CCCI cellular modem core driver (Phase 5.2: LK pre-load
@@ -629,7 +630,7 @@ index 0000000..5e2a61d
 +static int mtk_ccci_init_smem_and_rings(struct mtk_ccci_dev *ccci)
 +{
 +	void __iomem *base;
-+	u32 off, i;
++	u32 off, normal_off, i;
 +	int ret;
 +
 +	/* Clear runtime data, DBG, force-assert, CCISM_SCP, CCB_CTRL, MCU rings */
@@ -662,6 +663,7 @@ index 0000000..5e2a61d
 +			return ret;
 +		off += q_total;
 +	}
++	normal_off = off;
 +
 +	/* Exception CCIF0 ringbuffers in SMEM_USER_CCISM_MCU_EXP (0x8e8dd400) */
 +	off = 0;
@@ -680,8 +682,8 @@ index 0000000..5e2a61d
 +
 +	/* Ensure all SMEM ringbuffer initializations are visible to MD */
 +	wmb();
-+	dev_info(ccci->dev, "initialized %u CCIF0 normal ringbufs (0x%x B)\n",
-+		 MTK_CCIF_QUEUE_NUM, off);
++	dev_info(ccci->dev, "initialized %u CCIF0 ringbufs (normal=0x%x B, exp=0x%x B)\n",
++		 MTK_CCIF_QUEUE_NUM, normal_off, off);
 +	return 0;
 +}
 +
@@ -1131,11 +1133,12 @@ index 0000000..5e2a61d
 +	struct mtk_ccci_dev *ccci = container_of(work, struct mtk_ccci_dev, boot_work);
 +	struct arm_smccc_res res;
 +	bool brom_pass = false;
++	unsigned int pwr_sta = 0;
 +	int ret, tries;
 +
 +	ccci->state = MTK_CCCI_STATE_BOOTING;
 +
-+	/* Adopt LK's ON MD MTCMOS state and verify BROM check passed */
++	/* Adopt LK's ON MD MTCMOS state and check LK BROM status */
 +	ret = pm_runtime_resume_and_get(ccci->dev);
 +	if (ret) {
 +		dev_err(ccci->dev, "initial pm_runtime_resume_and_get failed: %d\n", ret);
@@ -1156,14 +1159,19 @@ index 0000000..5e2a61d
 +	dev_info(ccci->dev, "BROM check=%s flags=0x%lx,0x%lx,0x%lx,0x%lx\n",
 +		 brom_pass ? "PASS" : "TIMEOUT", res.a0, res.a1, res.a2, res.a3);
 +
++	mtk_ccci_smc(MTK_CCCI_SMC_POWER_CONFIG, MTK_CCCI_PWR_BOOT_STATUS, 0, &res);
++	dev_info(ccci->dev, "pre-reset MD boot_status=0x%lx/0x%lx\n",
++		 res.a1, res.a2);
++
 +	/*
-+	 * If LK BROM finished cleanly, cycle MD MTCMOS off/on to start fresh
-+	 * from reset vector (identical to stock MT6789 first-boot flow).
++	 * Unconditionally power off MD MTCMOS to cleanly reset MD out of LK's
++	 * BROM stage (matches stock MT6789 md_start_platform -> md_cd_power_off).
 +	 */
-+	if (brom_pass) {
-+		pm_runtime_put_sync(ccci->dev);
-+		mtk_ccci_smc(MTK_CCCI_SMC_FLIGHT_MODE_SET, 0, 0, &res);
-+	}
++	ret = pm_runtime_put_sync(ccci->dev);
++	if (ccci->scpsys)
++		regmap_read(ccci->scpsys, 0x16c, &pwr_sta);
++	dev_info(ccci->dev, "MD MTCMOS OFF: ret=%d pwr_sta=0x%08x\n", ret, pwr_sta);
++	mtk_ccci_smc(MTK_CCCI_SMC_FLIGHT_MODE_SET, 0, 0, &res);
 +
 +	if (ccci->vmodem) {
 +		regulator_set_voltage(ccci->vmodem, 825000, 825000);
@@ -1187,13 +1195,15 @@ index 0000000..5e2a61d
 +
 +	mtk_ccci_smc(MTK_CCCI_SMC_FLIGHT_MODE_SET, 0, 0, &res);
 +
-+	if (brom_pass) {
-+		ret = pm_runtime_resume_and_get(ccci->dev);
-+		if (ret) {
-+			dev_err(ccci->dev, "MD MTCMOS power-on failed: %d\n", ret);
-+			ccci->state = MTK_CCCI_STATE_FAILED;
-+			return;
-+		}
++	/* Fresh MD MTCMOS power-on from cold reset */
++	ret = pm_runtime_resume_and_get(ccci->dev);
++	if (ccci->scpsys)
++		regmap_read(ccci->scpsys, 0x16c, &pwr_sta);
++	dev_info(ccci->dev, "MD MTCMOS ON: ret=%d pwr_sta=0x%08x\n", ret, pwr_sta);
++	if (ret) {
++		dev_err(ccci->dev, "MD MTCMOS power-on failed: %d\n", ret);
++		ccci->state = MTK_CCCI_STATE_FAILED;
++		return;
 +	}
 +
 +	/* Clear any stale CCIF0 flags after MTCMOS cycle, then enable IRQs */
@@ -1216,10 +1226,12 @@ index 0000000..5e2a61d
 +	if (!wait_for_completion_timeout(&ccci->hs1_comp, msecs_to_jiffies(5000))) {
 +		mtk_ccci_smc(MTK_CCCI_SMC_POWER_CONFIG, MTK_CCCI_PWR_BOOT_STATUS, 0, &res);
 +		dev_err(ccci->dev,
-+			"HS1 timeout (5s)! boot_status=0x%lx/0x%lx ccif_rch=0x%x busy=0x%x\n",
++			"HS1 timeout (5s)! boot_status=0x%lx/0x%lx ap_rch=0x%x ap_busy=0x%x md_rch=0x%x sram0=0x%x\n",
 +			res.a1, res.a2,
 +			readl(ccci->ccif_ap_base + APCCIF_RCHNUM),
-+			readl(ccci->ccif_ap_base + APCCIF_BUSY));
++			readl(ccci->ccif_ap_base + APCCIF_BUSY),
++			ccci->ccif_md_base ? readl(ccci->ccif_md_base + APCCIF_RCHNUM) : 0,
++			readl(ccci->ccif_ap_base + APCCIF_CHDATA));
 +		ccci->state = MTK_CCCI_STATE_FAILED;
 +		return;
 +	}
@@ -1554,7 +1566,7 @@ index 0000000..5e2a61d
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_ringbuf.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_ringbuf.c
 new file mode 100644
-index 0000000..f4a49fa
+index 000000000..f4a49fae1
 --- /dev/null
 +++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_ringbuf.c
 @@ -0,0 +1,213 @@
