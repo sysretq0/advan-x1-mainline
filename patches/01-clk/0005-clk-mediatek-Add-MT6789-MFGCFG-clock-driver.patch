@@ -1,4 +1,4 @@
-From 4e7e1e3f417535e43bd6f9d8b9b1ff83d8dce78e Mon Sep 17 00:00:00 2001
+From 1cb6ae243e07a37c4d54096dcfc7067613214c0a Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Tue, 24 Nov 2026 09:52:00 +0000
 Subject: [PATCH] clk: mediatek: Add MT6789 MFGCFG clock driver
@@ -13,19 +13,20 @@ re-applying the MT6789 external CG / AXI bridge settings on every clock
 enable (driven by Panfrost GPU_PM_RT runtime PM while MFG1 is powered on)
 restores the GPU clock path before Panfrost issues GPU_CMD_SOFT_RESET.
 
-Track enabled state in software for is_enabled() so clk_disable_unused
-and clk_summary never touch MFG_TOP_CONFIG MMIO while MFG1 is powered
-off.
+Guard MFG_CG_CON hardware readback in is_enabled() with a spinlock and
+active-state flag so clk_disable_unused and clk_summary verify real
+hardware gate state while MFG1 is active without touching MFG_TOP_CONFIG
+MMIO while MFG1 is powered off.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  drivers/clk/mediatek/Makefile            |   2 +-
- drivers/clk/mediatek/clk-mt6789-mfgcfg.c | 160 +++++++++++++++++++++++
- 2 files changed, 161 insertions(+), 1 deletion(-)
+ drivers/clk/mediatek/clk-mt6789-mfgcfg.c | 188 +++++++++++++++++++++++
+ 2 files changed, 189 insertions(+), 1 deletion(-)
  create mode 100644 drivers/clk/mediatek/clk-mt6789-mfgcfg.c
 
 diff --git a/drivers/clk/mediatek/Makefile b/drivers/clk/mediatek/Makefile
-index 0290929..ade9dcb 100644
+index 0290929dd..ade9dcb6b 100644
 --- a/drivers/clk/mediatek/Makefile
 +++ b/drivers/clk/mediatek/Makefile
 @@ -25,7 +25,7 @@ obj-$(CONFIG_COMMON_CLK_MT6779_MFGCFG) += clk-mt6779-mfg.o
@@ -39,10 +40,10 @@ index 0290929..ade9dcb 100644
  obj-$(CONFIG_COMMON_CLK_MT6795_MFGCFG) += clk-mt6795-mfg.o
 diff --git a/drivers/clk/mediatek/clk-mt6789-mfgcfg.c b/drivers/clk/mediatek/clk-mt6789-mfgcfg.c
 new file mode 100644
-index 0000000..56f69c3
+index 000000000..ce0326303
 --- /dev/null
 +++ b/drivers/clk/mediatek/clk-mt6789-mfgcfg.c
-@@ -0,0 +1,160 @@
+@@ -0,0 +1,188 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Copyright (c) 2022 MediaTek Inc.
@@ -55,9 +56,11 @@ index 0000000..56f69c3
 +#include <linux/io.h>
 +#include <linux/module.h>
 +#include <linux/platform_device.h>
++#include <linux/spinlock.h>
 +
 +#include <dt-bindings/clock/mt6789-clk.h>
 +
++#define MFG_CG_CON			0x00
 +#define MFG_CG_SET			0x04
 +#define MFG_CG_CLR			0x08
 +#define MFG_CG_BG3D_BIT			BIT(0)
@@ -74,9 +77,20 @@ index 0000000..56f69c3
 +#define MFG_I2M_PROTECTOR_CFG_00	0xf60
 +#define MFG_I2M_GPM_ENABLE		BIT(0)
 +
++/*
++ * Note: this driver intentionally does not use mtk_clk_simple_probe() or
++ * clk-core runtime PM (power-domains on mfgcfg):
++ *  1) MFG1 power-off resets MFG_TOP_CONFIG, so enable() must re-apply the
++ *     five external CG / AXI bridge registers in addition to clearing CG_CON.
++ *  2) Panfrost calls clk_prepare() once at probe and keeps the clock prepared
++ *     across runtime suspend; enabling clk-core RPM would pin MFG1 ON forever.
++ *  3) is_enabled() reads hardware MFG_CG_CON only while enabled (MFG1 active),
++ *     avoiding unclocked AXI hangs during clk_summary / clk_disable_unused.
++ */
 +struct mt6789_mfgcfg_clk {
 +	struct clk_hw hw;
 +	void __iomem *base;
++	spinlock_t lock;
 +	bool enabled;
 +};
 +
@@ -114,10 +128,13 @@ index 0000000..56f69c3
 +static int mt6789_mfgcfg_enable(struct clk_hw *hw)
 +{
 +	struct mt6789_mfgcfg_clk *mfg = to_mt6789_mfgcfg(hw);
++	unsigned long flags;
 +
++	spin_lock_irqsave(&mfg->lock, flags);
 +	writel(MFG_CG_BG3D_BIT, mfg->base + MFG_CG_CLR);
 +	mt6789_mfgcfg_external_cg_init(mfg->base);
 +	mfg->enabled = true;
++	spin_unlock_irqrestore(&mfg->lock, flags);
 +
 +	return 0;
 +}
@@ -125,16 +142,26 @@ index 0000000..56f69c3
 +static void mt6789_mfgcfg_disable(struct clk_hw *hw)
 +{
 +	struct mt6789_mfgcfg_clk *mfg = to_mt6789_mfgcfg(hw);
++	unsigned long flags;
 +
-+	writel(MFG_CG_BG3D_BIT, mfg->base + MFG_CG_SET);
++	spin_lock_irqsave(&mfg->lock, flags);
 +	mfg->enabled = false;
++	writel(MFG_CG_BG3D_BIT, mfg->base + MFG_CG_SET);
++	spin_unlock_irqrestore(&mfg->lock, flags);
 +}
 +
 +static int mt6789_mfgcfg_is_enabled(struct clk_hw *hw)
 +{
 +	struct mt6789_mfgcfg_clk *mfg = to_mt6789_mfgcfg(hw);
++	unsigned long flags;
++	int ret = 0;
 +
-+	return mfg->enabled;
++	spin_lock_irqsave(&mfg->lock, flags);
++	if (mfg->enabled)
++		ret = !(readl(mfg->base + MFG_CG_CON) & MFG_CG_BG3D_BIT);
++	spin_unlock_irqrestore(&mfg->lock, flags);
++
++	return ret;
 +}
 +
 +static const struct clk_ops mt6789_mfgcfg_ops = {
@@ -164,6 +191,8 @@ index 0000000..56f69c3
 +	mfg = devm_kzalloc(dev, sizeof(*mfg), GFP_KERNEL);
 +	if (!mfg)
 +		return -ENOMEM;
++
++	spin_lock_init(&mfg->lock);
 +
 +	mfg->base = devm_platform_ioremap_resource(pdev, 0);
 +	if (IS_ERR(mfg->base))

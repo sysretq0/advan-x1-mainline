@@ -561,9 +561,24 @@
 		};
 
 		watchdog: watchdog@10007000 {
-			compatible = "mediatek,mt6789-wdt", "mediatek,mt6589-wdt";
+			compatible = "mediatek,mt6789-wdt", "mediatek,mt6589-wdt",
+				     "syscon", "simple-mfd";
 			reg = <0x00 0x10007000 0x00 0x100>;
 			#reset-cells = <1>;
+
+			reboot-mode {
+				compatible = "syscon-reboot-mode";
+				offset = <0x24>;
+				mask = <0x0f>;
+				mode-charger = <0x01>;
+				mode-recovery = <0x02>;
+				mode-bootloader = <0x03>;
+				mode-dm-verity-dev-corrupt = <0x04>;
+				mode-kpoc = <0x05>;
+				mode-ddr-reserve = <0x06>;
+				mode-meta = <0x07>;
+				mode-rpmbpk = <0x08>;
+			};
 		};
 
 		keyboard: keyboard@10010000 {
@@ -1247,9 +1262,8 @@
 			clocks = <&mmsys CLK_MM_SMI_IOMMU>;
 			clock-names = "bclk";
 			power-domains = <&spm MT6789_POWER_DOMAIN_DISP>;
-			mediatek,larbs = <&larb0 &larb1>;
+			mediatek,larbs = <&larb0>, <&larb1>;
 			#iommu-cells = <1>;
-			status = "disabled";
 		};
 	};
 

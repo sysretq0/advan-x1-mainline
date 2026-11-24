@@ -1,18 +1,21 @@
-From 89053abc5fee501c0688b5d440d0dd30540407a5 Mon Sep 17 00:00:00 2001
+From 451a0a824985cf4980ba9f0007796023490eb2e2 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 04:29:42 +0000
-Subject: [PATCH 06/11] dt-bindings: watchdog: mediatek: Add MT6789 compatible
+Subject: [PATCH] dt-bindings: watchdog: mediatek: Add MT6789 compatible and
+ reboot-mode
 
-Document the mediatek,mt6789-wdt compatible string in
-mediatek,mtk-wdt.yaml.
+Document mediatek,mt6789-wdt in mediatek,mtk-wdt.yaml, including the
+syscon/simple-mfd compatible form and optional reboot-mode child node
+used by TOPRGU WDT_NONRST_REG (offset 0x24) for bootloader/recovery
+reboot reasons.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- Documentation/devicetree/bindings/watchdog/mediatek,mtk-wdt.yaml | 1 +
- 1 file changed, 1 insertion(+)
+ .../devicetree/bindings/watchdog/mediatek,mtk-wdt.yaml   | 9 +++++++++
+ 1 file changed, 9 insertions(+)
 
 diff --git a/Documentation/devicetree/bindings/watchdog/mediatek,mtk-wdt.yaml b/Documentation/devicetree/bindings/watchdog/mediatek,mtk-wdt.yaml
-index f9b725592..b317d089b 100644
+index f9b725592..13c970195 100644
 --- a/Documentation/devicetree/bindings/watchdog/mediatek,mtk-wdt.yaml
 +++ b/Documentation/devicetree/bindings/watchdog/mediatek,mtk-wdt.yaml
 @@ -37,6 +37,7 @@ properties:
@@ -23,6 +26,28 @@ index f9b725592..b317d089b 100644
                - mediatek,mt6797-wdt
                - mediatek,mt7622-wdt
                - mediatek,mt7623-wdt
+@@ -48,6 +49,11 @@ properties:
+               - mediatek,mt8365-wdt
+               - mediatek,mt8516-wdt
+           - const: mediatek,mt6589-wdt
++      - items:
++          - const: mediatek,mt6789-wdt
++          - const: mediatek,mt6589-wdt
++          - const: syscon
++          - const: simple-mfd
+ 
+   reg:
+     maxItems: 1
+@@ -69,6 +75,9 @@ properties:
+   '#reset-cells':
+     const: 1
+ 
++  reboot-mode:
++    $ref: /schemas/power/reset/syscon-reboot-mode.yaml#
++
+ required:
+   - compatible
+   - reg
 -- 
 2.55.0
 

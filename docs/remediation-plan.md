@@ -1,6 +1,15 @@
 # MT6789 (Advan X1) Mainline Port — Remediation & Implementation Plan
 
-**Source Audit:** [`docs/upstream-deviation-audit.md`](./upstream-deviation-audit.md)  
+> **Current Status (Post-`3b1f69f` / Phase 2):**
+> The historical `f3d8e93` Phases 0–5 plan below is **100% complete**. The follow-up post-`2b74552` deviation remediation tracks:
+> - **Phase 1 (`WP-1.0`–`WP-1.5`, commit `3b1f69f`):** **COMPLETE & HARDWARE-VERIFIED** (`console-ramoops-3b1f69f.log` — 88.67 s Wayland session, 0 Panfrost/GPU errors, clean `userrequested` reboot, all 13 LVTS zones healthy, `nfc0` & CCCI probed cleanly).
+> - **Phase 2 (`WP-2.1`–`WP-2.4` + Docs Consolidation):** **IMPLEMENTED** — `disp_iommu` enabled (`03-soc-power/0014`, fixing `#0012` `mediatek-disp-ovl` `swiotlb` exhaustion), `watchdog@10007000` `syscon-reboot-mode` (`04-peripherals/0006` + `mt6789.dtsi`), CCCI EL3 SiP ABI documented ([`docs/ccci-sip-abi.md`](./ccci-sip-abi.md)), `clk-mt6789-mfgcfg` converged (`01-clk/0005`), and overlapping audit docs consolidated.
+> - **Phase 3 (Next — Hardware Verification Sweep):** `M7` (`CLK_IS_CRITICAL` / unused clocks), `M9` (GPIO85 polarity), `M11` (live NFC RF poll), `B3-02/04/07/08/10` + `M14` DTS checks.
+> - **Phase 4 (Pre-Upstream Deferred):** `M8` (8 unused PDs), `B2-02` (DDP stub), `B2-05` (`priv->dsc` clear on stop).
+>
+> ---
+>
+> **Source Audit:** [`docs/upstream-deviation-audit.md`](./upstream-deviation-audit.md)  
 **Target Port Repository:** `/work/mainline/advan-x1-mainline` @ `f3d8e93bc9d05cdc4403dfb6091de3b8c6f17600` (51 patches across `patches/01-clk` .. `patches/07-dts` + standalone `dts/mt6789.dtsi` and `dts/mt6789-advan-x1.dts`)  
 **Upstream Baseline:** `/work/mainline/linux` @ `666539eecdf4db623f5e3c3e55cf9f2dfad24aa4` (**Linux v7.4.0-rc3**)  
 **Hardware / Vendor Authorities:** `/work/android-kernel/mp01-kernel`, `/work/android-kernel/motorola-kernel-modules`, `/work/firmware/advan_x1/dtb/runtime_merged.dts`, `/work/firmware/advan_x1/ondevice_dumps/`, `/work/firmware/vendor_boot_unpack/recovery_root/lib/modules/*.ko`  

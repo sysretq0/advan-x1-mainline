@@ -1,0 +1,77 @@
+From d33326a3fa7b756534cb049837dec032b0f5f618 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Tue, 24 Nov 2026 12:55:49 +0000
+Subject: [PATCH] iommu/mediatek: Add MT6789 IOMMU support
+
+Add platform data for the MediaTek MT6789 multimedia IOMMU (disp_iommu
+at 0x14016000) supporting 34-bit IOVA / 35-bit physical address
+translation via ARMv7s extended descriptors with 32-bit TTBR allocation
+(matching MT6789 M4U hardware and MT6893/MT8192).
+
+Enabling display IOMMU allows mediatek-disp-ovl and mediatek-disp-rdma
+to scan out DMA-BUF framebuffers allocated above 4 GiB without hitting
+32-bit swiotlb bounce-buffer exhaustion on 8 GiB devices.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/iommu/mtk_iommu.c | 30 ++++++++++++++++++++++++++++++
+ 1 file changed, 30 insertions(+)
+
+diff --git a/drivers/iommu/mtk_iommu.c b/drivers/iommu/mtk_iommu.c
+index e3d471701..038ed9e1f 100644
+--- a/drivers/iommu/mtk_iommu.c
++++ b/drivers/iommu/mtk_iommu.c
+@@ -168,6 +168,7 @@
+ enum mtk_iommu_plat {
+ 	M4U_MT2712,
+ 	M4U_MT6779,
++	M4U_MT6789,
+ 	M4U_MT6795,
+ 	M4U_MT8167,
+ 	M4U_MT8173,
+@@ -1589,6 +1590,34 @@ static const struct mtk_iommu_plat_data mt6779_data = {
+ 	.larbid_remap  = {{0}, {1}, {2}, {3}, {5}, {7, 8}, {10}, {9}},
+ };
+ 
++static const struct mtk_iommu_iova_region mt6789_multi_dom[] = {
++	{ .iova_base = 0x0,       .size = SZ_4G }, /* disp: 0 ~ 4G */
++	{ .iova_base = SZ_4G,     .size = SZ_4G }, /* vdec/venc: 4G ~ 8G */
++	{ .iova_base = SZ_4G * 2, .size = SZ_4G }, /* cam/mdp: 8G ~ 12G */
++};
++
++static const unsigned int mt6789_larb_region_msk[ARRAY_SIZE(mt6789_multi_dom)][MTK_LARB_NR_MAX] = {
++	[0] = {~0, ~0}, /* Region0: larb0/1 (display) */
++	[1] = {[4] = ~0, [7] = ~0}, /* Region1: larb4/7 (vdec/venc) */
++	[2] = {[2] = ~0, [9] = ~0, [13] = ~0, [14] = ~0,
++	       [16] = ~0, [17] = ~0, [19] = ~0, [20] = ~0}, /* Region2: cam/mdp */
++};
++
++static const struct mtk_iommu_plat_data mt6789_data_mm = {
++	.m4u_plat             = M4U_MT6789,
++	.flags                = HAS_BCLK | HAS_SUB_COMM_2BITS | OUT_ORDER_WR_EN |
++				WR_THROT_EN | IOVA_34_EN | MTK_IOMMU_TYPE_MM,
++	.inv_sel_reg          = REG_MMU_INV_SEL_GEN2,
++	.banks_num            = 1,
++	.banks_enable         = {true},
++	.iova_region          = mt6789_multi_dom,
++	.iova_region_nr       = ARRAY_SIZE(mt6789_multi_dom),
++	.iova_region_larb_msk = mt6789_larb_region_msk,
++	.larbid_remap         = {{0}, {1}, {4}, {7}, {2}, {9, 11, 19, 20},
++				 {MTK_INVALID_LARBID, 14, 16},
++				 {MTK_INVALID_LARBID, 13, MTK_INVALID_LARBID, 17}},
++};
++
+ static const struct mtk_iommu_plat_data mt6795_data = {
+ 	.m4u_plat     = M4U_MT6795,
+ 	.flags	      = HAS_4GB_MODE | HAS_BCLK | RESET_AXI |
+@@ -1902,6 +1931,7 @@ static const struct mtk_iommu_plat_data mt8365_data = {
+ static const struct of_device_id mtk_iommu_of_ids[] = {
+ 	{ .compatible = "mediatek,mt2712-m4u", .data = &mt2712_data},
+ 	{ .compatible = "mediatek,mt6779-m4u", .data = &mt6779_data},
++	{ .compatible = "mediatek,mt6789-iommu-mm", .data = &mt6789_data_mm},
+ 	{ .compatible = "mediatek,mt6795-m4u", .data = &mt6795_data},
+ 	{ .compatible = "mediatek,mt6893-iommu-mm", .data = &mt6893_data},
+ 	{ .compatible = "mediatek,mt8167-m4u", .data = &mt8167_data},
+-- 
+2.55.0
+
