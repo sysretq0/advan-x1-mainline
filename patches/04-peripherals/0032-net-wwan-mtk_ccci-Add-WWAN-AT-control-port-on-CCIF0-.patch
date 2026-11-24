@@ -1,0 +1,425 @@
+From 20ae5db8d784accedc7082eb52cfb74e0dfbda5d Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Tue, 24 Nov 2026 20:03:11 +0000
+Subject: [PATCH] net: wwan: mtk_ccci: Add WWAN AT control port on CCIF0 Q5
+
+Expose the MT6789 modem's UART2 AT command channel (CCIF0 Q5, ch=10 RX /
+ch=12 TX) as a standard Linux WWAN AT character device (/dev/wwan0at0)
+via wwan_create_port(..., WWAN_PORT_AT).
+
+Register the WWAN AT port once HS2 completes and the modem reaches
+MTK_CCCI_STATE_READY so ModemManager and userspace do not probe a parked
+modem. Strip the 16-byte mtk_ccci_header on RX and prepend it via
+wwan_port_caps (headroom_len=16, frag_len=3456) on TX, with blocking
+retry on transient ringbuffer -ENOSPC, ratelimited logging for early
+closed-port URCs (e.g. +EIND: 64 / +EIND: 128), and at_rx_count /
+at_tx_count sysfs telemetry.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ drivers/net/wwan/Kconfig                  |   4 +-
+ drivers/net/wwan/mtk_ccci/Makefile        |   2 +-
+ drivers/net/wwan/mtk_ccci/mtk_ccci.h      |  15 ++
+ drivers/net/wwan/mtk_ccci/mtk_ccci_at.c   | 231 ++++++++++++++++++++++
+ drivers/net/wwan/mtk_ccci/mtk_ccci_core.c |  28 +++
+ 5 files changed, 277 insertions(+), 3 deletions(-)
+ create mode 100644 drivers/net/wwan/mtk_ccci/mtk_ccci_at.c
+
+diff --git a/drivers/net/wwan/Kconfig b/drivers/net/wwan/Kconfig
+index b80ff4382..7eb5ae8ec 100644
+--- a/drivers/net/wwan/Kconfig
++++ b/drivers/net/wwan/Kconfig
+@@ -127,8 +127,8 @@ config MTK_CCCI
+ 	select REGMAP
+ 	help
+ 	  Enables the MediaTek MT6789 (Helio G99 / Gen95) CCCI/CCIF0 modem
+-	  boot, mailbox ringbuffer, and sysfs telemetry core. WWAN control
+-	  ports and DPMAIF network data plane support are staged separately.
++	  boot, mailbox ringbuffer, WWAN AT control port, and sysfs telemetry
++	  core. DPMAIF network data plane support is staged separately.
+ 
+ 	  To compile this driver as a module, choose M here: the module will
+ 	  be called mtk_ccci.
+diff --git a/drivers/net/wwan/mtk_ccci/Makefile b/drivers/net/wwan/mtk_ccci/Makefile
+index 92ab3d9ab..bf65dda7b 100644
+--- a/drivers/net/wwan/mtk_ccci/Makefile
++++ b/drivers/net/wwan/mtk_ccci/Makefile
+@@ -2,4 +2,4 @@
+ 
+ obj-$(CONFIG_MTK_CCCI) += mtk_ccci.o
+ 
+-mtk_ccci-y := mtk_ccci_core.o mtk_ccci_ringbuf.o mtk_ccci_rpc.o mtk_ccci_fs.o
++mtk_ccci-y := mtk_ccci_core.o mtk_ccci_ringbuf.o mtk_ccci_rpc.o mtk_ccci_fs.o mtk_ccci_at.o
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci.h b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
+index 54ee2ee39..aef6a87ec 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci.h
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
+@@ -74,6 +74,7 @@
+ #define MTK_CCIF_EXP_QUEUE_MASK		0xffff0000
+ #define MTK_CCIF_RPC_QUEUE		1
+ #define MTK_CCIF_FS_QUEUE		4
++#define MTK_CCIF_AT_QUEUE		5
+ 
+ /* MD exception overview (Gen95 v3 layout in SMEM_USER_RAW_MDSS_DBG) */
+ #define CCCI_SMEM_OFFSET_SEQERR		0x34U
+@@ -94,6 +95,7 @@
+ #define MTK_CCCI_FS_RX_QUEUE_MAX	64U
+ #define MTK_CCCI_RPC_MAX_PKT		3476U
+ #define MTK_CCCI_RPC_RX_QUEUE_MAX	32U
++#define MTK_CCCI_AT_MTU			3456U
+ 
+ /* CCCI logical channels */
+ #define CCCI_CH_CONTROL_RX		0
+@@ -386,6 +388,8 @@ enum mtk_ccci_state {
+ 	MTK_CCCI_STATE_FAILED,
+ };
+ 
++struct wwan_port;
++
+ struct mtk_ccci_dev {
+ 	struct device *dev;
+ 	void __iomem *md_rgu_base;
+@@ -459,6 +463,13 @@ struct mtk_ccci_dev {
+ 	atomic_t rpc_open;
+ 	bool rpc_closing;
+ 
++	struct wwan_port *at_port;
++	spinlock_t at_lock; /* protects at_port and at_open */
++	bool at_open;
++	struct ratelimit_state at_urc_rs;
++	atomic_t at_rx_count;
++	atomic_t at_tx_count;
++
+ 	enum mtk_ccci_state state;
+ 	atomic_t boot_triggered;
+ 	atomic_t hs1_done;
+@@ -484,4 +495,8 @@ int mtk_ccci_fs_register(struct mtk_ccci_dev *ccci);
+ void mtk_ccci_fs_unregister(struct mtk_ccci_dev *ccci);
+ void mtk_ccci_fs_rx(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len);
+ 
++int mtk_ccci_at_register(struct mtk_ccci_dev *ccci);
++void mtk_ccci_at_unregister(struct mtk_ccci_dev *ccci);
++void mtk_ccci_at_rx(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len);
++
+ #endif /* __MTK_CCCI_H__ */
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_at.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_at.c
+new file mode 100644
+index 000000000..328ec1a55
+--- /dev/null
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_at.c
+@@ -0,0 +1,231 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * MediaTek MT6789 CCCI WWAN AT control port (CCIF0 Q5 ch=10 RX / ch=12 TX).
++ *
++ * Exposes the modem's UART2 AT command channel as a standard Linux WWAN AT
++ * character device (/dev/wwan0at0) once HS2 completes and the modem reaches
++ * MTK_CCCI_STATE_READY.
++ *
++ * Copyright (c) 2026 sysretq0 <sysretq0@proton.me>
++ */
++
++#include <linux/atomic.h>
++#include <linux/ctype.h>
++#include <linux/delay.h>
++#include <linux/errno.h>
++#include <linux/minmax.h>
++#include <linux/ratelimit.h>
++#include <linux/sched/signal.h>
++#include <linux/skbuff.h>
++#include <linux/spinlock.h>
++#include <linux/string.h>
++#include <linux/wwan.h>
++
++#include "mtk_ccci.h"
++
++#define MTK_CCCI_AT_TX_RETRIES	250
++
++static int mtk_ccci_at_start(struct wwan_port *port)
++{
++	struct mtk_ccci_dev *ccci = wwan_port_get_drvdata(port);
++	unsigned long flags;
++
++	if (READ_ONCE(ccci->state) != MTK_CCCI_STATE_READY)
++		return -ENODEV;
++
++	spin_lock_irqsave(&ccci->at_lock, flags);
++	ccci->at_open = true;
++	spin_unlock_irqrestore(&ccci->at_lock, flags);
++
++	return 0;
++}
++
++static void mtk_ccci_at_stop(struct wwan_port *port)
++{
++	struct mtk_ccci_dev *ccci = wwan_port_get_drvdata(port);
++	unsigned long flags;
++
++	spin_lock_irqsave(&ccci->at_lock, flags);
++	ccci->at_open = false;
++	spin_unlock_irqrestore(&ccci->at_lock, flags);
++}
++
++static int mtk_ccci_at_send_seg(struct mtk_ccci_dev *ccci, struct sk_buff *seg,
++				bool blocking)
++{
++	struct mtk_ccci_header *hdr;
++	u32 payload_len = skb_headlen(seg);
++	u32 pkt_len;
++	int ret, tries;
++
++	if (!payload_len)
++		return 0;
++	if (skb_headroom(seg) < sizeof(*hdr))
++		return -EINVAL;
++
++	hdr = skb_push(seg, sizeof(*hdr));
++	pkt_len = payload_len + sizeof(*hdr);
++	hdr->data[0] = 0;
++	hdr->data[1] = pkt_len;
++	hdr->channel = CCCI_CH_UART2_TX;
++	hdr->seq_assert = 0;
++	hdr->reserved = 0;
++
++	for (tries = 0; tries < MTK_CCCI_AT_TX_RETRIES; tries++) {
++		if (READ_ONCE(ccci->state) != MTK_CCCI_STATE_READY)
++			return -ENODEV;
++
++		ret = mtk_ccci_tx_send(ccci, MTK_CCIF_AT_QUEUE, seg->data,
++				       pkt_len);
++		if (ret != -ENOSPC) {
++			if (!ret)
++				atomic_inc(&ccci->at_tx_count);
++			return ret;
++		}
++		if (!blocking)
++			return -EAGAIN;
++		if (signal_pending(current))
++			return -ERESTARTSYS;
++		usleep_range(1000, 2000);
++	}
++
++	return -EAGAIN;
++}
++
++static int mtk_ccci_at_tx_common(struct wwan_port *port, struct sk_buff *skb,
++				 bool blocking)
++{
++	struct mtk_ccci_dev *ccci = wwan_port_get_drvdata(port);
++	struct sk_buff *cur = skb;
++	int ret;
++
++	while (cur) {
++		ret = mtk_ccci_at_send_seg(ccci, cur, blocking);
++		if (ret)
++			return ret;
++		cur = (cur == skb) ? skb_shinfo(skb)->frag_list : cur->next;
++	}
++
++	consume_skb(skb);
++	return 0;
++}
++
++static int mtk_ccci_at_tx(struct wwan_port *port, struct sk_buff *skb)
++{
++	return mtk_ccci_at_tx_common(port, skb, false);
++}
++
++static int mtk_ccci_at_tx_blocking(struct wwan_port *port, struct sk_buff *skb)
++{
++	return mtk_ccci_at_tx_common(port, skb, true);
++}
++
++static const struct wwan_port_ops mtk_ccci_at_ops = {
++	.start = mtk_ccci_at_start,
++	.stop = mtk_ccci_at_stop,
++	.tx = mtk_ccci_at_tx,
++	.tx_blocking = mtk_ccci_at_tx_blocking,
++};
++
++static void mtk_ccci_at_log_urc(struct mtk_ccci_dev *ccci, const u8 *payload,
++				u32 payload_len)
++{
++	char preview[80];
++	u32 i, out = 0;
++
++	if (!__ratelimit(&ccci->at_urc_rs))
++		return;
++
++	for (i = 0; i < payload_len && out + 1 < sizeof(preview); i++) {
++		unsigned char c = payload[i];
++
++		if (c == '\r' || c == '\n') {
++			if (out > 0 && preview[out - 1] != ' ')
++				preview[out++] = ' ';
++		} else if (isprint(c)) {
++			preview[out++] = c;
++		} else {
++			preview[out++] = '.';
++		}
++	}
++	while (out > 0 && preview[out - 1] == ' ')
++		out--;
++	preview[out] = '\0';
++
++	dev_info(ccci->dev, "AT RX (%u B, port closed): %s\n",
++		 payload_len, preview);
++}
++
++void mtk_ccci_at_rx(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len)
++{
++	const u8 *payload;
++	u32 payload_len;
++	struct sk_buff *skb;
++	unsigned long flags;
++	bool delivered = false;
++
++	if (len <= sizeof(struct mtk_ccci_header))
++		return;
++
++	payload = pkt + sizeof(struct mtk_ccci_header);
++	payload_len = len - sizeof(struct mtk_ccci_header);
++	atomic_inc(&ccci->at_rx_count);
++
++	skb = alloc_skb(payload_len, GFP_KERNEL);
++	if (!skb)
++		return;
++	skb_put_data(skb, payload, payload_len);
++
++	spin_lock_irqsave(&ccci->at_lock, flags);
++	if (ccci->at_port && ccci->at_open) {
++		wwan_port_rx(ccci->at_port, skb);
++		delivered = true;
++	}
++	spin_unlock_irqrestore(&ccci->at_lock, flags);
++
++	if (!delivered) {
++		kfree_skb(skb);
++		mtk_ccci_at_log_urc(ccci, payload, payload_len);
++	}
++}
++
++int mtk_ccci_at_register(struct mtk_ccci_dev *ccci)
++{
++	struct wwan_port_caps caps = {
++		.frag_len = MTK_CCCI_AT_MTU,
++		.headroom_len = sizeof(struct mtk_ccci_header),
++	};
++	struct wwan_port *port;
++	unsigned long flags;
++
++	port = wwan_create_port(ccci->dev, WWAN_PORT_AT, &mtk_ccci_at_ops,
++				&caps, ccci);
++	if (IS_ERR(port)) {
++		dev_err(ccci->dev, "failed to create WWAN AT port: %ld\n",
++			PTR_ERR(port));
++		return PTR_ERR(port);
++	}
++
++	spin_lock_irqsave(&ccci->at_lock, flags);
++	ccci->at_port = port;
++	spin_unlock_irqrestore(&ccci->at_lock, flags);
++
++	dev_info(ccci->dev, "registered WWAN AT port (CCIF Q%u ch %u/%u)\n",
++		 MTK_CCIF_AT_QUEUE, CCCI_CH_UART2_RX, CCCI_CH_UART2_TX);
++	return 0;
++}
++
++void mtk_ccci_at_unregister(struct mtk_ccci_dev *ccci)
++{
++	struct wwan_port *port;
++	unsigned long flags;
++
++	spin_lock_irqsave(&ccci->at_lock, flags);
++	port = ccci->at_port;
++	ccci->at_port = NULL;
++	ccci->at_open = false;
++	spin_unlock_irqrestore(&ccci->at_lock, flags);
++
++	if (port)
++		wwan_remove_port(port);
++}
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+index a09ace145..34c9d42d6 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+@@ -882,6 +882,9 @@ static void mtk_ccci_drain_queue(struct mtk_ccci_dev *ccci, u32 q)
+ 		case CCCI_CH_FS_RX:
+ 			mtk_ccci_fs_rx(ccci, ccci->rx_buf, ret);
+ 			break;
++		case CCCI_CH_UART2_RX:
++			mtk_ccci_at_rx(ccci, ccci->rx_buf, ret);
++			break;
+ 		default:
+ 			if (__ratelimit(&ccci->unhandled_rs)) {
+ 				dev_warn(ccci->dev,
+@@ -1292,7 +1295,11 @@ static void mtk_ccci_boot_work(struct work_struct *work)
+ 			atomic_read(&ccci->fs_rx_count),
+ 			atomic_read(&ccci->fs_tx_count));
+ 		WRITE_ONCE(ccci->state, MTK_CCCI_STATE_FAILED);
++		return;
+ 	}
++
++	if (READ_ONCE(ccci->state) == MTK_CCCI_STATE_READY)
++		mtk_ccci_at_register(ccci);
+ }
+ 
+ /* Read-only sysfs telemetry attributes for Gate 5.2 verification */
+@@ -1368,6 +1375,22 @@ static ssize_t fs_tx_count_show(struct device *dev, struct device_attribute *att
+ }
+ static DEVICE_ATTR_RO(fs_tx_count);
+ 
++static ssize_t at_rx_count_show(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	struct mtk_ccci_dev *ccci = dev_get_drvdata(dev);
++
++	return sysfs_emit(buf, "%d\n", atomic_read(&ccci->at_rx_count));
++}
++static DEVICE_ATTR_RO(at_rx_count);
++
++static ssize_t at_tx_count_show(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	struct mtk_ccci_dev *ccci = dev_get_drvdata(dev);
++
++	return sysfs_emit(buf, "%d\n", atomic_read(&ccci->at_tx_count));
++}
++static DEVICE_ATTR_RO(at_tx_count);
++
+ static ssize_t boot_show(struct device *dev, struct device_attribute *attr, char *buf)
+ {
+ 	struct mtk_ccci_dev *ccci = dev_get_drvdata(dev);
+@@ -1410,6 +1433,8 @@ static struct attribute *mtk_ccci_attrs[] = {
+ 	&dev_attr_rpc_count.attr,
+ 	&dev_attr_fs_rx_count.attr,
+ 	&dev_attr_fs_tx_count.attr,
++	&dev_attr_at_rx_count.attr,
++	&dev_attr_at_tx_count.attr,
+ 	NULL,
+ };
+ ATTRIBUTE_GROUPS(mtk_ccci);
+@@ -1532,12 +1557,14 @@ static int mtk_ccci_probe(struct platform_device *pdev)
+ 	ccci->dev = &pdev->dev;
+ 	spin_lock_init(&ccci->ccif_lock);
+ 	spin_lock_init(&ccci->tx_lock);
++	spin_lock_init(&ccci->at_lock);
+ 	init_completion(&ccci->hs1_comp);
+ 	init_completion(&ccci->hs2_comp);
+ 	INIT_WORK(&ccci->boot_work, mtk_ccci_boot_work);
+ 	INIT_WORK(&ccci->rx_work, mtk_ccci_rx_work);
+ 	INIT_WORK(&ccci->exp_work, mtk_ccci_exp_work);
+ 	ratelimit_state_init(&ccci->unhandled_rs, HZ, 20);
++	ratelimit_state_init(&ccci->at_urc_rs, HZ, 10);
+ 	platform_set_drvdata(pdev, ccci);
+ 
+ 	ccci->rx_buf = devm_kmalloc(&pdev->dev, MTK_CCCI_RX_BUF_SIZE, GFP_KERNEL);
+@@ -1682,6 +1709,7 @@ static void mtk_ccci_remove(struct platform_device *pdev)
+ 		disable_irq(ccci->ccif_irq0);
+ 		disable_irq(ccci->ccif_irq1);
+ 	}
++	mtk_ccci_at_unregister(ccci);
+ 	mtk_ccci_rpc_unregister(ccci);
+ 	mtk_ccci_fs_unregister(ccci);
+ 	cancel_work_sync(&ccci->exp_work);
+-- 
+2.55.0
+
