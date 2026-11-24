@@ -1,0 +1,399 @@
+From 8db8955c4333954a189435645159fd061146b38f Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Tue, 24 Nov 2026 19:35:40 +0000
+Subject: [PATCH] net: wwan: mtk_ccci: Add /dev/ccci_rpc bridge and MD DRDI
+ mmap
+
+Expose /dev/ccci_rpc (PORT_F_USER_HEADER bridge on CCIF0 Q1 ch=32 <->
+ch=33) for the four Gen95 userspace RPCs:
+  - 0x400f IPC_RPC_QUERY_AP_SYS_PROPERTY
+  - 0x4010 IPC_RPC_SAR_TABLE_IDX_QUERY_OP
+  - 0x4014 IPC_RPC_AMMS_DRDI_CONTROL
+  - 0x4015 IPC_RPC_SAVE_MD_CAPID
+
+Support mmap() of the 64 KiB SMEM_USER_MD_DRDI window (NC_OFF_MD_DRDI,
+write-combining) so userspace ccci_rpcd can copy RF DRDI calibration
+slices from the read-only md1img partition into NC SMEM during boot.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ drivers/net/wwan/mtk_ccci/mtk_ccci.h      |  12 +
+ drivers/net/wwan/mtk_ccci/mtk_ccci_core.c |   9 +
+ drivers/net/wwan/mtk_ccci/mtk_ccci_rpc.c  | 257 ++++++++++++++++++++++
+ 3 files changed, 278 insertions(+)
+
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci.h b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
+index f3a1a752f..54ee2ee39 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci.h
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
+@@ -92,6 +92,8 @@
+ /* CCCI_MTU (3456) + sizeof(mtk_ccci_header) (16) + sizeof(op_id) (4) */
+ #define MTK_CCCI_FS_MAX_PKT		3476U
+ #define MTK_CCCI_FS_RX_QUEUE_MAX	64U
++#define MTK_CCCI_RPC_MAX_PKT		3476U
++#define MTK_CCCI_RPC_RX_QUEUE_MAX	32U
+ 
+ /* CCCI logical channels */
+ #define CCCI_CH_CONTROL_RX		0
+@@ -449,6 +451,14 @@ struct mtk_ccci_dev {
+ 	atomic_t fs_rx_count;
+ 	atomic_t fs_tx_count;
+ 
++	struct miscdevice rpc_miscdev;
++	spinlock_t rpc_rx_lock; /* protects rpc_rx_list and rpc_rx_qlen */
++	struct list_head rpc_rx_list;
++	u32 rpc_rx_qlen;
++	wait_queue_head_t rpc_rx_wq;
++	atomic_t rpc_open;
++	bool rpc_closing;
++
+ 	enum mtk_ccci_state state;
+ 	atomic_t boot_triggered;
+ 	atomic_t hs1_done;
+@@ -467,6 +477,8 @@ int mtk_ccci_rb_write(struct mtk_ccci_ringbuf *rb, const void *src, u32 len);
+ 
+ int mtk_ccci_tx_send(struct mtk_ccci_dev *ccci, u32 q, void *buf, u32 len);
+ void mtk_ccci_rpc_handle(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len);
++int mtk_ccci_rpc_register(struct mtk_ccci_dev *ccci);
++void mtk_ccci_rpc_unregister(struct mtk_ccci_dev *ccci);
+ 
+ int mtk_ccci_fs_register(struct mtk_ccci_dev *ccci);
+ void mtk_ccci_fs_unregister(struct mtk_ccci_dev *ccci);
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+index acc3b5251..a09ace145 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+@@ -1649,6 +1649,12 @@ static int mtk_ccci_probe(struct platform_device *pdev)
+ 		goto err_wq;
+ 	}
+ 
++	ret = mtk_ccci_rpc_register(ccci);
++	if (ret) {
++		dev_err(&pdev->dev, "failed to register /dev/ccci_rpc: %d\n", ret);
++		goto err_fs;
++	}
++
+ 	pm_runtime_enable(&pdev->dev);
+ 	mtk_ccci_park_md(ccci);
+ 
+@@ -1657,6 +1663,8 @@ static int mtk_ccci_probe(struct platform_device *pdev)
+ 		 mtk_ccci_state_names[READ_ONCE(ccci->state)]);
+ 	return 0;
+ 
++err_fs:
++	mtk_ccci_fs_unregister(ccci);
+ err_wq:
+ 	destroy_workqueue(ccci->rx_wq);
+ err_clks:
+@@ -1674,6 +1682,7 @@ static void mtk_ccci_remove(struct platform_device *pdev)
+ 		disable_irq(ccci->ccif_irq0);
+ 		disable_irq(ccci->ccif_irq1);
+ 	}
++	mtk_ccci_rpc_unregister(ccci);
+ 	mtk_ccci_fs_unregister(ccci);
+ 	cancel_work_sync(&ccci->exp_work);
+ 	cancel_work_sync(&ccci->rx_work);
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_rpc.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_rpc.c
+index 6403806bb..0a3f3b318 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_rpc.c
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_rpc.c
+@@ -11,12 +11,20 @@
+ 
+ #include <linux/align.h>
+ #include <linux/build_bug.h>
++#include <linux/delay.h>
++#include <linux/errno.h>
++#include <linux/fs.h>
+ #include <linux/kernel.h>
++#include <linux/list.h>
+ #include <linux/minmax.h>
++#include <linux/miscdevice.h>
++#include <linux/mm.h>
++#include <linux/poll.h>
+ #include <linux/printk.h>
+ #include <linux/random.h>
+ #include <linux/slab.h>
+ #include <linux/string.h>
++#include <linux/uaccess.h>
+ 
+ #include "mtk_ccci.h"
+ 
+@@ -47,8 +55,12 @@ enum mtk_ccci_rpc_op {
+ 	IPC_RPC_GET_GPIO_ADC_OP		= 0x4009,
+ 	IPC_RPC_CCCI_LHIF_MAPPING	= 0x400d,
+ 	IPC_RPC_DTSI_QUERY_OP		= 0x400e,
++	IPC_RPC_QUERY_AP_SYS_PROPERTY	= 0x400f,
++	IPC_RPC_SAR_TABLE_IDX_QUERY_OP	= 0x4010,
+ 	IPC_RPC_TRNG			= 0x4012,
+ 	IPC_RPC_QUERY_CARD_TYPE		= 0x4013,
++	IPC_RPC_AMMS_DRDI_CONTROL	= 0x4014,
++	IPC_RPC_SAVE_MD_CAPID		= 0x4015,
+ 	IPC_RPC_IT_OP			= 0x4321,
+ };
+ 
+@@ -398,6 +410,9 @@ static int mtk_ccci_rpc_send_reply(struct mtk_ccci_dev *ccci,
+ 	return ret;
+ }
+ 
++static void mtk_ccci_rpc_user_rx(struct mtk_ccci_dev *ccci,
++				 const u8 *data, u32 len);
++
+ void mtk_ccci_rpc_handle(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len)
+ {
+ 	struct mtk_ccci_rpc_arg args[MTK_CCCI_RPC_MAX_ARG];
+@@ -684,6 +699,16 @@ void mtk_ccci_rpc_handle(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len)
+ 		break;
+ 	}
+ 
++	case IPC_RPC_QUERY_AP_SYS_PROPERTY:
++	case IPC_RPC_SAR_TABLE_IDX_QUERY_OP:
++	case IPC_RPC_AMMS_DRDI_CONTROL:
++	case IPC_RPC_SAVE_MD_CAPID:
++		dev_info(ccci->dev,
++			 "RPC user-forward op=0x%04x para=%u len=%u rsv=%u\n",
++			 hdr.op_id, hdr.para_num, len, hdr.ccci.reserved);
++		mtk_ccci_rpc_user_rx(ccci, pkt, len);
++		return;
++
+ 	default:
+ 		dev_warn(ccci->dev,
+ 			 "RPC unhandled op=0x%08x para=%u len=%u rsv=0x%08x\n",
+@@ -703,3 +728,235 @@ void mtk_ccci_rpc_handle(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len)
+ 	print_hex_dump(KERN_INFO, "mtk-ccci rpc: ", DUMP_PREFIX_OFFSET,
+ 		       16, 1, pkt, min_t(u32, len, 64), true);
+ }
++
++struct mtk_ccci_rpc_pkt {
++	struct list_head node;
++	u32 len;
++	u8 data[] __counted_by(len);
++};
++
++static void mtk_ccci_rpc_purge_rx(struct mtk_ccci_dev *ccci)
++{
++	struct mtk_ccci_rpc_pkt *pkt, *tmp;
++	unsigned long flags;
++	LIST_HEAD(local);
++
++	spin_lock_irqsave(&ccci->rpc_rx_lock, flags);
++	list_splice_init(&ccci->rpc_rx_list, &local);
++	WRITE_ONCE(ccci->rpc_rx_qlen, 0);
++	spin_unlock_irqrestore(&ccci->rpc_rx_lock, flags);
++
++	list_for_each_entry_safe(pkt, tmp, &local, node) {
++		list_del(&pkt->node);
++		kfree(pkt);
++	}
++}
++
++static void mtk_ccci_rpc_user_rx(struct mtk_ccci_dev *ccci,
++				 const u8 *data, u32 len)
++{
++	struct mtk_ccci_rpc_pkt *pkt;
++	unsigned long flags;
++
++	if (!data || len < sizeof(struct mtk_ccci_header) ||
++	    len > MTK_CCCI_RPC_MAX_PKT)
++		return;
++
++	pkt = kmalloc(struct_size(pkt, data, len), GFP_KERNEL);
++	if (!pkt)
++		return;
++
++	pkt->len = len;
++	memcpy(pkt->data, data, len);
++
++	spin_lock_irqsave(&ccci->rpc_rx_lock, flags);
++	if (ccci->rpc_rx_qlen >= MTK_CCCI_RPC_RX_QUEUE_MAX) {
++		spin_unlock_irqrestore(&ccci->rpc_rx_lock, flags);
++		dev_warn_ratelimited(ccci->dev,
++				     "ccci_rpc RX queue full (%u), dropping\n",
++				     MTK_CCCI_RPC_RX_QUEUE_MAX);
++		kfree(pkt);
++		return;
++	}
++	list_add_tail(&pkt->node, &ccci->rpc_rx_list);
++	WRITE_ONCE(ccci->rpc_rx_qlen, ccci->rpc_rx_qlen + 1);
++	spin_unlock_irqrestore(&ccci->rpc_rx_lock, flags);
++
++	wake_up_interruptible(&ccci->rpc_rx_wq);
++}
++
++static int mtk_ccci_rpc_open(struct inode *inode, struct file *filp)
++{
++	struct miscdevice *mdev = filp->private_data;
++	struct mtk_ccci_dev *ccci = container_of(mdev, struct mtk_ccci_dev,
++						 rpc_miscdev);
++
++	if (atomic_cmpxchg(&ccci->rpc_open, 0, 1) != 0)
++		return -EBUSY;
++
++	filp->private_data = ccci;
++	nonseekable_open(inode, filp);
++	return 0;
++}
++
++static int mtk_ccci_rpc_release(struct inode *inode, struct file *filp)
++{
++	struct mtk_ccci_dev *ccci = filp->private_data;
++
++	mtk_ccci_rpc_purge_rx(ccci);
++	atomic_set(&ccci->rpc_open, 0);
++	return 0;
++}
++
++static ssize_t mtk_ccci_rpc_read(struct file *filp, char __user *buf,
++				 size_t count, loff_t *ppos)
++{
++	struct mtk_ccci_dev *ccci = filp->private_data;
++	struct mtk_ccci_rpc_pkt *pkt;
++	unsigned long flags;
++	ssize_t ret;
++
++	for (;;) {
++		spin_lock_irqsave(&ccci->rpc_rx_lock, flags);
++		pkt = list_first_entry_or_null(&ccci->rpc_rx_list,
++					       struct mtk_ccci_rpc_pkt, node);
++		if (pkt) {
++			if (count < pkt->len) {
++				spin_unlock_irqrestore(&ccci->rpc_rx_lock, flags);
++				return -EMSGSIZE;
++			}
++			list_del(&pkt->node);
++			WRITE_ONCE(ccci->rpc_rx_qlen, ccci->rpc_rx_qlen - 1);
++			spin_unlock_irqrestore(&ccci->rpc_rx_lock, flags);
++			break;
++		}
++		spin_unlock_irqrestore(&ccci->rpc_rx_lock, flags);
++
++		if (READ_ONCE(ccci->rpc_closing))
++			return -ENODEV;
++
++		if (filp->f_flags & O_NONBLOCK)
++			return -EAGAIN;
++
++		ret = wait_event_interruptible(ccci->rpc_rx_wq,
++					       READ_ONCE(ccci->rpc_rx_qlen) > 0 ||
++					       READ_ONCE(ccci->rpc_closing));
++		if (ret)
++			return ret;
++	}
++
++	if (copy_to_user(buf, pkt->data, pkt->len))
++		ret = -EFAULT;
++	else
++		ret = pkt->len;
++
++	kfree(pkt);
++	return ret;
++}
++
++static ssize_t mtk_ccci_rpc_write(struct file *filp, const char __user *buf,
++				  size_t count, loff_t *ppos)
++{
++	struct mtk_ccci_dev *ccci = filp->private_data;
++	struct mtk_ccci_header *hdr;
++	enum mtk_ccci_state st;
++	u8 *kbuf;
++	int ret, tries;
++
++	if (count < sizeof(*hdr) || count > MTK_CCCI_RPC_MAX_PKT)
++		return -EINVAL;
++
++	st = READ_ONCE(ccci->state);
++	if (st != MTK_CCCI_STATE_HS1_DONE && st != MTK_CCCI_STATE_READY &&
++	    st != MTK_CCCI_STATE_EXCEPTION)
++		return -ENODEV;
++
++	kbuf = memdup_user(buf, count);
++	if (IS_ERR(kbuf))
++		return PTR_ERR(kbuf);
++
++	hdr = (struct mtk_ccci_header *)kbuf;
++	hdr->channel = CCCI_CH_RPC_TX;
++	hdr->data[1] = (u32)count;
++
++	for (tries = 0; tries < 200; tries++) {
++		ret = mtk_ccci_tx_send(ccci, MTK_CCIF_RPC_QUEUE, kbuf, count);
++		if (ret != -ENOSPC || (filp->f_flags & O_NONBLOCK))
++			break;
++		usleep_range(500, 1000);
++	}
++
++	kfree(kbuf);
++	if (ret)
++		return ret == -ENOSPC ? -EAGAIN : ret;
++
++	return count;
++}
++
++static __poll_t mtk_ccci_rpc_poll(struct file *filp, poll_table *wait)
++{
++	struct mtk_ccci_dev *ccci = filp->private_data;
++	__poll_t mask = EPOLLOUT | EPOLLWRNORM;
++	unsigned long flags;
++
++	poll_wait(filp, &ccci->rpc_rx_wq, wait);
++
++	spin_lock_irqsave(&ccci->rpc_rx_lock, flags);
++	if (ccci->rpc_rx_qlen > 0)
++		mask |= EPOLLIN | EPOLLRDNORM;
++	spin_unlock_irqrestore(&ccci->rpc_rx_lock, flags);
++
++	return mask;
++}
++
++static int mtk_ccci_rpc_mmap(struct file *filp, struct vm_area_struct *vma)
++{
++	struct mtk_ccci_dev *ccci = filp->private_data;
++	unsigned long len = vma->vm_end - vma->vm_start;
++	unsigned long pfn;
++
++	if (vma->vm_pgoff != 0 || len != NC_SZ_MD_DRDI)
++		return -EINVAL;
++
++	if (NC_OFF_MD_DRDI + NC_SZ_MD_DRDI > ccci->nc_smem_size)
++		return -EINVAL;
++
++	pfn = (ccci->nc_smem_phys + NC_OFF_MD_DRDI) >> PAGE_SHIFT;
++	vm_flags_set(vma, VM_IO | VM_DONTEXPAND | VM_DONTDUMP);
++	vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
++
++	return remap_pfn_range(vma, vma->vm_start, pfn, len, vma->vm_page_prot);
++}
++
++static const struct file_operations mtk_ccci_rpc_fops = {
++	.owner = THIS_MODULE,
++	.open = mtk_ccci_rpc_open,
++	.release = mtk_ccci_rpc_release,
++	.read = mtk_ccci_rpc_read,
++	.write = mtk_ccci_rpc_write,
++	.poll = mtk_ccci_rpc_poll,
++	.mmap = mtk_ccci_rpc_mmap,
++};
++
++int mtk_ccci_rpc_register(struct mtk_ccci_dev *ccci)
++{
++	spin_lock_init(&ccci->rpc_rx_lock);
++	INIT_LIST_HEAD(&ccci->rpc_rx_list);
++	init_waitqueue_head(&ccci->rpc_rx_wq);
++	atomic_set(&ccci->rpc_open, 0);
++
++	ccci->rpc_miscdev.minor = MISC_DYNAMIC_MINOR;
++	ccci->rpc_miscdev.name = "ccci_rpc";
++	ccci->rpc_miscdev.fops = &mtk_ccci_rpc_fops;
++	ccci->rpc_miscdev.parent = ccci->dev;
++
++	return misc_register(&ccci->rpc_miscdev);
++}
++
++void mtk_ccci_rpc_unregister(struct mtk_ccci_dev *ccci)
++{
++	WRITE_ONCE(ccci->rpc_closing, true);
++	wake_up_interruptible_all(&ccci->rpc_rx_wq);
++	misc_deregister(&ccci->rpc_miscdev);
++	mtk_ccci_rpc_purge_rx(ccci);
++}
+-- 
+2.55.0
+

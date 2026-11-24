@@ -18,6 +18,8 @@ LOWER_ROOT="$RUN_ROOT/.lower"
 WORK_ROOT="$RUN_ROOT/.overlay"
 BOOT_TRIGGER=/sys/bus/platform/devices/d0cf000.modem/boot
 CCCI_FSD_BIN="${CCCI_FSD_BIN:-/usr/local/sbin/ccci_fsd}"
+CCCI_RPCD_BIN="${CCCI_RPCD_BIN:-/usr/local/sbin/ccci_rpcd}"
+RPCD_READY="$RUN_ROOT/.rpcd_ready"
 
 log() {
 	echo "[ccci-fsd-launch] $*"
@@ -81,11 +83,13 @@ setup_overlay() {
 }
 
 [ -c /dev/ccci_fs ] || die "/dev/ccci_fs not present"
+[ -c /dev/ccci_rpc ] || die "/dev/ccci_rpc not present"
 [ -x "$CCCI_FSD_BIN" ] || die "$CCCI_FSD_BIN not executable"
+[ -x "$CCCI_RPCD_BIN" ] || die "$CCCI_RPCD_BIN not executable"
 [ -w "$BOOT_TRIGGER" ] || die "modem boot trigger $BOOT_TRIGGER not writable"
 
-# 1. Mark ALL 5 NVRAM-related block devices read-only at kernel block layer
-for part in nvram nvdata nvcfg protect1 protect2; do
+# 1. Mark ALL NVRAM + md1img block devices read-only at kernel block layer
+for part in nvram nvdata nvcfg protect1 protect2 md1img_a md1img_b; do
 	lock_ro_part "$part"
 done
 
@@ -113,7 +117,21 @@ mkdir -p "$RUN_ROOT/U" "$RUN_ROOT/Q"
 mkdir -p "$RUN_ROOT/W" "$RUN_ROOT/T" "$RUN_ROOT/R"
 chmod 0555 "$RUN_ROOT/W" "$RUN_ROOT/T" "$RUN_ROOT/R"
 
-log "all 10 drives ready (5 UFS partitions locked RO); starting ccci_fsd"
+# 5. Start ccci_rpcd and wait for readiness BEFORE triggering modem boot
+rm -f "$RPCD_READY"
+MD1IMG_PART=/dev/disk/by-partlabel/md1img_b
+[ -b "$MD1IMG_PART" ] || MD1IMG_PART=/dev/disk/by-partlabel/md1img_a
+"$CCCI_RPCD_BIN" --dev /dev/ccci_rpc --md1img "$MD1IMG_PART" --ready-file "$RPCD_READY" &
+RPCD_PID=$!
+tries=0
+while [ ! -f "$RPCD_READY" ] && [ "$tries" -lt 50 ]; do
+	kill -0 "$RPCD_PID" 2>/dev/null || die "ccci_rpcd exited early before becoming ready"
+	sleep 0.1
+	tries=$((tries + 1))
+done
+[ -f "$RPCD_READY" ] || die "ccci_rpcd did not signal readiness within 5s"
+
+log "all 10 drives + ccci_rpcd (pid=$RPCD_PID) ready (7 UFS partitions locked RO); starting ccci_fsd"
 exec "$CCCI_FSD_BIN" \
 	--dev /dev/ccci_fs \
 	--root "$RUN_ROOT" \
