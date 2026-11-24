@@ -1,0 +1,415 @@
+From 0b17f0bed0aeb526d7abd88cbdd187827848d8a8 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Tue, 24 Nov 2026 19:00:36 +0000
+Subject: [PATCH] net: wwan: mtk_ccci: Add MD exception decoder and unhandled
+ RX logging
+
+Add pure observability diagnostics to diagnose modem exceptions during
+HS2 bring-up:
+
+- Decode Gen95 v3 struct ex_overview_t from SMEM_USER_RAW_MDSS_DBG
+  (0x00800800) with dma_rmb() in a dedicated exp_work workqueue on both
+  D2H_EXCEPTION_INIT (BIT(16)) and D2H_EXCEPTION_INIT_DONE/CLEARQ_DONE
+  (BIT(17)|BIT(18)), sending H2D_EXCEPTION_ACK (ch 16) on INIT per
+  Gen95 EE handshake so md1rom flushes the exception record promptly
+  instead of stalling for 10s.
+- Log MDCCCI_DBG sequence-error word (+0x34), core0 ex_pl_info region
+  when present, and a 512 B hex+ASCII fallback dump of NC_OFF_MDSS_DBG
+  if magic or fields are empty.
+- Drain all active CCIF RX queues (Q0..Q14 with rx_len > 0), log
+  APCCIF_IRQ0_MASK/IRQ1_MASK at reset, and remove the cnt <= 32 gate on
+  unhandled CCIF channels (ratelimited, first 64 B hex+ASCII).
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ drivers/net/wwan/mtk_ccci/mtk_ccci.h      |  87 ++++++++++
+ drivers/net/wwan/mtk_ccci/mtk_ccci_core.c | 187 +++++++++++++++++++++-
+ 2 files changed, 266 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci.h b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
+index 2f2fcc089..3ccf21052 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci.h
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
+@@ -15,6 +15,7 @@
+ #include <linux/device.h>
+ #include <linux/list.h>
+ #include <linux/miscdevice.h>
++#include <linux/ratelimit.h>
+ #include <linux/regmap.h>
+ #include <linux/regulator/consumer.h>
+ #include <linux/spinlock.h>
+@@ -62,11 +63,27 @@
+ #define MTK_CCIF_SRAM_SIZE		512
+ #define MTK_CCIF_QUEUE_NUM		16
+ #define MTK_CCIF_RINGQ_SRAM		15
++#define MTK_CCIF_H2D_EX_ACK		(MTK_CCIF_RINGQ_SRAM + 1)
++#define MTK_CCIF_D2H_EX_INIT		(MTK_CCIF_RINGQ_SRAM + 1)
++#define MTK_CCIF_D2H_EX_INIT_DONE	(MTK_CCIF_RINGQ_SRAM + 2)
++#define MTK_CCIF_D2H_EX_CLEARQ_DONE	(MTK_CCIF_RINGQ_SRAM + 3)
++#define MTK_CCIF_D2H_EX_ALLQ_RESET	(MTK_CCIF_RINGQ_SRAM + 4)
++#define MTK_CCIF_AP_MD_PEER_WAKEUP	(MTK_CCIF_RINGQ_SRAM + 5)
++#define MTK_CCIF_AP_MD_SEQ_ERR		(MTK_CCIF_RINGQ_SRAM + 6)
+ #define MTK_CCIF_DATA_QUEUE_MASK	0x00ff
+ #define MTK_CCIF_EXP_QUEUE_MASK		0xffff0000
+ #define MTK_CCIF_RPC_QUEUE		1
+ #define MTK_CCIF_FS_QUEUE		4
+ 
++/* MD exception overview (Gen95 v3 layout in SMEM_USER_RAW_MDSS_DBG) */
++#define CCCI_SMEM_OFFSET_SEQERR		0x34U
++#define MTK_CCCI_EE_VER_MASK		0xffff0000U
++#define MTK_CCCI_EE_VER_MAGIC		0xab000000U
++#define MTK_CCCI_EE_CORE_MAX		8
++#define MTK_CCCI_EE_CLASS_ASSERT	0
++#define MTK_CCCI_EE_CLASS_FATAL		1
++#define MTK_CCCI_EE_CLASS_CUSTOM	2
++
+ /* CCCI header sequence / assert bits and channel limits */
+ #define MTK_CCCI_SEQ_MASK		GENMASK(14, 0)
+ #define MTK_CCCI_ASSERT_BIT		BIT(15)
+@@ -264,6 +281,73 @@ struct mtk_ccci_rt_misc {
+ 	u32 feature[4];
+ } __packed;
+ 
++struct mtk_ccci_ex_step_v3 {
++	u32 step;
++	u32 timestamp;
++} __packed;
++
++struct mtk_ccci_ex_assert_v3 {
++	char filepath[256];
++	u32 line_number;
++	u32 para1;
++	u32 para2;
++	u32 para3;
++	u32 lr;
++} __packed;
++
++struct mtk_ccci_ex_fatal_v3 {
++	u32 code1;
++	u32 code2;
++	u32 code3;
++	char offender[8];
++	u8 is_cadefa_supported;
++	u8 is_filename_supported;
++	u8 error_section;
++	u8 pad[5];
++	u32 error_status;
++	u32 error_sp;
++	u32 error_pc;
++	u32 error_lr;
++	u32 error_address;
++	u32 error_cause;
++	char filename[224];
++} __packed;
++
++union mtk_ccci_ex_content_v3 {
++	struct mtk_ccci_ex_fatal_v3 fatalerr;
++	struct mtk_ccci_ex_assert_v3 assert;
++} __packed;
++
++struct mtk_ccci_ex_brief_v3 {
++	u16 ex_type;
++	u8 e_type_format;
++	u8 maincontent_type;
++	u8 elm_status;
++	u8 system_info1;
++	u8 system_info2;
++	u8 pad;
++	union mtk_ccci_ex_content_v3 info;
++} __packed;
++
++struct mtk_ccci_ex_reason_v3 {
++	char core_name[11];
++	u8 is_offender;
++} __packed;
++
++struct mtk_ccci_ex_overview_v3 {
++	u32 overview_verno;
++	u32 core_num;
++	struct mtk_ccci_ex_reason_v3 main_reason[MTK_CCCI_EE_CORE_MAX];
++	struct mtk_ccci_ex_brief_v3 ex_info;
++	u32 mips_vpe_num;
++	struct mtk_ccci_ex_step_v3 ex_step_logging[6];
++	u32 ect_status;
++	u32 cs_offending_core;
++	u32 md32_offending_status;
++	u32 pad;
++	u32 core_offset[MTK_CCCI_EE_CORE_MAX];
++} __packed;
++
+ struct mtk_ccci_ringbuf {
+ 	void __iomem *base;
+ 	u32 rx_len;
+@@ -323,10 +407,13 @@ struct mtk_ccci_dev {
+ 	spinlock_t tx_lock; /* serializes TX ringbuf writes and seq counters */
+ 	u16 tx_seq[MTK_CCCI_MAX_CH];
+ 	unsigned long pending_ch;
++	unsigned long pending_exp;
+ 
+ 	struct workqueue_struct *rx_wq;
+ 	struct work_struct boot_work;
+ 	struct work_struct rx_work;
++	struct work_struct exp_work;
++	struct ratelimit_state unhandled_rs;
+ 	u8 *rx_buf;
+ 
+ 	struct completion hs1_comp;
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+index 85e0d365a..166dee4cc 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+@@ -159,6 +159,10 @@ static void mtk_ccif_hw_reset(struct mtk_ccci_dev *ccci)
+ 	memset(ccci->tx_seq, 0, sizeof(ccci->tx_seq));
+ 	/* Ensure CCIF0 HW reset and SRAM footer complete before MD boot */
+ 	wmb();
++
++	dev_info(ccci->dev, "CCIF0 reset: irq0_mask=0x%08x irq1_mask=0x%08x\n",
++		 readl(ccci->ccif_ap_base + APCCIF_IRQ0_MASK),
++		 readl(ccci->ccif_ap_base + APCCIF_IRQ1_MASK));
+ }
+ 
+ static void mtk_ccci_dump_timeout_state(struct mtk_ccci_dev *ccci)
+@@ -808,8 +812,14 @@ static void mtk_ccci_drain_queue(struct mtk_ccci_dev *ccci, u32 q)
+ 				   hdr.data[1] == CCCI_MD_EX_REC_OK ||
+ 				   hdr.data[1] == CCCI_DRV_VER_ERROR) {
+ 				WRITE_ONCE(ccci->state, MTK_CCCI_STATE_EXCEPTION);
+-				dev_err(ccci->dev, "MD control exception msg=0x%x rsv=0x%x\n",
+-					hdr.data[1], hdr.reserved);
++				dev_err(ccci->dev, "MD control exception msg=0x%x len=%d rsv=0x%x\n",
++					hdr.data[1], ret, hdr.reserved);
++				if (ret > sizeof(hdr))
++					print_hex_dump(KERN_ERR, "mtk-ccci ex_msg: ",
++						       DUMP_PREFIX_OFFSET, 16, 1,
++						       ccci->rx_buf + sizeof(hdr),
++						       min_t(u32, ret - sizeof(hdr), 128),
++						       true);
+ 			} else {
+ 				print_hex_dump(KERN_INFO, "mtk-ccci ctrl: ",
+ 					       DUMP_PREFIX_OFFSET, 16, 1,
+@@ -824,11 +834,16 @@ static void mtk_ccci_drain_queue(struct mtk_ccci_dev *ccci, u32 q)
+ 			mtk_ccci_fs_rx(ccci, ccci->rx_buf, ret);
+ 			break;
+ 		default:
+-			if (cnt <= 32)
+-				print_hex_dump(KERN_INFO, "mtk-ccci pkt: ",
++			if (__ratelimit(&ccci->unhandled_rs)) {
++				dev_warn(ccci->dev,
++					 "CCIF Q%u unhandled RX #%d: ch=%u len=%d d0=0x%08x d1=0x%08x seq=0x%04x rsv=0x%08x\n",
++					 q, cnt, hdr.channel, ret, hdr.data[0],
++					 hdr.data[1], hdr.seq_assert, hdr.reserved);
++				print_hex_dump(KERN_WARNING, "mtk-ccci unh: ",
+ 					       DUMP_PREFIX_OFFSET, 16, 1,
+ 					       ccci->rx_buf,
+ 					       min_t(u32, ret, 64), true);
++			}
+ 			break;
+ 		}
+ 	}
+@@ -844,13 +859,159 @@ static void mtk_ccci_rx_work(struct work_struct *work)
+ 		if (pending & BIT(MTK_CCIF_RINGQ_SRAM))
+ 			mtk_ccci_handle_sram_rx(ccci);
+ 
+-		for (q = 0; q < 8; q++) {
+-			if (pending & BIT(q))
++		for (q = 0; q < MTK_CCIF_RINGQ_SRAM; q++) {
++			if ((pending & BIT(q)) && ccci->rb_normal[q].rx_len)
+ 				mtk_ccci_drain_queue(ccci, q);
+ 		}
+ 	}
+ }
+ 
++static void mtk_ccci_dump_ee_info(struct mtk_ccci_dev *ccci, const char *stage,
++				  unsigned long mask)
++{
++	struct mtk_ccci_ex_overview_v3 *ov;
++	u8 *raw;
++	u32 seqerr, dbg0, dbg1, dbg2, dbg3, pl_off;
++	bool need_raw = true;
++	int i;
++
++	/* Ensure MD writes to non-cached EE SMEM are visible before reading */
++	dma_rmb();
++
++	dbg0 = readl(ccci->nc_smem_virt + NC_OFF_MDCCCI_DBG + 0x0);
++	dbg1 = readl(ccci->nc_smem_virt + NC_OFF_MDCCCI_DBG + 0x4);
++	dbg2 = readl(ccci->nc_smem_virt + NC_OFF_MDCCCI_DBG + 0x8);
++	dbg3 = readl(ccci->nc_smem_virt + NC_OFF_MDCCCI_DBG + 0xc);
++	seqerr = readl(ccci->nc_smem_virt + NC_OFF_MDCCCI_DBG + CCCI_SMEM_OFFSET_SEQERR);
++
++	dev_err(ccci->dev,
++		"MD EE [%s] mask=0x%08lx mdccci_dbg=%08x %08x %08x %08x seqerr=0x%08x\n",
++		stage, mask, dbg0, dbg1, dbg2, dbg3, seqerr);
++
++	raw = kmalloc(512, GFP_KERNEL);
++	if (!raw)
++		return;
++
++	memcpy_fromio(raw, ccci->nc_smem_virt + NC_OFF_MDSS_DBG, 512);
++	ov = (struct mtk_ccci_ex_overview_v3 *)raw;
++
++	dev_err(ccci->dev,
++		"MD EE [%s] overview: ver=0x%08x cores=%u ect=0x%08x cs_core=0x%08x md32=0x%08x\n",
++		stage, ov->overview_verno, ov->core_num, ov->ect_status,
++		ov->cs_offending_core, ov->md32_offending_status);
++
++	if ((ov->overview_verno & MTK_CCCI_EE_VER_MASK) == MTK_CCCI_EE_VER_MAGIC &&
++	    ov->core_num <= MTK_CCCI_EE_CORE_MAX) {
++		const struct mtk_ccci_ex_brief_v3 *br = &ov->ex_info;
++		char core_str[16] = "unknown";
++
++		for (i = 0; i < ov->core_num; i++) {
++			if (ov->main_reason[i].is_offender) {
++				memcpy(core_str, ov->main_reason[i].core_name,
++				       sizeof(ov->main_reason[i].core_name));
++				core_str[sizeof(ov->main_reason[i].core_name)] = '\0';
++				break;
++			}
++		}
++
++		dev_err(ccci->dev,
++			"MD EE [%s] core=%s ex_type=0x%04x class=%u elm=0x%02x vpe=%u tc=%u\n",
++			stage, core_str, br->ex_type, br->maincontent_type,
++			br->elm_status, br->system_info1, br->system_info2);
++
++		if (br->maincontent_type == MTK_CCCI_EE_CLASS_ASSERT) {
++			char fpath[257];
++
++			memcpy(fpath, br->info.assert.filepath, 256);
++			fpath[256] = '\0';
++			dev_err(ccci->dev,
++				"MD EE [%s] ASSERT: file='%s' line=%u p1=0x%08x p2=0x%08x p3=0x%08x lr=0x%08x\n",
++				stage, fpath, br->info.assert.line_number,
++				br->info.assert.para1, br->info.assert.para2,
++				br->info.assert.para3, br->info.assert.lr);
++			need_raw = (fpath[0] == '\0');
++		} else if (br->maincontent_type == MTK_CCCI_EE_CLASS_FATAL ||
++			   br->maincontent_type == MTK_CCCI_EE_CLASS_CUSTOM) {
++			char off_str[12];
++			char fname[225];
++
++			memcpy(off_str, br->info.fatalerr.offender, 8);
++			off_str[8] = '\0';
++			memcpy(fname, br->info.fatalerr.filename, 224);
++			fname[224] = '\0';
++			dev_err(ccci->dev,
++				"MD EE [%s] FATAL: offender='%s' code=0x%08x/0x%08x/0x%08x sec=%u\n",
++				stage, off_str, br->info.fatalerr.code1,
++				br->info.fatalerr.code2, br->info.fatalerr.code3,
++				br->info.fatalerr.error_section);
++			dev_err(ccci->dev,
++				"MD EE [%s] FATAL regs: status=0x%08x sp=0x%08x pc=0x%08x lr=0x%08x addr=0x%08x cause=0x%08x\n",
++				stage, br->info.fatalerr.error_status,
++				br->info.fatalerr.error_sp,
++				br->info.fatalerr.error_pc,
++				br->info.fatalerr.error_lr,
++				br->info.fatalerr.error_address,
++				br->info.fatalerr.error_cause);
++			if (br->info.fatalerr.is_filename_supported == 1)
++				dev_err(ccci->dev, "MD EE [%s] FATAL file='%s'\n",
++					stage, fname);
++			need_raw = (!br->info.fatalerr.code1 &&
++				    !br->info.fatalerr.error_pc);
++		}
++
++		pl_off = ov->core_offset[0];
++		if (pl_off >= sizeof(*ov) && pl_off + 128 <= NC_SZ_MDSS_DBG) {
++			u8 pl_buf[128];
++
++			memcpy_fromio(pl_buf,
++				      ccci->nc_smem_virt + NC_OFF_MDSS_DBG + pl_off,
++				      sizeof(pl_buf));
++			dev_err(ccci->dev, "MD EE [%s] core0 ex_pl_info @ +0x%x:\n",
++				stage, pl_off);
++			print_hex_dump(KERN_ERR, "mtk-ccci pl: ",
++				       DUMP_PREFIX_OFFSET, 16, 1,
++				       pl_buf, sizeof(pl_buf), true);
++		}
++	}
++
++	if (need_raw) {
++		dev_err(ccci->dev, "MD EE [%s] raw NC_OFF_MDSS_DBG (first 512 B):\n",
++			stage);
++		print_hex_dump(KERN_ERR, "mtk-ccci mdss: ",
++			       DUMP_PREFIX_OFFSET, 16, 1, raw, 512, true);
++	}
++
++	kfree(raw);
++}
++
++static void mtk_ccci_exp_work(struct work_struct *work)
++{
++	struct mtk_ccci_dev *ccci = container_of(work, struct mtk_ccci_dev, exp_work);
++	unsigned long exp;
++
++	while ((exp = xchg(&ccci->pending_exp, 0)) != 0) {
++		if (exp & BIT(MTK_CCIF_AP_MD_SEQ_ERR))
++			dev_err(ccci->dev, "MD reported AP->MD CCCI seq error (mask=0x%08lx)\n",
++				exp);
++
++		if (exp & BIT(MTK_CCIF_D2H_EX_INIT)) {
++			int ack_ret;
++
++			WRITE_ONCE(ccci->state, MTK_CCCI_STATE_EXCEPTION);
++			mtk_ccci_dump_ee_info(ccci, "INIT", exp);
++			mtk_ccci_dump_timeout_state(ccci);
++			ack_ret = mtk_ccif_ring_doorbell(ccci, MTK_CCIF_H2D_EX_ACK);
++			dev_err(ccci->dev, "MD EE sent H2D_EXCEPTION_ACK (ret=%d)\n",
++				ack_ret);
++		}
++
++		if (exp & (BIT(MTK_CCIF_D2H_EX_INIT_DONE) |
++			   BIT(MTK_CCIF_D2H_EX_CLEARQ_DONE))) {
++			mtk_ccci_dump_ee_info(ccci, "DONE", exp);
++		}
++	}
++}
++
+ static irqreturn_t mtk_ccci_ccif_irq0(int irq, void *data)
+ {
+ 	struct mtk_ccci_dev *ccci = data;
+@@ -886,9 +1047,14 @@ static irqreturn_t mtk_ccci_ccif_irq1(int irq, void *data)
+ 		set_mask_bits(&ccci->pending_ch, 0, BIT(MTK_CCIF_RINGQ_SRAM));
+ 		queue_work(ccci->rx_wq, &ccci->rx_work);
+ 	}
+-	if (ack & MTK_CCIF_EXP_QUEUE_MASK)
++	if (ack & MTK_CCIF_EXP_QUEUE_MASK) {
++		u32 exp = ack & MTK_CCIF_EXP_QUEUE_MASK;
++
+ 		dev_warn_ratelimited(ccci->dev, "CCIF IRQ1 high ch mask=0x%08x\n",
+-				     ack & MTK_CCIF_EXP_QUEUE_MASK);
++				     exp);
++		set_mask_bits(&ccci->pending_exp, 0, exp);
++		schedule_work(&ccci->exp_work);
++	}
+ 	return IRQ_HANDLED;
+ }
+ 
+@@ -1304,6 +1470,8 @@ static int mtk_ccci_probe(struct platform_device *pdev)
+ 	static_assert(sizeof(struct mtk_ccci_ap_query_v2_1) == 156);
+ 	static_assert(offsetof(struct mtk_ccci_sram_layout, up_header) == 240);
+ 	static_assert(sizeof(struct mtk_ccci_sram_layout) <= MTK_CCIF_SRAM_SIZE);
++	static_assert(sizeof(union mtk_ccci_ex_content_v3) == 276);
++	static_assert(sizeof(struct mtk_ccci_ex_overview_v3) <= 512);
+ 
+ 	ccci = devm_kzalloc(&pdev->dev, sizeof(*ccci), GFP_KERNEL);
+ 	if (!ccci)
+@@ -1316,6 +1484,8 @@ static int mtk_ccci_probe(struct platform_device *pdev)
+ 	init_completion(&ccci->hs2_comp);
+ 	INIT_WORK(&ccci->boot_work, mtk_ccci_boot_work);
+ 	INIT_WORK(&ccci->rx_work, mtk_ccci_rx_work);
++	INIT_WORK(&ccci->exp_work, mtk_ccci_exp_work);
++	ratelimit_state_init(&ccci->unhandled_rs, HZ, 20);
+ 	platform_set_drvdata(pdev, ccci);
+ 
+ 	ccci->rx_buf = devm_kmalloc(&pdev->dev, MTK_CCCI_RX_BUF_SIZE, GFP_KERNEL);
+@@ -1453,6 +1623,7 @@ static void mtk_ccci_remove(struct platform_device *pdev)
+ 		disable_irq(ccci->ccif_irq1);
+ 	}
+ 	mtk_ccci_fs_unregister(ccci);
++	cancel_work_sync(&ccci->exp_work);
+ 	cancel_work_sync(&ccci->rx_work);
+ 	destroy_workqueue(ccci->rx_wq);
+ 
+-- 
+2.55.0
+
