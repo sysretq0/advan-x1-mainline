@@ -1,10 +1,10 @@
 # MT6789 (Advan X1) Mainline Port — Remediation & Implementation Plan
 
-> **Current Status (Post-`3b1f69f` / Phase 2):**
+> **Current Status (Post-`e204148` / Phase 3):**
 > The historical `f3d8e93` Phases 0–5 plan below is **100% complete**. The follow-up post-`2b74552` deviation remediation tracks:
 > - **Phase 1 (`WP-1.0`–`WP-1.5`, commit `3b1f69f`):** **COMPLETE & HARDWARE-VERIFIED** (`console-ramoops-3b1f69f.log` — 88.67 s Wayland session, 0 Panfrost/GPU errors, clean `userrequested` reboot, all 13 LVTS zones healthy, `nfc0` & CCCI probed cleanly).
-> - **Phase 2 (`WP-2.1`–`WP-2.4` + Docs Consolidation):** **IMPLEMENTED** — `disp_iommu` enabled (`03-soc-power/0014`, fixing `#0012` `mediatek-disp-ovl` `swiotlb` exhaustion), `watchdog@10007000` `syscon-reboot-mode` (`04-peripherals/0006` + `mt6789.dtsi`), CCCI EL3 SiP ABI documented ([`docs/ccci-sip-abi.md`](./ccci-sip-abi.md)), `clk-mt6789-mfgcfg` converged (`01-clk/0005`), and overlapping audit docs consolidated.
-> - **Phase 3 (Next — Hardware Verification Sweep):** `M7` (`CLK_IS_CRITICAL` / unused clocks), `M9` (GPIO85 polarity), `M11` (live NFC RF poll), `B3-02/04/07/08/10` + `M14` DTS checks.
+> - **Phase 2 (`WP-2.1`–`WP-2.4` + Docs Consolidation, commit `e204148`):** **COMPLETE & HARDWARE-VERIFIED** (`console-ramoops-e204148.log` — 146.49 s Wayland session, `disp_iommu` bound `larb0`/`larb1` with `ovl0`/`rdma0` in `iommu group 0`, **0 `mediatek-disp-ovl: swiotlb buffer is full`** (`#0012` closed), 0 runtime M4U faults, `mtk-wdt` + `syscon-reboot-mode` clean, `clk-mt6789-mfgcfg` HW readback clean).
+> - **Phase 3 (`WP-3.1`–`WP-3.4` + M4U Handover Polish):** **IMPLEMENTED** — OVL0 bootloader-splash DMA halt in `mtk_disp_ovl_probe()` (`06-display/0004`), `M7` clocks verified & documented (`01-clk/0002`, 0 HW-on leaks), `M9` GPIO85/107 verified & documented (`dts/mt6789-advan-x1.dts`), `M11` NFC `VP-4.5` diagnostic fixed (`initramfs/init`), `M14` spurious `mediatek,pre-emphasis = <1>` removed (`dts/mt6789.dtsi`), and `B3-02/04/07/08/10` oracle-verified & documented (`docs/ccci-sip-abi.md`, `docs/upstream-deviation-audit.md`).
 > - **Phase 4 (Pre-Upstream Deferred):** `M8` (8 unused PDs), `B2-02` (DDP stub), `B2-05` (`priv->dsc` clear on stop).
 >
 > ---

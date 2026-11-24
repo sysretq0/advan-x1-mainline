@@ -1,6 +1,6 @@
-From 009ec0ce8fd1781ad70e0e46b5faad97dbaf691b Mon Sep 17 00:00:00 2001
+From c9d1ef0fde45f8b7a453e2637937a3ba35d169c0 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
-Date: Mon, 23 Nov 2026 14:15:50 +0000
+Date: Tue, 24 Nov 2026 13:41:37 +0000
 Subject: [PATCH] arm64: dts: mediatek: Add MT6789 SoC base device tree
 
 Add base device tree include (mt6789.dtsi) for the MediaTek MT6789
@@ -11,16 +11,16 @@ and display pipeline.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- arch/arm64/boot/dts/mediatek/mt6789.dtsi | 1625 ++++++++++++++++++++++
- 1 file changed, 1625 insertions(+)
+ arch/arm64/boot/dts/mediatek/mt6789.dtsi | 1624 ++++++++++++++++++++++
+ 1 file changed, 1624 insertions(+)
  create mode 100644 arch/arm64/boot/dts/mediatek/mt6789.dtsi
 
 diff --git a/arch/arm64/boot/dts/mediatek/mt6789.dtsi b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
 new file mode 100644
-index 000000000..a6deeefef
+index 0000000..0dacf5f
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
-@@ -0,0 +1,1625 @@
+@@ -0,0 +1,1624 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * MediaTek MT6789 (Helio G99) SoC base device tree — mainline shape.
@@ -943,7 +943,6 @@ index 000000000..a6deeefef
 +				mediatek,eye-vrt = <4>;
 +				mediatek,eye-term = <4>;
 +				mediatek,discth = <7>;
-+				mediatek,pre-emphasis = <1>;
 +			};
 +		};
 +

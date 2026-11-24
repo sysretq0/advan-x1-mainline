@@ -55,8 +55,10 @@
 		ranges;
 
 		/*
-		 * Constrain CMA below 4GB (0x100000000). MT6789 DISP_OVL0
-		 * only supports 32-bit physical addresses.
+		 * Constrain CMA below 4 GiB (0x100000000) for 32-bit DMA
+		 * peripherals (AFE, MMC, SPI) and M4U page-table allocations.
+		 * Memblock skips all no-map carveouts below (live placement
+		 * verified at 0x68c00000..0x6cbfffff).
 		 */
 		linux,cma {
 			compatible = "shared-dma-pool";
@@ -264,6 +266,10 @@
 		reg = <0>;
 		spi-max-frequency = <3000000>;
 		panel = <&display_panel>;
+		/*
+		 * Active-low hardware reset (gpiod logical 1 = physical LOW,
+		 * 0 = physical HIGH; verified out-hi ACTIVE LOW while running).
+		 */
 		reset-gpios = <&pio 107 GPIO_ACTIVE_LOW>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&touch_pins>;
@@ -271,6 +277,7 @@
 		interrupts = <9 IRQ_TYPE_EDGE_FALLING>;
 		touchscreen-size-x = <1080>;
 		touchscreen-size-y = <2460>;
+		/* Matches panel-chipone-icnl9922c.c display_info (6.78" 9:20.5) */
 		touchscreen-x-mm = <70>;
 		touchscreen-y-mm = <160>;
 	};
@@ -1019,6 +1026,11 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&panel_pins>;
 
+		/*
+		 * Active-low panel reset (gpiod logical 1 = physical LOW,
+		 * 0 = physical HIGH; matches stock raw-GPIO 0->1 waveform and
+		 * verified out-hi ACTIVE LOW while display is active).
+		 */
 		reset-gpios = <&pio 85 GPIO_ACTIVE_LOW>;
 		ldo18-gpios = <&pio 150 GPIO_ACTIVE_HIGH>;
 		vsp-supply = <&outp>;

@@ -1,7 +1,7 @@
-From a4a5bd4ad70f40c2033806e368706dbb4ca917c2 Mon Sep 17 00:00:00 2001
+From 2a1f961f5b72d129625f8f008f9db9ab50ba0fd1 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
-Date: Sun, 22 Nov 2026 04:29:55 +0000
-Subject: [PATCH 4/7] drm/mediatek: Add MT6789 display pipeline support
+Date: Tue, 24 Nov 2026 13:41:31 +0000
+Subject: [PATCH] drm/mediatek: Add MT6789 display pipeline support
 
 Add MediaTek MT6789 display subsystem match data across mtk_drm_drv
 and the DDP subdrivers (OVL, RDMA, COLOR, CCORR, AAL, GAMMA).
@@ -19,13 +19,13 @@ Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
  drivers/gpu/drm/mediatek/mtk_disp_ccorr.c |  2 +
  drivers/gpu/drm/mediatek/mtk_disp_color.c |  2 +
  drivers/gpu/drm/mediatek/mtk_disp_gamma.c |  2 +
- drivers/gpu/drm/mediatek/mtk_disp_ovl.c   | 26 ++++++++-
+ drivers/gpu/drm/mediatek/mtk_disp_ovl.c   | 42 ++++++++++++++-
  drivers/gpu/drm/mediatek/mtk_disp_rdma.c  | 33 +++++++++++-
  drivers/gpu/drm/mediatek/mtk_drm_drv.c    | 66 +++++++++++++++++++++++
- 7 files changed, 129 insertions(+), 3 deletions(-)
+ 7 files changed, 145 insertions(+), 3 deletions(-)
 
 diff --git a/drivers/gpu/drm/mediatek/mtk_disp_aal.c b/drivers/gpu/drm/mediatek/mtk_disp_aal.c
-index 192c1a7d5..6790d747a 100644
+index 192c1a7..6790d74 100644
 --- a/drivers/gpu/drm/mediatek/mtk_disp_aal.c
 +++ b/drivers/gpu/drm/mediatek/mtk_disp_aal.c
 @@ -210,6 +210,7 @@ static const struct mtk_disp_aal_data mt8173_aal_driver_data = {
@@ -37,7 +37,7 @@ index 192c1a7d5..6790d747a 100644
  	{ .compatible = "mediatek,mt8183-disp-aal" },
  	{ /* sentinel */ }
 diff --git a/drivers/gpu/drm/mediatek/mtk_disp_ccorr.c b/drivers/gpu/drm/mediatek/mtk_disp_ccorr.c
-index 5f64a0a6e..631c8bbcc 100644
+index 5f64a0a..631c8bb 100644
 --- a/drivers/gpu/drm/mediatek/mtk_disp_ccorr.c
 +++ b/drivers/gpu/drm/mediatek/mtk_disp_ccorr.c
 @@ -178,6 +178,8 @@ static const struct mtk_disp_ccorr_data mt8192_ccorr_driver_data = {
@@ -50,7 +50,7 @@ index 5f64a0a6e..631c8bbcc 100644
  	  .data = &mt8183_ccorr_driver_data},
  	{ .compatible = "mediatek,mt8192-disp-ccorr",
 diff --git a/drivers/gpu/drm/mediatek/mtk_disp_color.c b/drivers/gpu/drm/mediatek/mtk_disp_color.c
-index 7af9966c0..5d3ca9fc7 100644
+index 7af9966..5d3ca9f 100644
 --- a/drivers/gpu/drm/mediatek/mtk_disp_color.c
 +++ b/drivers/gpu/drm/mediatek/mtk_disp_color.c
 @@ -147,6 +147,8 @@ static const struct mtk_disp_color_data mt8173_color_driver_data = {
@@ -63,7 +63,7 @@ index 7af9966c0..5d3ca9fc7 100644
  	  .data = &mt8167_color_driver_data},
  	{ .compatible = "mediatek,mt8173-disp-color",
 diff --git a/drivers/gpu/drm/mediatek/mtk_disp_gamma.c b/drivers/gpu/drm/mediatek/mtk_disp_gamma.c
-index 787f68e7d..739f263dd 100644
+index 787f68e..739f263 100644
 --- a/drivers/gpu/drm/mediatek/mtk_disp_gamma.c
 +++ b/drivers/gpu/drm/mediatek/mtk_disp_gamma.c
 @@ -315,6 +315,8 @@ static const struct mtk_disp_gamma_data mt8195_gamma_driver_data = {
@@ -76,7 +76,7 @@ index 787f68e7d..739f263dd 100644
  	  .data = &mt8173_gamma_driver_data},
  	{ .compatible = "mediatek,mt8183-disp-gamma",
 diff --git a/drivers/gpu/drm/mediatek/mtk_disp_ovl.c b/drivers/gpu/drm/mediatek/mtk_disp_ovl.c
-index 544587071..bb7d341a1 100644
+index 5445870..35153e0 100644
 --- a/drivers/gpu/drm/mediatek/mtk_disp_ovl.c
 +++ b/drivers/gpu/drm/mediatek/mtk_disp_ovl.c
 @@ -24,6 +24,7 @@
@@ -123,7 +123,30 @@ index 544587071..bb7d341a1 100644
  	if (ovl->data->smi_id_en) {
  		unsigned int reg;
  
-@@ -749,9 +755,25 @@ static const struct mtk_disp_ovl_data mt8195_ovl_driver_data = {
+@@ -640,6 +646,22 @@ static int mtk_disp_ovl_probe(struct platform_device *pdev)
+ 	priv->data = of_device_get_match_data(dev);
+ 	platform_set_drvdata(pdev, priv);
+ 
++	/*
++	 * Halt active bootloader splash scanout as soon as OVL probes
++	 * so physical-address reads do not keep faulting in disp_iommu
++	 * while waiting for mediatek-drm component bind and DSI VDO stop.
++	 */
++	if (priv->data->bypass_shadow && !clk_prepare_enable(priv->clk)) {
++		if (readl_relaxed(priv->regs + DISP_REG_OVL_EN) & 0x1) {
++			writel_relaxed(0x0, priv->regs + DISP_REG_OVL_SRC_CON);
++			writel_relaxed(0x0, priv->regs + DISP_REG_OVL_INTEN);
++			writel_relaxed(0x0, priv->regs + DISP_REG_OVL_INTSTA);
++			writel_relaxed(DISP_OVL_BYPASS_SHADOW,
++				       priv->regs + DISP_REG_OVL_EN);
++		}
++		clk_disable_unprepare(priv->clk);
++	}
++
+ 	ret = devm_request_irq(dev, irq, mtk_disp_ovl_irq_handler,
+ 			       IRQF_TRIGGER_NONE, dev_name(dev), priv);
+ 	if (ret < 0)
+@@ -749,9 +771,25 @@ static const struct mtk_disp_ovl_data mt8195_ovl_driver_data = {
  	.supports_clrfmt_ext = true,
  };
  
@@ -150,7 +173,7 @@ index 544587071..bb7d341a1 100644
  	  .data = &mt8167_ovl_driver_data},
  	{ .compatible = "mediatek,mt8173-disp-ovl",
 diff --git a/drivers/gpu/drm/mediatek/mtk_disp_rdma.c b/drivers/gpu/drm/mediatek/mtk_disp_rdma.c
-index 67bd9e1ca..09343a4e9 100644
+index 67bd9e1..09343a4 100644
 --- a/drivers/gpu/drm/mediatek/mtk_disp_rdma.c
 +++ b/drivers/gpu/drm/mediatek/mtk_disp_rdma.c
 @@ -29,6 +29,7 @@
@@ -236,7 +259,7 @@ index 67bd9e1ca..09343a4e9 100644
  	  .data = &mt8173_rdma_driver_data},
  	{ .compatible = "mediatek,mt8183-disp-rdma",
 diff --git a/drivers/gpu/drm/mediatek/mtk_drm_drv.c b/drivers/gpu/drm/mediatek/mtk_drm_drv.c
-index a8bf06907..5b1a06760 100644
+index a8bf069..5b1a067 100644
 --- a/drivers/gpu/drm/mediatek/mtk_drm_drv.c
 +++ b/drivers/gpu/drm/mediatek/mtk_drm_drv.c
 @@ -159,6 +159,19 @@ static const unsigned int mt8183_mtk_ddp_ext[] = {

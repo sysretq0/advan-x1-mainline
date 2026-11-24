@@ -1,9 +1,9 @@
 # Upstream Deviations Audit — Advan X1 (MT6789) mainline port
 
-> **Consolidation & Status Update (Post-`3b1f69f` / Phase 2):**
+> **Consolidation & Status Update (Post-`e204148` / Phase 3):**
 > This document is the single canonical upstream deviation audit for `advan-x1-mainline`, superseding the historical `f3d8e93` baseline below as well as the later untracked `2b74552` drafts (`DEVIATION_AUDIT.md` and `upstream-deviation-review-compiled.md`).
 >
-> **Summary of Reconciled `2b74552` → Phase 2 Dispositions:**
+> **Summary of Reconciled `2b74552` → Phase 3 Dispositions:**
 > - **Resolved & Hardware-Verified in Phase 1 (`3b1f69f`, `console-ramoops-3b1f69f.log` — 88.67 s Wayland session, 0 GPU/Panfrost errors, clean `userrequested` reboot):**
 >   - `M5` / `#0011` (GPU devfreq freeze): added `mfg0` `"alt"` (`CLK_TOP_MFG_REF_SEL`) + `CLK_TOP_MFGPLL` mux-park notifier (`01-clk/0002`, `dts/mt6789.dtsi`).
 >   - `M4` / `B4-01`: removed duplicate board `i2c3_pins` override (`dts/mt6789-advan-x1.dts`).
@@ -11,19 +11,28 @@
 >   - `M2a` / `M6`: hardened CCCI (`04-peripherals/0025`–`0026`) — upstream `<linux/soc/mediatek/mtk_sip_svc.h>`, `arm_smccc_smc()` error checks, `md-mem0`-derived `md_img_size`, regulator checks, MD MTCMOS active-traffic guard, optional `mediatek,dpmaif`.
 >   - `B2-08`: restored upstream `dev_dbg()` in `i2c-mt65xx` (`04-peripherals/0004`).
 >   - `M13` / `B4-02`–`B4-06`: regenerated all 12 dummy-header patches, updated all 10 `sysretq0` YAML `maintainers:` lines across 7 binding patches, removed Q25 comment, updated `05-gpu/0002` commit body.
-> - **Implemented in Phase 2 (awaiting on-device boot test):**
->   - `M1` / `#0012` (`disp_iommu`): added MT6789 support to `drivers/iommu/mtk_iommu.c` (`03-soc-power/0014`, 34-bit IOVA / 35-bit PA with 32-bit TTBR, matching `mp01`) and enabled `disp_iommu` in `mt6789.dtsi` to resolve live `mediatek-disp-ovl: swiotlb buffer is full` (2 MB/10 MB) on 8 GiB RAM.
+> - **Resolved & Hardware-Verified in Phase 2 (`e204148`, `console-ramoops-e204148.log` — 146.49 s Wayland session, 0 panics/deferred probes/Panfrost errors/swiotlb errors, 0 runtime M4U faults):**
+>   - `M1` / `#0012` (`disp_iommu`): added MT6789 support to `drivers/iommu/mtk_iommu.c` (`03-soc-power/0014`, 34-bit IOVA / 35-bit PA with 32-bit TTBR) and enabled `disp_iommu` in `mt6789.dtsi` — completely eliminated `mediatek-disp-ovl: swiotlb buffer is full` on 8 GiB RAM (`larb0`/`larb1` bound, `ovl0`/`rdma0` in `iommu group 0`).
 >   - `M10` (`watchdog@10007000`): added `syscon` + `simple-mfd` + `reboot-mode` (`offset = 0x24`, `mask = 0x0f`) in lockstep with `mediatek,mtk-wdt.yaml` (`04-peripherals/0006`).
 >   - `M2b`: documented EL3 SiP SMC ABI & Loki handover contract in [`docs/ccci-sip-abi.md`](./ccci-sip-abi.md).
 >   - `M5` / `B2-01` / `B2-04`: converged `clk-mt6789-mfgcfg.c` (`01-clk/0005`) with spinlock-guarded `MFG_CG_CON` hardware readback and documented the `MFG_TOP_CONFIG` reset + Panfrost `clk_prepare()` invariant.
+> - **Implemented in Phase 3 (Hardware Verification Sweep + M4U Handover Polish):**
+>   - **M4U Splash-Handover Polish (`06-display/0004`):** In `mtk_disp_ovl_probe()`, halt active bootloader splash DMA (`DISP_REG_OVL_SRC_CON = 0`, clear `INTEN`/`INTSTA`, `DISP_REG_OVL_EN = DISP_OVL_BYPASS_SHADOW`) as soon as `ovl0` probes so physical LK framebuffer (`0xfe007000..0xfffff000`) reads do not fault in `disp_iommu` during the 12 ms window before `mediatek-drm` binds and stops DSI VDO mode.
+>   - **`M7` / `B3-01` / `B2-03` (`01-clk/0002`):** Verified via `boot-diag-e204148/last-clk_summary.log` — **0** clocks leaked HW-enabled with SW count 0; 12 of 19 vendor `mt6789-clkitg.dtsi` bring-up clocks are actively claimed by mainline drivers and 7 gate off cleanly; only the 3 `CLK_IS_CRITICAL` clocks (`scp_sel`, `ifrao_66mp_mclkp`, `ifrao_cpum`) stay enabled without a consumer. Refined rationale comments in `clk-mt6789-infra_ao.c`.
+>   - **`M9` / `B3-05` (`dts/mt6789-advan-x1.dts`):** Verified via `last-gpio.log` (`gpio-85` panel & `gpio-107` touch both `out hi ACTIVE LOW` while running) and driver calls (`1`=assert physical LOW, `0`=deassert physical HIGH); documented gpiod active-low semantics vs stock raw-GPIO `0x00`.
+>   - **`M11` / `D2.6` / `B8` (`initramfs/init`):** `nfc0` binds cleanly (`gpio-1` IRQ active transition observed `hi`→`lo`); fixed `VP-4.5` grep pattern (`st_nci` underscore) so `boot-diag` captures `/proc/interrupts` counts; live RF tag poll (`nfctool -d nfc0 -p`) remains an optional operator hardware test.
+>   - **`M14` DTS (`dts/mt6789.dtsi` + `dts/mt6789-advan-x1.dts`):** Removed spurious `mediatek,pre-emphasis = <1>;` from `u2port0` (oracle-verified against `runtime_merged.dts:7876-7880` and `mp01` `phy-mtk-tphy.c:80-88`: stock sets `rev4 = BIT(28)`, NOT `rev6/pre-emphasis = GENMASK(31,30)`); confirmed `touchscreen-x/y-mm = 70 × 160` matches `panel-chipone-icnl9922c.c`.
+>   - **`B3-02` (PWRAP):** Verified `mt6789_regs[]` (`INT_EN=0x450`, `INT_FLG=0x458`, `INT_CLR=0x45C`) against `mp01` `mtk-pmic-wrap.c:1041-1050` & upstream `mt8195_regs[]`/`pwrap_interrupt()` (+8/+12 bank stride prevents offset-0 alias IRQ storm).
+>   - **`B3-04` (MIPI-TX):** Verified all cold-start constants (`MIPITX_PLL_CON4=0x00FF12E0`, `MIPITX_LANE_CON=0x3FFF0180/0080/0100`, `SW_CTRL_CON4`, `PLL_PWR`) against `mp01` `mediatek_v2/mtk_mipi_tx.c` N6/N4 D-PHY sequences (`L1903-1907`, `L2683-2687`, `L3128-3129`).
+>   - **`B3-07` (CMA `alloc-ranges`):** Verified live placement (`0x68c00000..0x6cbfffff`) clear of `ramoops@48090000` and all modem/SCP `no-map` carveouts; updated `linux,cma` comment in `mt6789-advan-x1.dts`.
+>   - **`B3-08` & `B3-10` (CCCI):** Verified `srclken-o1 = <0x200000>` & `power-flow-config = <0x12>` against `runtime_merged.dts:4686-4687` / `mp01` `md_sys1_platform.c:854-922, 1698` and documented both plus the `0x7274626e` (`"rtbn"`) CCIF0 SRAM tail footer in [`docs/ccci-sip-abi.md`](./ccci-sip-abi.md).
 > - **Meta-Audit Errata Permanently Corrected (do NOT re-open):**
 >   - `B3-06` (`ufsfde_ck` 7th UFS clock) is **confirmed present** in Advan stock `runtime_merged.dts:6162-6174` — preserve all 7 clocks and 3 resets.
 >   - `M12` (charger `@6a`) is hardware-verified (`Reg[14]=0x64`, `0x6b` NACK) — preserve.
 >   - `M14` YAML complaints (`ccif.yaml` 2-item `items:` and `ccci.yaml` `*-supply`) and `04-peripherals/0018` `panel: true` already conform to dtschema.
 >   - `scripts/verify_patches.sh` is tracked in git (not gitignored).
-> - **Remaining Open Items (Phases 3–4):**
->   - Phase 3 (hardware verification sweep): `M7` (3 `CLK_IS_CRITICAL` flags & unused clock audit), `M9` (GPIO85 physical polarity check), `M11` (live NFC RF tag poll on `nfc0`), `B3-02/04/07/08/10` + `M14` DTS (`pre-emphasis`, `touchscreen-x/y-mm`, CMA `alloc-ranges`).
->   - Phase 4 (pre-upstream deferred): `M8` (8 unused power domains when camera/ISP/video are enabled), `B2-02` (DDP no-op stub), `B2-05` (`priv->dsc` NULL clear on stop).
+> - **Remaining Open Items (Phase 4 — Pre-Upstream Deferred):**
+>   - `M8` (8 unused power domains when camera/ISP/video are enabled), `B2-02` (DDP no-op stub), `B2-05` (`priv->dsc` NULL clear on stop).
 >
 > ---
 >

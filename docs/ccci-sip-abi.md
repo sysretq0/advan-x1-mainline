@@ -77,3 +77,18 @@ On MT6789 retail devices booting mainline via Loki chainload after Stock LK:
 5. **Regulators:** `vmodem` (`825 mV`) and `vsram` (`vsram-core`, `825 mV`)
    voltage programming checks `regulator_set_voltage()` return codes prior to
    enabling rails.
+6. **SCPSYS `srclken-o1` & `power-flow-config` (`B3-08`):** Verified against
+   Advan stock `runtime_merged.dts:4686-4687` (`mediatek,power_flow_config =
+   <0x12>`, `mediatek,srclken_o1 = <0x200000>`) and `mp01-kernel`
+   `md_sys1_platform.c:854-922, 1698` (`BIT(1) = SRCLKEN_O1_BIT`, `BIT(4) =
+   MD_PLL_SETTING`, `BIT(21)` in `SPM_POWER_ON_VAL0`). Mainline DT exposes
+   these with standard hyphenated names (`mediatek,srclken-o1`,
+   `mediatek,power-flow-config`).
+7. **CCIF0 SRAM Tail Footer (`B3-10` — `0x7274626e` / `"rtbn"`):** Before
+   releasing MD1 from reset, `mtk_ccif_hw_reset()` clears AP+MD CCIF0 SRAM
+   and installs the 12-byte Gen95 bootup trace / `MDSS_DBG` footer at
+   `APCCIF_CHDATA + MTK_CCIF_SRAM_SIZE - 12`: magic `0x7274626e` (`"rtbn"`),
+   MD-view `MDSS_DBG` base (`MTK_MD_NC_SMEM_MD_BASE + NC_OFF_MDSS_DBG`), and
+   `NC_SZ_MDSS_DBG` (matching stock `ccci_md_hif_start(1) ->
+   ccci_reset_ccif_hw`, binary-derived from `ccci_md_all.ko` and verified on
+   hardware with live modem boot to `READY`).

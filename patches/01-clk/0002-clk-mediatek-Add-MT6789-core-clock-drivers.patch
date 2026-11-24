@@ -1,6 +1,6 @@
-From a59f5d3d9b4f39616ca6f0ae7b98620881d80517 Mon Sep 17 00:00:00 2001
+From b617dea907303fd7f01d3a9a4743b19ccec1a8a0 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
-Date: Sun, 22 Nov 2026 04:29:28 +0000
+Date: Tue, 24 Nov 2026 13:40:48 +0000
 Subject: [PATCH] clk: mediatek: Add MT6789 core clock drivers
 
 Add clock drivers for the MediaTek MT6789 apmixedsys PLLs, topckgen
@@ -11,9 +11,9 @@ Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
  drivers/clk/mediatek/Kconfig                 |  11 +
  drivers/clk/mediatek/Makefile                |   2 +
  drivers/clk/mediatek/clk-mt6789-apmixedsys.c | 153 ++++
- drivers/clk/mediatek/clk-mt6789-infra_ao.c   | 251 ++++++
+ drivers/clk/mediatek/clk-mt6789-infra_ao.c   | 257 ++++++
  drivers/clk/mediatek/clk-mt6789-topckgen.c   | 852 +++++++++++++++++++
- 5 files changed, 1269 insertions(+)
+ 5 files changed, 1275 insertions(+)
  create mode 100644 drivers/clk/mediatek/clk-mt6789-apmixedsys.c
  create mode 100644 drivers/clk/mediatek/clk-mt6789-infra_ao.c
  create mode 100644 drivers/clk/mediatek/clk-mt6789-topckgen.c
@@ -214,10 +214,10 @@ index 0000000..a223d10
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/clk/mediatek/clk-mt6789-infra_ao.c b/drivers/clk/mediatek/clk-mt6789-infra_ao.c
 new file mode 100644
-index 0000000..412ca79
+index 0000000..3d72a1c
 --- /dev/null
 +++ b/drivers/clk/mediatek/clk-mt6789-infra_ao.c
-@@ -0,0 +1,251 @@
+@@ -0,0 +1,257 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +//
 +// Copyright (c) 2022 MediaTek Inc.
@@ -337,7 +337,10 @@ index 0000000..412ca79
 +	GATE_IFRAO1(CLK_IFRAO_MSDC1, "ifrao_msdc1", "top_axi", 4),
 +	GATE_IFRAO1(CLK_IFRAO_MSDC0_SRC, "ifrao_msdc0_clk", "top_msdc50_0", 6),
 +	GATE_IFRAO1(CLK_IFRAO_AUXADC, "ifrao_auxadc", "f26m", 10),
-+	/* CPU bus monitor and 66M peripheral bus clocks must stay enabled */
++	/*
++	 * CPU bus monitor clock must stay enabled (no direct Linux
++	 * consumer; hardware-verified on MT6789).
++	 */
 +	GATE_IFRAO1_FLAGS(CLK_IFRAO_CPUM, "ifrao_cpum", "top_axi", 11,
 +			  CLK_IS_CRITICAL),
 +	GATE_IFRAO1(CLK_IFRAO_CCIF1_AP, "ifrao_ccif1_ap", "top_axi", 12),
@@ -377,7 +380,10 @@ index 0000000..412ca79
 +	GATE_IFRAO3(CLK_IFRAO_CCIF4_MD, "ifrao_ccif4_md", "top_axi", 29),
 +	GATE_IFRAO3(CLK_IFRAO_SPI6_CK, "ifrao_spi6_ck", "top_spi", 30),
 +	GATE_IFRAO3(CLK_IFRAO_SPI7_CK, "ifrao_spi7_ck", "top_spi", 31),
-+	/* IFRAO4 */
++	/*
++	 * IFRAO4: 66M AP peripheral bus clock must stay enabled
++	 * (matches vendor mt6789-clkitg.dtsi clk-bring-up list).
++	 */
 +	GATE_IFRAO4_FLAGS(CLK_IFRAO_66MP_BUS_MCLK_CKP, "ifrao_66mp_mclkp", "top_axi", 2,
 +			  CLK_IS_CRITICAL),
 +	/* IFRAO5 */

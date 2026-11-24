@@ -258,8 +258,8 @@ fi
 
 # VP-4.5 (D2.6/B8): NFC device binding & IRQ count
 if [ -d /sys/class/nfc/nfc0 ]; then
-    NFC_DEV=$(basename "$(readlink /sys/class/nfc/nfc0/device 2>/dev/null)" 2>/dev/null || echo "?")
-    NFC_IRQ=$(grep -iE 'nfc|st-nci|-0008' /proc/interrupts 2>/dev/null | tr -s ' ' | tr '\n' '; ')
+    NFC_DEV=$(basename "$(readlink -f /sys/class/nfc/nfc0/device 2>/dev/null)" 2>/dev/null || echo "?")
+    NFC_IRQ=$(grep -iE 'st_nci|nfc|st-nci|-0008' /proc/interrupts 2>/dev/null | tr -s ' ' | tr '\n' '; ')
     log "VP-4.5 NFC: dev=${NFC_DEV} irq=${NFC_IRQ:-none}"
 fi
 
