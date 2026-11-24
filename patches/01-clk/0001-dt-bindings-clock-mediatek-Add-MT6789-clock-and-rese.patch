@@ -10,11 +10,11 @@ infracfg_ao, IMP I2C wrappers, and MMSYS).
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- .../bindings/clock/mediatek,mt6789-clock.yaml |  46 ++
+ .../bindings/clock/mediatek,mt6789-clock.yaml |  47 ++
  .../clock/mediatek,mt6789-sys-clock.yaml      |  52 ++
  include/dt-bindings/clock/mt6789-clk.h        | 444 ++++++++++++++++++
  include/dt-bindings/reset/mt6789-resets.h     |  14 +
- 4 files changed, 556 insertions(+)
+ 4 files changed, 557 insertions(+)
  create mode 100644 Documentation/devicetree/bindings/clock/mediatek,mt6789-clock.yaml
  create mode 100644 Documentation/devicetree/bindings/clock/mediatek,mt6789-sys-clock.yaml
  create mode 100644 include/dt-bindings/clock/mt6789-clk.h
@@ -25,7 +25,7 @@ new file mode 100644
 index 0000000..52781c7
 --- /dev/null
 +++ b/Documentation/devicetree/bindings/clock/mediatek,mt6789-clock.yaml
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,47 @@
 +# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 +%YAML 1.2
 +---
@@ -40,7 +40,7 @@ index 0000000..52781c7
 +description: |
 +  The MediaTek MT6789 functional clock controllers provide clock gate
 +  control for peripheral and subsystem IP blocks such as the IMP I2C
-+  wrappers.
++  wrappers and GPU MFGCFG block.
 +
 +properties:
 +  compatible:
@@ -50,6 +50,7 @@ index 0000000..52781c7
 +          - mediatek,mt6789-imp_iic_wrap_en
 +          - mediatek,mt6789-imp_iic_wrap_n
 +          - mediatek,mt6789-imp_iic_wrap_w
++          - mediatek,mt6789-mfgcfg
 +      - const: syscon
 +
 +  reg:

@@ -25,7 +25,7 @@ index eeda11303..4a2b81f90 100644
 +	.supply_names = default_supplies,
 +	.num_pm_domains = 2,
 +	.pm_domain_names = mediatek_pm_domains,
-+	.pm_features = BIT(GPU_PM_CLK_DIS) | BIT(GPU_PM_VREG_OFF),
++	.pm_features = BIT(GPU_PM_RT) | BIT(GPU_PM_VREG_OFF),
 +	.gpu_quirks = BIT(GPU_QUIRK_FORCE_AARCH64_PGTABLE),
 +};
 +
