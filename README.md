@@ -26,12 +26,14 @@ subsystem matrix, driver/DT mapping, and hardware verification evidence.
   ConfigFS gadget (ACM `/dev/ttyGS0` + NCM `usb0`, including cold battery boot),
   SC89601A charger, CW2217 fuel gauge, 13-zone LVTS thermal, watchdog +
   reboot-mode, pstore/ramoops.
-- **WIP / partially working:** Gen95 CCCI cellular modem (MD BootROM passes,
-  HS1 handshake / WWAN AT / DPMAIF `wwan0` in progress), ASoC audio card
-  (`mt6789-mt6366` registers; external speaker amp `speaker_amp@34` & jack
-  detect `accdet` not yet wired), ST21NFCD NFC (`nfc0` probes + IRQ 16 fires;
-  live RF poll pending), USB-C host/OTG/PD role swap, live microSD I/O test,
-  high-voltage charge pump.
+- **WIP / partially working:** Full 8 GiB RAM mapping (currently ~3.88 GiB /
+  4 GiB exposed across 2 conservative U-Boot/DT DRAM banks; ~3.8 GiB remaining
+  pending full `no-map` carveouts + U-Boot bank update), Gen95 CCCI cellular
+  modem (MD BootROM passes, HS1 handshake / WWAN AT / DPMAIF `wwan0` in
+  progress), ASoC audio card (`mt6789-mt6366` registers; external speaker amp
+  `speaker_amp@34` & jack detect `accdet` not yet wired), ST21NFCD NFC (`nfc0`
+  probes + IRQ 16 fires; live RF poll pending), USB-C host/OTG/PD role swap,
+  live microSD I/O test, high-voltage charge pump.
 - **Not yet started:** Wi-Fi / Bluetooth / GPS (MT6789 ConnSys/WMT), cameras &
   ISP, hardware video decode/encode (`vdec`/`venc`), SCP sensor hub
   (accel/gyro/mag/ALS), fingerprint reader, suspend-to-RAM (S3).

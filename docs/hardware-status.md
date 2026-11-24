@@ -16,7 +16,7 @@ Status legend:
 | Subsystem | Hardware / IC | Mainline Driver / DT Node | Status | Notes |
 |---|---|---|---|---|
 | **CPU / SMP** | MT6789 (2×A76 + 6×A55) | PSCI + `mtk-cpufreq-hw` | **Working** | 8 CPUs online (`2.0 GHz` little, `2.2 GHz` big) |
-| **RAM & pstore** | 8 GiB LPDDR4X | `memory@61000000`, `memory@140000000`, `ramoops@48090000` | **Working** | 35-bit PA / 34-bit IOVA; 896 KiB ramoops persists across reboot |
+| **RAM & pstore** | 8 GiB LPDDR4X (`7.69 GiB` usable in stock) | `memory@61000000`, `memory@140000000`, `ramoops@48090000` | **WIP** | Only **~3.88 GiB (~4 GiB)** exposed (`240 MiB` + `3,735 MiB` via U-Boot 2-bank fixup); 896 KiB ramoops works |
 | **Clocks** | `apmixedsys`, `topckgen`, `infra_ao`, `imp_iic_wrap`, `mmsys`, `mfgcfg` | `clk-mt6789-*` (`patches/01-clk/`) | **Working** | 0 HW-on clock leaks; `clk_disable_unused` clean |
 | **Power Domains** | SCPSYS (`md`, `mfg0..3`, `disp`, `audio`) | `mtk-pm-domains` (`10006000.syscon`) | **Working** | `mfg0/1` regulator-coupled; 0 deferred probes |
 | **Pinctrl / GPIO / EINT** | 188 pins + EINT | `pinctrl-mt6789` (`10005000.pinctrl`) | **Working** | Verified pinmux, active-low resets, EINT IRQs |
@@ -99,7 +99,24 @@ faults, clean `reboot: Restarting system`):
 
 ## 2. Work in Progress (Partially Working / Pending Verification)
 
-### 2.1 Cellular Modem (Gen95 CCCI — Phase 5)
+### 2.1 Full 8 GiB RAM Exposure (Currently ~4 GiB Usable)
+- **What works now:** Linux boots cleanly with 35-bit PA / 34-bit IOVA and
+  896 KiB persistent pstore/ramoops (`0x48090000`), seeing **3,975 MiB
+  (~3.88 GiB / 4 GiB)** (`Memory: 3796964K/4070400K available`).
+- **Why only ~4 GiB is visible:** Both `advan-x1-uboot`
+  (`CONFIG_NR_DRAM_BANKS=2` FDT memory fixup) and `dts/mt6789-advan-x1.dts`
+  currently expose only two conservative clean DRAM windows to avoid hitting
+  scattered LK/EMI-MPU reservations:
+  - Bank 0: `0x60000000..0x6effffff` (`240 MiB`)
+  - Bank 1: `0x140000000..0x2296fffff` (`3,735 MiB`)
+- **What's missing:** Stock LK `pl_lk.txt` exposes **7,878.45 MiB (~7.69 GiB)**
+  usable out of 8 GiB (`0x40000000..0x23fffffff`, minus `313.55 MiB` across
+  `RES[0..30]` for BL31, TEE/secmem, SSPM, MCUPM, SCP, RKP, modem, consys,
+  framebuffer, pstore, and `dramc-rk0/1`). Unlocking the remaining ~3.81 GiB
+  requires declaring the remaining stock `no-map` reserved-memory carveouts in
+  the mainline DTS and updating U-Boot's DRAM bank/FDT memory map.
+
+### 2.2 Cellular Modem (Gen95 CCCI — Phase 5)
 - **What works now:** Phase 5.1 (9 Advan X1 `no-map` reserved-memory carveouts,
   MD power domain with `srclken-o1`/`power-flow-config`, `modem` DT node) is
   complete. Phase 5.2 core (`drivers/net/wwan/mtk_ccci/`,
@@ -117,7 +134,7 @@ faults, clean `reboot: Restarting system`):
   [`docs/ccci-bringup-plan.md`](ccci-bringup-plan.md) &
   [`docs/ccci-sip-abi.md`](ccci-sip-abi.md).
 
-### 2.2 Audio (`mt6789-mt6366-sound`)
+### 2.3 Audio (`mt6789-mt6366-sound`)
 - **What works now:** `11210000.audio-controller` (MT6789 AFE), `mt6358-sound`
   PMIC codec, and `mt6789-mt6366-sound` machine driver probe cleanly and
   register ALSA card `#1: mt6789-mt6366` with PCM playback/capture devices.
@@ -129,7 +146,7 @@ faults, clean `reboot: Restarting system`):
   - End-to-end playback (earpiece/headphone/speaker) and microphone capture
     require live hardware verification and UCM2 profiles.
 
-### 2.3 NFC (`st,st21nfcb-i2c`)
+### 2.4 NFC (`st,st21nfcb-i2c`)
 - **What works now:** `nfc@8` on `&i2c3` registers `nfc0` via mainline
   `st-nci-i2c`, configures IRQ `GPIO 1` and reset `GPIO 106`, and fires
   hardware IRQ 16 (`mt-eint 1 Level st_nci`, `count=1` on probe).
@@ -137,14 +154,14 @@ faults, clean `reboot: Restarting system`):
   confirm PMIC DCXO `XO_NFC` clock buffer remains available under active RF
   polling without the vendor `clkbuf` driver.
 
-### 2.4 USB-C Host / OTG / Power Delivery
+### 2.5 USB-C Host / OTG / Power Delivery
 - **What works now:** `rt1711h` (`&i2c5` / `4-004e`) registers `port0` in
   sink/device mode; MUSB gadget (ACM + NCM) works on wall and battery boots.
 - **What's missing:** Wiring a real `vbus-supply` (charger OTG boost), dual-role
   power/data switching (`DR_SWAP` / `PR_SWAP`), and host-mode peripheral tests
   (USB flash drive / HID).
 
-### 2.5 microSD Card & Fast Charging
+### 2.6 microSD Card & Fast Charging
 - **microSD (`11240000.mmc`):** Controller and CD `GPIO 7` (`in hi ACTIVE LOW`
   when empty) probe cleanly; live read/write verification with a physical SD
   card inserted is pending.
@@ -181,11 +198,14 @@ The following hardware blocks exist in the stock Advan X1 DT
 
 ## 4. Next Milestones
 
-1. **Modem Phase 5.2–5.4:** Resolve CCIF0 HS1 timeout, bring up Emulated SCP
+1. **Full 8 GiB RAM Map:** Add remaining stock `RES[0..30]` `no-map` carveouts
+   and expand `advan-x1-uboot` + mainline DTS DRAM windows from ~3.88 GiB to
+   the full ~7.69 GiB usable RAM.
+2. **Modem Phase 5.2–5.4:** Resolve CCIF0 HS1 timeout, bring up Emulated SCP
    CCISM ring, expose `WWAN_PORT_AT` + RO NVRAM FS RPC, and bring up DPMAIF v1
    `wwan0` LTE data.
-2. **Audio & Peripheral Polish:** Identify and wire `speaker_amp@34` +
+3. **Audio & Peripheral Polish:** Identify and wire `speaker_amp@34` +
    `mt6358-accdet`, validate analog audio + UCM2, verify live NFC RF polling,
    test physical microSD I/O, and wire USB-C host/OTG mode.
-3. **Upstream Submission Prep:** Clear remaining pre-LKML items (`M8`, `B2-02`,
+4. **Upstream Submission Prep:** Clear remaining pre-LKML items (`M8`, `B2-02`,
    `M2b` boundary) tracked in [`docs/upstream-status.md`](upstream-status.md).
