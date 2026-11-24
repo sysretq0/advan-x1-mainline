@@ -296,6 +296,24 @@ DEF_PROBES=$(tr '\n' '; ' < /sys/kernel/debug/devices_deferred 2>/dev/null || tr
 RSV_MD=$(ls -d /sys/firmware/devicetree/base/reserved-memory/memory@* 2>/dev/null | xargs -r -n1 basename 2>/dev/null | tr '\n' ' ')
 log "Gate-5.1: spm_synced=${SPM_SYNC} unsynced=${UNSYNCED:-none} deferred=${DEF_PROBES:-none}"
 log "Gate-5.1 reserved-mem: ${RSV_MD:-none}"
+# Phase 5.2 Gate telemetry: CCCI modem HS1/HS2, WDT, CCIF IRQs
+MD_SYS="/sys/devices/platform/soc/d0cf000.modem"
+if [ -d "$MD_SYS" ]; then
+    for _md_try in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+        MD_ST=$(cat "$MD_SYS/state" 2>/dev/null || echo "?")
+        [ "$MD_ST" != "booting" ] && [ "$MD_ST" != "init" ] && break
+        sleep 0.1 2>/dev/null || usleep 100000 2>/dev/null || sleep 1
+    done
+    MD_ST=$(cat "$MD_SYS/state" 2>/dev/null || echo "?")
+    MD_LK=$(cat "$MD_SYS/lk_verified" 2>/dev/null || echo "?")
+    MD_HS1=$(cat "$MD_SYS/hs1_done" 2>/dev/null || echo "?")
+    MD_HS2=$(cat "$MD_SYS/hs2_done" 2>/dev/null || echo "?")
+    MD_WDT=$(cat "$MD_SYS/wdt_count" 2>/dev/null || echo "?")
+    MD_RX=$(cat "$MD_SYS/rx_packets" 2>/dev/null || echo "?")
+    MD_IRQS=$(grep -iE 'ccif|md-wdt|ccci' /proc/interrupts 2>/dev/null | tr -s ' ' | tr '\n' '; ')
+    log "Gate-5.2 modem: state=${MD_ST} lk_verified=${MD_LK} hs1=${MD_HS1} hs2=${MD_HS2} wdt=${MD_WDT} rx=${MD_RX}"
+    log "Gate-5.2 IRQs: ${MD_IRQS:-none}"
+fi
 if [ -r /sys/kernel/debug/clk/clk_summary ]; then
     CLK_ON=$(awk 'NR>3 && $2>0 {c++} END {print c+0}' /sys/kernel/debug/clk/clk_summary 2>/dev/null)
     CLK_AUD=$(awk 'NR>3 && $1 ~ /(pwrap|ulposc|atb|dpmaif|btif|ccif|debugsys|cldma)/ {printf "%s=%s(%s) ", $1, $2, $5}' /sys/kernel/debug/clk/clk_summary 2>/dev/null)

@@ -787,8 +787,7 @@
 			      "md-mem0", "md-mem1", "md-mem2", "md-mem3";
 	vmodem-supply = <&mt6366_vmodem_reg>;
 	vsram-supply = <&mt6366_vsram_core_reg>;
-	/* Enabled in Phase 5.2 once the CCCI transport driver lands */
-	status = "disabled";
+	status = "okay";
 };
 
 &pio {

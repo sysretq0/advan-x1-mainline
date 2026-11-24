@@ -9,8 +9,8 @@ vibrator, TPS65132 display bias, and Chipone ICNL9922C DSI panel).
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- .../boot/dts/mediatek/mt6789-advan-x1.dts     | 1044 ++++++++++++++++++++++
- 1 file changed, 1044 insertions(+)
+ .../boot/dts/mediatek/mt6789-advan-x1.dts     | 1043 ++++++++++++++++++++++
+ 1 file changed, 1043 insertions(+)
  create mode 100644 arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
 
 diff --git a/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
@@ -18,7 +18,7 @@ new file mode 100644
 index 000000000..111111111
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
-@@ -0,0 +1,1044 @@
+@@ -0,0 +1,1043 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Device Tree Source for the Advan X1 smartphone (MediaTek MT6789).
@@ -808,8 +808,7 @@ index 000000000..111111111
 +			      "md-mem0", "md-mem1", "md-mem2", "md-mem3";
 +	vmodem-supply = <&mt6366_vmodem_reg>;
 +	vsram-supply = <&mt6366_vsram_core_reg>;
-+	/* Enabled in Phase 5.2 once the CCCI transport driver lands */
-+	status = "disabled";
++	status = "okay";
 +};
 +
 +&pio {
