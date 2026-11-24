@@ -1,0 +1,1145 @@
+From 6ab2ac182e91c90bea2e09db014e7676a8252ef8 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Tue, 24 Nov 2026 17:39:15 +0000
+Subject: [PATCH] net: wwan: mtk_ccci: Add CCCI RPC responder for MT6789
+
+Add Gen95 CCCI kernel RPC responder (ch=32 -> ch=33 over CCIF0 Q1) to
+unblock modem HS2 completion on MT6789 (Advan X1):
+
+- Add mtk_ccci_tx_send() with per-channel 15-bit sequence counter and
+  Gen95 assert_bit semantics (assert_bit=1 during HS1->HS2 single-task
+  phase, 0 once READY) plus serialized CCIF0 ringbuffer write + doorbell.
+- Move CCIF0 RX draining onto a dedicated ordered unbound workqueue
+  (mtk_ccci_rx) with a pre-allocated 4 KiB RX buffer so RX/RPC replies
+  cannot deadlock against mtk_ccci_boot_work() waiting on hs2_comp.
+- Implement mtk_ccci_rpc_handle() in mtk_ccci_rpc.c with strictly
+  Advan X1-sourced SIM hot-plug EINT, GPIO mapping, AUXADC, and md_attr
+  values (from runtime_merged.dts, ccci_md_all.ko, and ccci_dump.log).
+- Keep ch=14 (CCCI_CH_FS_RX) strictly log-only (never touching NVRAM)
+  and hex-dump opcode + first 64 bytes of any unhandled RPC or non-RPC
+  packet.
+- Expose read-only rpc_count sysfs telemetry attribute.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ drivers/net/wwan/mtk_ccci/Makefile        |   2 +-
+ drivers/net/wwan/mtk_ccci/mtk_ccci.h      |  16 +
+ drivers/net/wwan/mtk_ccci/mtk_ccci_core.c | 161 ++++-
+ drivers/net/wwan/mtk_ccci/mtk_ccci_rpc.c  | 705 ++++++++++++++++++++++
+ 4 files changed, 862 insertions(+), 22 deletions(-)
+ create mode 100644 drivers/net/wwan/mtk_ccci/mtk_ccci_rpc.c
+
+diff --git a/drivers/net/wwan/mtk_ccci/Makefile b/drivers/net/wwan/mtk_ccci/Makefile
+index b3947240c..f92bec6fa 100644
+--- a/drivers/net/wwan/mtk_ccci/Makefile
++++ b/drivers/net/wwan/mtk_ccci/Makefile
+@@ -2,4 +2,4 @@
+ 
+ obj-$(CONFIG_MTK_CCCI) += mtk_ccci.o
+ 
+-mtk_ccci-y := mtk_ccci_core.o mtk_ccci_ringbuf.o
++mtk_ccci-y := mtk_ccci_core.o mtk_ccci_ringbuf.o mtk_ccci_rpc.o
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci.h b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
+index c0e9734de..f03eb8808 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci.h
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
+@@ -9,6 +9,7 @@
+ #define __MTK_CCCI_H__
+ 
+ #include <linux/atomic.h>
++#include <linux/bits.h>
+ #include <linux/clk.h>
+ #include <linux/completion.h>
+ #include <linux/device.h>
+@@ -60,6 +61,13 @@
+ #define MTK_CCIF_RINGQ_SRAM		15
+ #define MTK_CCIF_DATA_QUEUE_MASK	0x00ff
+ #define MTK_CCIF_EXP_QUEUE_MASK		0xffff0000
++#define MTK_CCIF_RPC_QUEUE		1
++
++/* CCCI header sequence / assert bits and channel limits */
++#define MTK_CCCI_SEQ_MASK		GENMASK(14, 0)
++#define MTK_CCCI_ASSERT_BIT		BIT(15)
++#define MTK_CCCI_MAX_CH			256
++#define MTK_CCCI_RX_BUF_SIZE		4096
+ 
+ /* CCCI logical channels */
+ #define CCCI_CH_CONTROL_RX		0
+@@ -304,10 +312,14 @@ struct mtk_ccci_dev {
+ 	struct mtk_ccci_ringbuf rb_exp[MTK_CCIF_QUEUE_NUM];
+ 
+ 	spinlock_t ccif_lock; /* serializes CCIF0 doorbell register access */
++	spinlock_t tx_lock; /* serializes TX ringbuf writes and seq counters */
++	u16 tx_seq[MTK_CCCI_MAX_CH];
+ 	unsigned long pending_ch;
+ 
++	struct workqueue_struct *rx_wq;
+ 	struct work_struct boot_work;
+ 	struct work_struct rx_work;
++	u8 *rx_buf;
+ 
+ 	struct completion hs1_comp;
+ 	struct completion hs2_comp;
+@@ -317,6 +329,7 @@ struct mtk_ccci_dev {
+ 	atomic_t hs2_done;
+ 	atomic_t wdt_count;
+ 	atomic_t rx_packets;
++	atomic_t rpc_count;
+ 	bool md_running;
+ };
+ 
+@@ -326,4 +339,7 @@ int mtk_ccci_rb_readable(struct mtk_ccci_ringbuf *rb);
+ int mtk_ccci_rb_read(struct mtk_ccci_ringbuf *rb, void *dst, u32 max_len);
+ int mtk_ccci_rb_write(struct mtk_ccci_ringbuf *rb, const void *src, u32 len);
+ 
++int mtk_ccci_tx_send(struct mtk_ccci_dev *ccci, u32 q, void *buf, u32 len);
++void mtk_ccci_rpc_handle(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len);
++
+ #endif /* __MTK_CCCI_H__ */
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+index 99861d12e..0e5e9ac14 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+@@ -8,18 +8,21 @@
+  */
+ 
+ #include <linux/arm-smccc.h>
++#include <linux/bitfield.h>
+ #include <linux/build_bug.h>
+ #include <linux/ctype.h>
+ #include <linux/delay.h>
+ #include <linux/interrupt.h>
+ #include <linux/io.h>
+ #include <linux/mfd/syscon.h>
++#include <linux/minmax.h>
+ #include <linux/module.h>
+ #include <linux/of.h>
+ #include <linux/of_address.h>
+ #include <linux/of_irq.h>
+ #include <linux/platform_device.h>
+ #include <linux/pm_runtime.h>
++#include <linux/printk.h>
+ #include <linux/random.h>
+ #include <linux/sizes.h>
+ #include <linux/slab.h>
+@@ -152,6 +155,7 @@ static void mtk_ccif_hw_reset(struct mtk_ccci_dev *ccci)
+ 	       ccci->ccif_ap_base + APCCIF_CHDATA + MTK_CCIF_SRAM_SIZE - 4);
+ 
+ 	writel(0xffffffff, ccci->ccif_ap_base + APCCIF_ACK);
++	memset(ccci->tx_seq, 0, sizeof(ccci->tx_seq));
+ 	/* Ensure CCIF0 HW reset and SRAM footer complete before MD boot */
+ 	wmb();
+ }
+@@ -213,6 +217,47 @@ static int mtk_ccif_ring_doorbell(struct mtk_ccci_dev *ccci, u32 ch)
+ 	return 0;
+ }
+ 
++int mtk_ccci_tx_send(struct mtk_ccci_dev *ccci, u32 q, void *buf, u32 len)
++{
++	struct mtk_ccci_header *hdr = buf;
++	unsigned long flags;
++	bool assert_bit;
++	u16 seq;
++	int ret, db_ret;
++
++	if (q >= MTK_CCIF_QUEUE_NUM || !buf || len < sizeof(*hdr) ||
++	    hdr->channel >= MTK_CCCI_MAX_CH)
++		return -EINVAL;
++
++	spin_lock_irqsave(&ccci->tx_lock, flags);
++
++	seq = ccci->tx_seq[hdr->channel]++ & MTK_CCCI_SEQ_MASK;
++	assert_bit = true;
++	if ((hdr->channel == CCCI_CH_RPC_TX || hdr->channel == CCCI_CH_FS_TX) &&
++	    READ_ONCE(ccci->state) != MTK_CCCI_STATE_HS1_DONE)
++		assert_bit = false;
++	hdr->seq_assert = FIELD_PREP(MTK_CCCI_SEQ_MASK, seq) |
++			  (assert_bit ? MTK_CCCI_ASSERT_BIT : 0);
++
++	ret = mtk_ccci_rb_write(&ccci->rb_normal[q], buf, len);
++	if (ret != len) {
++		spin_unlock_irqrestore(&ccci->tx_lock, flags);
++		return ret < 0 ? ret : -EIO;
++	}
++
++	db_ret = mtk_ccif_ring_doorbell(ccci, q);
++	spin_unlock_irqrestore(&ccci->tx_lock, flags);
++
++	/*
++	 * If APCCIF_BUSY is already set for queue q, MD already has a pending
++	 * doorbell interrupt and will drain all queued ringbuffer packets.
++	 */
++	if (db_ret && db_ret != -EBUSY)
++		return db_ret;
++
++	return 0;
++}
++
+ /*
+  * Parse LK's ccci_tag_mem (0xbf7f0000) without touching EMI-MPU-locked md1img
+  * DRAM directly. Supports both v1 (16-byte tag name) and v2 (64-byte tag name).
+@@ -710,48 +755,93 @@ static void mtk_ccci_handle_sram_rx(struct mtk_ccci_dev *ccci)
+ 	    dl_hdr.data[1] == CCCI_MD_INIT_START_BOOT &&
+ 	    dl_hdr.reserved == CCCI_MD_INIT_CHK_ID) {
+ 		atomic_set(&ccci->hs1_done, 1);
+-		ccci->state = MTK_CCCI_STATE_HS1_DONE;
++		WRITE_ONCE(ccci->state, MTK_CCCI_STATE_HS1_DONE);
+ 		complete(&ccci->hs1_comp);
+ 		dev_info(ccci->dev, "HS1 complete — negotiating runtime features\n");
+ 
+ 		if (mtk_ccci_prepare_and_send_hs2(ccci, &md_q))
+-			ccci->state = MTK_CCCI_STATE_FAILED;
++			WRITE_ONCE(ccci->state, MTK_CCCI_STATE_FAILED);
+ 	}
+ }
+ 
+ static void mtk_ccci_drain_queue(struct mtk_ccci_dev *ccci, u32 q)
+ {
+ 	struct mtk_ccci_header hdr;
+-	u8 tmp[64];
+ 	int ret;
+ 
+-	while ((ret = mtk_ccci_rb_read(&ccci->rb_normal[q], tmp, sizeof(tmp))) >= 0) {
++	while ((ret = mtk_ccci_rb_read(&ccci->rb_normal[q], ccci->rx_buf,
++				       MTK_CCCI_RX_BUF_SIZE)) >= 0) {
+ 		int cnt = atomic_inc_return(&ccci->rx_packets);
++		u32 copy_len = min_t(u32, ret, MTK_CCCI_RX_BUF_SIZE);
++
++		if (ret > MTK_CCCI_RX_BUF_SIZE) {
++			dev_warn(ccci->dev,
++				 "CCIF Q%u RX #%d truncated: len=%d > %u\n",
++				 q, cnt, ret, MTK_CCCI_RX_BUF_SIZE);
++			print_hex_dump(KERN_INFO, "mtk-ccci rx: ",
++				       DUMP_PREFIX_OFFSET, 16, 1,
++				       ccci->rx_buf, min_t(u32, copy_len, 64),
++				       true);
++			continue;
++		}
+ 
+ 		if (ret < sizeof(hdr))
+ 			continue;
+-		memcpy(&hdr, tmp, sizeof(hdr));
++		memcpy(&hdr, ccci->rx_buf, sizeof(hdr));
+ 
+-		if (cnt <= 16 || hdr.channel == CCCI_CH_CONTROL_RX)
++		if (cnt <= 32 || hdr.channel == CCCI_CH_CONTROL_RX)
+ 			dev_info(ccci->dev,
+-				 "CCIF Q%u RX #%d: ch=%u len=%d d0=0x%08x d1=0x%08x rsv=0x%08x\n",
++				 "CCIF Q%u RX #%d: ch=%u len=%d d0=0x%08x d1=0x%08x seq=0x%04x rsv=0x%08x\n",
+ 				 q, cnt, hdr.channel, ret, hdr.data[0],
+-				 hdr.data[1], hdr.reserved);
++				 hdr.data[1], hdr.seq_assert, hdr.reserved);
+ 
+-		if (hdr.channel == CCCI_CH_CONTROL_RX) {
++		switch (hdr.channel) {
++		case CCCI_CH_CONTROL_RX:
+ 			if (hdr.data[1] == CCCI_MD_INIT_START_BOOT &&
+ 			    hdr.reserved != CCCI_MD_INIT_CHK_ID) {
+ 				atomic_set(&ccci->hs2_done, 1);
+-				ccci->state = MTK_CCCI_STATE_READY;
++				WRITE_ONCE(ccci->state, MTK_CCCI_STATE_READY);
+ 				complete(&ccci->hs2_comp);
+ 				dev_info(ccci->dev, "HS2 complete — MD READY!\n");
+ 			} else if (hdr.data[1] == CCCI_MD_EX ||
+ 				   hdr.data[1] == CCCI_MD_EX_REC_OK ||
+ 				   hdr.data[1] == CCCI_DRV_VER_ERROR) {
+-				ccci->state = MTK_CCCI_STATE_EXCEPTION;
++				WRITE_ONCE(ccci->state, MTK_CCCI_STATE_EXCEPTION);
+ 				dev_err(ccci->dev, "MD control exception msg=0x%x rsv=0x%x\n",
+ 					hdr.data[1], hdr.reserved);
++			} else {
++				print_hex_dump(KERN_INFO, "mtk-ccci ctrl: ",
++					       DUMP_PREFIX_OFFSET, 16, 1,
++					       ccci->rx_buf,
++					       min_t(u32, ret, 64), true);
+ 			}
++			break;
++		case CCCI_CH_RPC_RX:
++			mtk_ccci_rpc_handle(ccci, ccci->rx_buf, ret);
++			break;
++		case CCCI_CH_FS_RX: {
++			u32 fs_op = 0;
++
++			if (ret >= sizeof(hdr) + sizeof(fs_op))
++				memcpy(&fs_op, ccci->rx_buf + sizeof(hdr),
++				       sizeof(fs_op));
++			dev_info(ccci->dev,
++				 "CCIF Q%u FS RX (log-only): len=%d op=0x%08x rsv=0x%08x\n",
++				 q, ret, fs_op, hdr.reserved);
++			if (cnt <= 32)
++				print_hex_dump(KERN_INFO, "mtk-ccci fs: ",
++					       DUMP_PREFIX_OFFSET, 16, 1,
++					       ccci->rx_buf,
++					       min_t(u32, ret, 64), true);
++			break;
++		}
++		default:
++			if (cnt <= 32)
++				print_hex_dump(KERN_INFO, "mtk-ccci pkt: ",
++					       DUMP_PREFIX_OFFSET, 16, 1,
++					       ccci->rx_buf,
++					       min_t(u32, ret, 64), true);
++			break;
+ 		}
+ 	}
+ }
+@@ -787,7 +877,7 @@ static irqreturn_t mtk_ccci_ccif_irq0(int irq, void *data)
+ 	wmb();
+ 
+ 	set_mask_bits(&ccci->pending_ch, 0, ack);
+-	schedule_work(&ccci->rx_work);
++	queue_work(ccci->rx_wq, &ccci->rx_work);
+ 	return IRQ_HANDLED;
+ }
+ 
+@@ -806,7 +896,7 @@ static irqreturn_t mtk_ccci_ccif_irq1(int irq, void *data)
+ 
+ 	if (ack & BIT(MTK_CCIF_RINGQ_SRAM)) {
+ 		set_mask_bits(&ccci->pending_ch, 0, BIT(MTK_CCIF_RINGQ_SRAM));
+-		schedule_work(&ccci->rx_work);
++		queue_work(ccci->rx_wq, &ccci->rx_work);
+ 	}
+ 	if (ack & MTK_CCIF_EXP_QUEUE_MASK)
+ 		dev_warn_ratelimited(ccci->dev, "CCIF IRQ1 high ch mask=0x%08x\n",
+@@ -976,13 +1066,15 @@ static void mtk_ccci_boot_work(struct work_struct *work)
+ 		return;
+ 	}
+ 
+-	if (!wait_for_completion_timeout(&ccci->hs2_comp, msecs_to_jiffies(5000))) {
++	if (!wait_for_completion_timeout(&ccci->hs2_comp, msecs_to_jiffies(10000))) {
+ 		mtk_ccci_smc(MTK_CCCI_SMC_POWER_CONFIG, MTK_CCCI_PWR_BOOT_STATUS, 0, &res);
+ 		dev_err(ccci->dev,
+-			"HS2 ACK timeout (5s)! boot_status=0x%lx/0x%lx ccif_rch=0x%x\n",
++			"HS2 ACK timeout (10s)! boot_status=0x%lx/0x%lx ccif_rch=0x%x rx=%d rpc=%d\n",
+ 			res.a1, res.a2,
+-			readl(ccci->ccif_ap_base + APCCIF_RCHNUM));
+-		ccci->state = MTK_CCCI_STATE_FAILED;
++			readl(ccci->ccif_ap_base + APCCIF_RCHNUM),
++			atomic_read(&ccci->rx_packets),
++			atomic_read(&ccci->rpc_count));
++		WRITE_ONCE(ccci->state, MTK_CCCI_STATE_FAILED);
+ 	}
+ }
+ 
+@@ -991,7 +1083,7 @@ static ssize_t state_show(struct device *dev, struct device_attribute *attr, cha
+ {
+ 	struct mtk_ccci_dev *ccci = dev_get_drvdata(dev);
+ 
+-	return sysfs_emit(buf, "%s\n", mtk_ccci_state_names[ccci->state]);
++	return sysfs_emit(buf, "%s\n", mtk_ccci_state_names[READ_ONCE(ccci->state)]);
+ }
+ static DEVICE_ATTR_RO(state);
+ 
+@@ -1035,6 +1127,14 @@ static ssize_t lk_verified_show(struct device *dev, struct device_attribute *att
+ }
+ static DEVICE_ATTR_RO(lk_verified);
+ 
++static ssize_t rpc_count_show(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	struct mtk_ccci_dev *ccci = dev_get_drvdata(dev);
++
++	return sysfs_emit(buf, "%d\n", atomic_read(&ccci->rpc_count));
++}
++static DEVICE_ATTR_RO(rpc_count);
++
+ static struct attribute *mtk_ccci_attrs[] = {
+ 	&dev_attr_state.attr,
+ 	&dev_attr_hs1_done.attr,
+@@ -1042,6 +1142,7 @@ static struct attribute *mtk_ccci_attrs[] = {
+ 	&dev_attr_wdt_count.attr,
+ 	&dev_attr_rx_packets.attr,
+ 	&dev_attr_lk_verified.attr,
++	&dev_attr_rpc_count.attr,
+ 	NULL,
+ };
+ ATTRIBUTE_GROUPS(mtk_ccci);
+@@ -1158,12 +1259,17 @@ static int mtk_ccci_probe(struct platform_device *pdev)
+ 
+ 	ccci->dev = &pdev->dev;
+ 	spin_lock_init(&ccci->ccif_lock);
++	spin_lock_init(&ccci->tx_lock);
+ 	init_completion(&ccci->hs1_comp);
+ 	init_completion(&ccci->hs2_comp);
+ 	INIT_WORK(&ccci->boot_work, mtk_ccci_boot_work);
+ 	INIT_WORK(&ccci->rx_work, mtk_ccci_rx_work);
+ 	platform_set_drvdata(pdev, ccci);
+ 
++	ccci->rx_buf = devm_kmalloc(&pdev->dev, MTK_CCCI_RX_BUF_SIZE, GFP_KERNEL);
++	if (!ccci->rx_buf)
++		return -ENOMEM;
++
+ 	ccci->md_rgu_base = devm_platform_ioremap_resource_byname(pdev, "md-rgu");
+ 	if (IS_ERR(ccci->md_rgu_base))
+ 		return PTR_ERR(ccci->md_rgu_base);
+@@ -1236,6 +1342,12 @@ static int mtk_ccci_probe(struct platform_device *pdev)
+ 	if (ret)
+ 		return dev_err_probe(&pdev->dev, ret, "failed to enable CCIF clocks\n");
+ 
++	ccci->rx_wq = alloc_workqueue("mtk_ccci_rx", WQ_UNBOUND | WQ_HIGHPRI, 1);
++	if (!ccci->rx_wq) {
++		ret = -ENOMEM;
++		goto err_clks;
++	}
++
+ 	/* Clear pending CCIF0 flags before requesting IRQs */
+ 	writel(0xffffffff, ccci->ccif_ap_base + APCCIF_ACK);
+ 
+@@ -1243,19 +1355,19 @@ static int mtk_ccci_probe(struct platform_device *pdev)
+ 			       IRQF_TRIGGER_HIGH | IRQF_NO_AUTOEN,
+ 			       "mtk-ccif0-data0", ccci);
+ 	if (ret)
+-		goto err_clks;
++		goto err_wq;
+ 
+ 	ret = devm_request_irq(&pdev->dev, ccci->ccif_irq1, mtk_ccci_ccif_irq1,
+ 			       IRQF_TRIGGER_HIGH | IRQF_NO_AUTOEN,
+ 			       "mtk-ccif0-data1", ccci);
+ 	if (ret)
+-		goto err_clks;
++		goto err_wq;
+ 
+ 	ret = devm_request_irq(&pdev->dev, ccci->wdt_irq, mtk_ccci_wdt_irq,
+ 			       IRQF_TRIGGER_RISING | IRQF_NO_AUTOEN,
+ 			       "mtk-md-wdt", ccci);
+ 	if (ret)
+-		goto err_clks;
++		goto err_wq;
+ 
+ 	pm_runtime_enable(&pdev->dev);
+ 	schedule_work(&ccci->boot_work);
+@@ -1264,6 +1376,8 @@ static int mtk_ccci_probe(struct platform_device *pdev)
+ 		 &ccci->nc_smem_phys, &ccci->c_smem_phys, &ccci->md_img_phys);
+ 	return 0;
+ 
++err_wq:
++	destroy_workqueue(ccci->rx_wq);
+ err_clks:
+ 	clk_bulk_disable_unprepare(ccci->num_ccif_clks, ccci->ccif_clks);
+ 	return ret;
+@@ -1275,7 +1389,12 @@ static void mtk_ccci_remove(struct platform_device *pdev)
+ 	int i;
+ 
+ 	cancel_work_sync(&ccci->boot_work);
++	if (ccci->md_running) {
++		disable_irq(ccci->ccif_irq0);
++		disable_irq(ccci->ccif_irq1);
++	}
+ 	cancel_work_sync(&ccci->rx_work);
++	destroy_workqueue(ccci->rx_wq);
+ 
+ 	/*
+ 	 * Do not power off MT6789_POWER_DOMAIN_MD while MD is running: BL31
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_rpc.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_rpc.c
+new file mode 100644
+index 000000000..6403806bb
+--- /dev/null
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_rpc.c
+@@ -0,0 +1,705 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * MediaTek MT6789 CCCI kernel RPC responder (ch=32 -> ch=33 over CCIF0 Q1).
++ *
++ * Wire framing and opcode IDs match the Gen95 CCCI RPC ABI. All returned
++ * SIM EINT, GPIO, AUXADC, and md_attr values are sourced strictly from the
++ * Advan X1 runtime-merged DT, stock ccci_md_all.ko, and stock ccci_dump.log.
++ *
++ * Copyright (c) 2026 sysretq0 <sysretq0@proton.me>
++ */
++
++#include <linux/align.h>
++#include <linux/build_bug.h>
++#include <linux/kernel.h>
++#include <linux/minmax.h>
++#include <linux/printk.h>
++#include <linux/random.h>
++#include <linux/slab.h>
++#include <linux/string.h>
++
++#include "mtk_ccci.h"
++
++#define MTK_CCCI_RPC_MAX_ARG		6
++#define MTK_CCCI_RPC_MAX_BUF		2048U
++#define MTK_CCCI_RPC_RESP_MASK		0xffff0000U
++#define MTK_CCCI_RPC_MAX_REQ_IDX	2U
++
++/* RPC status / error codes (Gen95 CCCI FS/RPC ABI) */
++#define MTK_CCCI_RPC_OK			0
++#define MTK_CCCI_RPC_NO_OP		(-1)
++#define MTK_CCCI_RPC_PARAM_ERR		(-2)
++#define MTK_CCCI_RPC_FUNC_FAIL		(-5)
++
++/* SIM hot-plug EINT query error codes */
++#define MTK_CCCI_EINT_ERR_TYPE		(-12)
++#define MTK_CCCI_EINT_ERR_STRING	(-11)
++
++/* Gen95 IPC RPC operation IDs */
++enum mtk_ccci_rpc_op {
++	IPC_RPC_GET_TDD_EINT_NUM_OP	= 0x4001,
++	IPC_RPC_GET_GPIO_NUM_OP		= 0x4002,
++	IPC_RPC_GET_ADC_NUM_OP		= 0x4003,
++	IPC_RPC_GET_EMI_CLK_TYPE_OP	= 0x4004,
++	IPC_RPC_GET_EINT_ATTR_OP	= 0x4005,
++	IPC_RPC_GET_GPIO_VAL_OP		= 0x4006,
++	IPC_RPC_GET_ADC_VAL_OP		= 0x4007,
++	IPC_RPC_GET_GPIO_ADC_OP		= 0x4009,
++	IPC_RPC_CCCI_LHIF_MAPPING	= 0x400d,
++	IPC_RPC_DTSI_QUERY_OP		= 0x400e,
++	IPC_RPC_TRNG			= 0x4012,
++	IPC_RPC_QUERY_CARD_TYPE		= 0x4013,
++	IPC_RPC_IT_OP			= 0x4321,
++};
++
++enum mtk_ccci_sim_eint_type {
++	SIM_EINT_NUM = 0,
++	SIM_EINT_DEBOUNCE,
++	SIM_EINT_POLA,
++	SIM_EINT_SENS,
++	SIM_EINT_SOCKE,
++	SIM_EINT_DEDICATEDEN,
++	SIM_EINT_SRCPIN,
++	SIM_EINT_MAX,
++};
++
++struct mtk_ccci_rpc_hdr {
++	struct mtk_ccci_header ccci;
++	u32 op_id;
++	u32 para_num;
++} __packed;
++
++struct mtk_ccci_rpc_arg {
++	u32 len;
++	const void *buf;
++};
++
++#define MTK_RPC_GPIO_MAX_V1		3
++#define MTK_RPC_GPIO_MAX_V2		10
++#define MTK_RPC_GPIO_NAME_LEN		34
++#define MTK_RPC_ADC_NAME_LEN		33
++
++#define MTK_RPC_REQ_GPIO_PIN		BIT(0)
++#define MTK_RPC_REQ_GPIO_VALUE		BIT(1)
++#define MTK_RPC_REQ_ADC_PIN		BIT(4)
++#define MTK_RPC_REQ_ADC_VALUE		BIT(5)
++
++struct mtk_ccci_rpc_gpio_adc_in {
++	u8 req_mask;
++	u8 gpio_valid_pin_mask;
++	char gpio_pin_name[MTK_RPC_GPIO_MAX_V1][MTK_RPC_GPIO_NAME_LEN];
++	u32 gpio_pin_num[MTK_RPC_GPIO_MAX_V1];
++	char adc_ch_name[MTK_RPC_ADC_NAME_LEN];
++	u32 adc_ch_num;
++	u32 adc_ch_meas_count;
++} __packed;
++
++struct mtk_ccci_rpc_gpio_adc_out {
++	u32 gpio_pin_num[MTK_RPC_GPIO_MAX_V1];
++	u32 gpio_pin_value[MTK_RPC_GPIO_MAX_V1];
++	u32 adc_ch_num;
++	u32 adc_ch_meas_sum;
++} __packed;
++
++struct mtk_ccci_rpc_gpio_adc_in_v2 {
++	u16 req_mask;
++	u16 gpio_valid_pin_mask;
++	char gpio_pin_name[MTK_RPC_GPIO_MAX_V2][MTK_RPC_GPIO_NAME_LEN];
++	u32 gpio_pin_num[MTK_RPC_GPIO_MAX_V2];
++	char adc_ch_name[MTK_RPC_ADC_NAME_LEN];
++	u32 adc_ch_num;
++	u32 adc_ch_meas_count;
++} __packed;
++
++struct mtk_ccci_rpc_gpio_adc_out_v2 {
++	u32 gpio_pin_num[MTK_RPC_GPIO_MAX_V2];
++	u32 gpio_pin_value[MTK_RPC_GPIO_MAX_V2];
++	u32 adc_ch_num;
++	u32 adc_ch_meas_sum;
++} __packed;
++
++struct mtk_ccci_rpc_lhif_map {
++	u32 net_if;
++	u32 lhif_q;
++} __packed;
++
++#define MTK_RPC_REQ_PROP_VALUE		1
++
++struct mtk_ccci_rpc_dtsi_in {
++	u8 req;
++	u8 index;
++	char str_name[64];
++} __packed;
++
++struct mtk_ccci_rpc_dtsi_out {
++	u32 ret_value;
++	char ret_string[64];
++} __packed;
++
++/*
++ * Advan X1 SIM hot-plug EINT attributes from runtime_merged.dts
++ * (MD1_SIM1_HOT_PLUG_EINT / MD1_SIM2_HOT_PLUG_EINT) and verified against
++ * stock ccci_dump.log:
++ *   SIM1: interrupts=<0 8> (num=0, LEVEL_LOW->pola=0,sens=0),
++ *         debounce=<0 0xc350> (50 ms), dedicated=0, src_pin=1, sockettype=0
++ *   SIM2: interrupts=<1 8> (num=1, LEVEL_LOW->pola=0,sens=0),
++ *         debounce=<1 0xc350> (50 ms), dedicated=0, src_pin=2, sockettype=0
++ */
++struct mtk_ccci_sim_eint_cfg {
++	const char *name;
++	s32 val[SIM_EINT_MAX];
++};
++
++static const struct mtk_ccci_sim_eint_cfg advan_x1_sim_eint[] = {
++	{
++		.name = "MD1_SIM1_HOT_PLUG_EINT",
++		.val = {
++			[SIM_EINT_NUM]		= 0,
++			[SIM_EINT_DEBOUNCE]	= 50,
++			[SIM_EINT_POLA]		= 0,
++			[SIM_EINT_SENS]		= 0,
++			[SIM_EINT_SOCKE]	= 0,
++			[SIM_EINT_DEDICATEDEN]	= 0,
++			[SIM_EINT_SRCPIN]	= 1,
++		},
++	},
++	{
++		.name = "MD1_SIM2_HOT_PLUG_EINT",
++		.val = {
++			[SIM_EINT_NUM]		= 1,
++			[SIM_EINT_DEBOUNCE]	= 50,
++			[SIM_EINT_POLA]		= 0,
++			[SIM_EINT_SENS]		= 0,
++			[SIM_EINT_SOCKE]	= 0,
++			[SIM_EINT_DEDICATEDEN]	= 0,
++			[SIM_EINT_SRCPIN]	= 2,
++		},
++	},
++};
++
++/*
++ * Advan X1 MD-view GPIO mapping from runtime_merged.dts
++ * (/soc/gpio_usage_mapping) and stock ccci_md_all.ko gpio_mapping_table.
++ */
++struct mtk_ccci_gpio_entry {
++	const char *name;
++	u32 md_pin;
++};
++
++static const struct mtk_ccci_gpio_entry advan_x1_gpio_map[] = {
++	{ "GPIO_SIM1_HOT_PLUG",				23 },
++	{ "GPIO_SIM2_HOT_PLUG",				24 },
++	{ "GPIO_SIM1_SCLK",				77 },
++	{ "GPIO_SIM1_SRST",				78 },
++	{ "GPIO_SIM1_SIO",				79 },
++	{ "GPIO_SIM2_SCLK",				80 },
++	{ "GPIO_SIM2_SRST",				81 },
++	{ "GPIO_SIM2_SIO",				82 },
++	{ "GPIO_FDD_BAND_SUPPORT_DETECT_1ST_PIN",	111 },
++	{ "GPIO_FDD_Band_Support_Detection_1",		111 },
++};
++
++/*
++ * Advan X1 md_attr_node properties from runtime_merged.dts and verified
++ * in stock ccci_dump.log (get_md_dtsi_val ... -- 0xf0f0f0f).
++ */
++struct mtk_ccci_attr_entry {
++	const char *name;
++	u32 value;
++};
++
++static const struct mtk_ccci_attr_entry advan_x1_md_attr[] = {
++	{ "mediatek,md_product_name_model_id",	0x0f0f0f0fU },
++	{ "mediatek,md_drdi_rf_set_idx",	0x0f0f0f0fU },
++};
++
++/*
++ * Advan X1 md_auxadc from runtime_merged.dts (io-channels = <&auxadc 2>)
++ * and stock ccci_dump.log ("ADC val:1, EVB" -> 1 mV, 12-bit code = 3).
++ */
++#define ADVAN_X1_MD_ADC_CH		2
++#define ADVAN_X1_MD_ADC_RAW		3
++
++static int mtk_ccci_lookup_eint(const char *name, u32 name_len,
++				u32 type, s32 *out_val)
++{
++	size_t eff_len = strnlen(name, name_len);
++	size_t i;
++
++	if (type >= SIM_EINT_MAX)
++		return MTK_CCCI_EINT_ERR_TYPE;
++
++	for (i = 0; i < ARRAY_SIZE(advan_x1_sim_eint); i++) {
++		if (eff_len == strlen(advan_x1_sim_eint[i].name) &&
++		    !memcmp(name, advan_x1_sim_eint[i].name, eff_len)) {
++			*out_val = advan_x1_sim_eint[i].val[type];
++			return MTK_CCCI_RPC_OK;
++		}
++	}
++
++	return MTK_CCCI_EINT_ERR_STRING;
++}
++
++static int mtk_ccci_lookup_gpio(const char *name, u32 name_len)
++{
++	size_t eff_len = strnlen(name, name_len);
++	size_t i;
++
++	for (i = 0; i < ARRAY_SIZE(advan_x1_gpio_map); i++) {
++		if (eff_len == strlen(advan_x1_gpio_map[i].name) &&
++		    !memcmp(name, advan_x1_gpio_map[i].name, eff_len))
++			return advan_x1_gpio_map[i].md_pin;
++	}
++
++	return -ENOENT;
++}
++
++static int mtk_ccci_lookup_md_attr(const char *name, size_t max_len,
++				   u32 *out_val)
++{
++	size_t eff_len = strnlen(name, max_len);
++	size_t i;
++
++	for (i = 0; i < ARRAY_SIZE(advan_x1_md_attr); i++) {
++		if (eff_len == strlen(advan_x1_md_attr[i].name) &&
++		    !memcmp(name, advan_x1_md_attr[i].name, eff_len)) {
++			*out_val = advan_x1_md_attr[i].value;
++			return 0;
++		}
++	}
++
++	return -ENOENT;
++}
++
++static void mtk_ccci_rpc_fill_gpio_adc(struct mtk_ccci_dev *ccci,
++				       const struct mtk_ccci_rpc_gpio_adc_in *in,
++				       struct mtk_ccci_rpc_gpio_adc_out *out)
++{
++	u32 i;
++
++	memset(out, 0x0f, sizeof(*out));
++
++	if (in->req_mask & MTK_RPC_REQ_GPIO_PIN) {
++		for (i = 0; i < MTK_RPC_GPIO_MAX_V1; i++) {
++			int pin;
++
++			if (!(in->gpio_valid_pin_mask & BIT(i)))
++				continue;
++			pin = mtk_ccci_lookup_gpio(in->gpio_pin_name[i],
++						   MTK_RPC_GPIO_NAME_LEN);
++			if (pin >= 0) {
++				out->gpio_pin_num[i] = pin;
++				if (in->req_mask & MTK_RPC_REQ_GPIO_VALUE)
++					out->gpio_pin_value[i] = 0;
++			}
++		}
++	} else if (in->req_mask & MTK_RPC_REQ_GPIO_VALUE) {
++		for (i = 0; i < MTK_RPC_GPIO_MAX_V1; i++) {
++			if (in->gpio_valid_pin_mask & BIT(i))
++				out->gpio_pin_value[i] = 0;
++		}
++	}
++
++	if (in->req_mask & MTK_RPC_REQ_ADC_PIN)
++		out->adc_ch_num = ADVAN_X1_MD_ADC_CH;
++	if (in->req_mask & MTK_RPC_REQ_ADC_VALUE)
++		out->adc_ch_meas_sum = ADVAN_X1_MD_ADC_RAW *
++				       in->adc_ch_meas_count;
++
++	dev_info(ccci->dev, "RPC GET_GPIO_ADC v1: mask=0x%x valid=0x%x adc_cnt=%u\n",
++		 in->req_mask, in->gpio_valid_pin_mask, in->adc_ch_meas_count);
++}
++
++static void mtk_ccci_rpc_fill_gpio_adc_v2(struct mtk_ccci_dev *ccci,
++					  const struct mtk_ccci_rpc_gpio_adc_in_v2 *in,
++					  struct mtk_ccci_rpc_gpio_adc_out_v2 *out)
++{
++	u32 i;
++
++	memset(out, 0x0f, sizeof(*out));
++
++	if (in->req_mask & MTK_RPC_REQ_GPIO_PIN) {
++		for (i = 0; i < MTK_RPC_GPIO_MAX_V2; i++) {
++			int pin;
++
++			if (!(in->gpio_valid_pin_mask & BIT(i)))
++				continue;
++			pin = mtk_ccci_lookup_gpio(in->gpio_pin_name[i],
++						   MTK_RPC_GPIO_NAME_LEN);
++			if (pin >= 0) {
++				out->gpio_pin_num[i] = pin;
++				if (in->req_mask & MTK_RPC_REQ_GPIO_VALUE)
++					out->gpio_pin_value[i] = 0;
++			}
++		}
++	} else if (in->req_mask & MTK_RPC_REQ_GPIO_VALUE) {
++		for (i = 0; i < MTK_RPC_GPIO_MAX_V2; i++) {
++			if (in->gpio_valid_pin_mask & BIT(i))
++				out->gpio_pin_value[i] = 0;
++		}
++	}
++
++	if (in->req_mask & MTK_RPC_REQ_ADC_PIN)
++		out->adc_ch_num = ADVAN_X1_MD_ADC_CH;
++	if (in->req_mask & MTK_RPC_REQ_ADC_VALUE)
++		out->adc_ch_meas_sum = ADVAN_X1_MD_ADC_RAW *
++				       in->adc_ch_meas_count;
++
++	dev_info(ccci->dev, "RPC GET_GPIO_ADC v2: mask=0x%x valid=0x%x adc_cnt=%u\n",
++		 in->req_mask, in->gpio_valid_pin_mask, in->adc_ch_meas_count);
++}
++
++static int mtk_ccci_rpc_send_reply(struct mtk_ccci_dev *ccci,
++				   const struct mtk_ccci_rpc_hdr *req_hdr,
++				   const struct mtk_ccci_rpc_arg *resp,
++				   u32 resp_num)
++{
++	struct mtk_ccci_rpc_hdr *out_hdr;
++	u8 *buf;
++	u32 pos, i;
++	int ret;
++
++	if (resp_num > MTK_CCCI_RPC_MAX_ARG)
++		return -EINVAL;
++
++	buf = kzalloc(MTK_CCCI_RPC_MAX_BUF, GFP_KERNEL);
++	if (!buf)
++		return -ENOMEM;
++
++	pos = sizeof(*out_hdr);
++	for (i = 0; i < resp_num; i++) {
++		u32 aligned = ALIGN(resp[i].len, 4);
++
++		if (pos + sizeof(u32) + aligned > MTK_CCCI_RPC_MAX_BUF) {
++			kfree(buf);
++			return -ENOSPC;
++		}
++		memcpy(buf + pos, &resp[i].len, sizeof(u32));
++		pos += sizeof(u32);
++		if (resp[i].len && resp[i].buf)
++			memcpy(buf + pos, resp[i].buf, resp[i].len);
++		pos += aligned;
++	}
++
++	out_hdr = (struct mtk_ccci_rpc_hdr *)buf;
++	out_hdr->ccci.data[0] = 0;
++	out_hdr->ccci.data[1] = pos;
++	out_hdr->ccci.channel = CCCI_CH_RPC_TX;
++	out_hdr->ccci.seq_assert = 0;
++	out_hdr->ccci.reserved = req_hdr->ccci.reserved;
++	out_hdr->op_id = req_hdr->op_id | MTK_CCCI_RPC_RESP_MASK;
++	out_hdr->para_num = resp_num;
++
++	ret = mtk_ccci_tx_send(ccci, MTK_CCIF_RPC_QUEUE, buf, pos);
++	if (ret)
++		dev_err(ccci->dev, "RPC reply TX failed op=0x%08x len=%u ret=%d\n",
++			req_hdr->op_id, pos, ret);
++	kfree(buf);
++	return ret;
++}
++
++void mtk_ccci_rpc_handle(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len)
++{
++	struct mtk_ccci_rpc_arg args[MTK_CCCI_RPC_MAX_ARG];
++	struct mtk_ccci_rpc_arg resp[MTK_CCCI_RPC_MAX_ARG];
++	struct mtk_ccci_rpc_hdr hdr;
++	u32 resp_num = 0;
++	u32 pos, i;
++	s32 status = MTK_CCCI_RPC_OK;
++	s32 val = 0;
++	u32 u32_val = 0;
++
++	static_assert(sizeof(struct mtk_ccci_rpc_hdr) == 24);
++	static_assert(sizeof(struct mtk_ccci_rpc_gpio_adc_in) == 157);
++	static_assert(sizeof(struct mtk_ccci_rpc_gpio_adc_out) == 32);
++	static_assert(sizeof(struct mtk_ccci_rpc_gpio_adc_in_v2) == 425);
++	static_assert(sizeof(struct mtk_ccci_rpc_gpio_adc_out_v2) == 88);
++	static_assert(sizeof(struct mtk_ccci_rpc_dtsi_in) == 66);
++	static_assert(sizeof(struct mtk_ccci_rpc_dtsi_out) == 68);
++
++	if (len < sizeof(hdr) || len > MTK_CCCI_RPC_MAX_BUF) {
++		dev_warn(ccci->dev, "RPC bad packet length %u\n", len);
++		print_hex_dump(KERN_INFO, "mtk-ccci rpc: ", DUMP_PREFIX_OFFSET,
++			       16, 1, pkt, min_t(u32, len, 64), true);
++		return;
++	}
++
++	memcpy(&hdr, pkt, sizeof(hdr));
++	if (hdr.ccci.reserved > MTK_CCCI_RPC_MAX_REQ_IDX ||
++	    hdr.para_num > MTK_CCCI_RPC_MAX_ARG) {
++		dev_warn(ccci->dev, "RPC invalid rsv=%u para_num=%u op=0x%08x\n",
++			 hdr.ccci.reserved, hdr.para_num, hdr.op_id);
++		print_hex_dump(KERN_INFO, "mtk-ccci rpc: ", DUMP_PREFIX_OFFSET,
++			       16, 1, pkt, min_t(u32, len, 64), true);
++		return;
++	}
++
++	pos = sizeof(hdr);
++	for (i = 0; i < hdr.para_num; i++) {
++		u32 arg_len, aligned;
++
++		if (pos + sizeof(u32) > len)
++			goto err_malformed;
++		memcpy(&arg_len, pkt + pos, sizeof(u32));
++		pos += sizeof(u32);
++		aligned = ALIGN(arg_len, 4);
++		if (arg_len > len || aligned < arg_len || pos + aligned > len)
++			goto err_malformed;
++		args[i].len = arg_len;
++		args[i].buf = pkt + pos;
++		pos += aligned;
++	}
++
++	atomic_inc(&ccci->rpc_count);
++
++	switch (hdr.op_id) {
++	case IPC_RPC_GET_EINT_ATTR_OP: {
++		u32 type = 0;
++		int err;
++
++		if (hdr.para_num < 3 || args[0].len == 0 ||
++		    args[2].len < sizeof(u32)) {
++			status = MTK_CCCI_RPC_PARAM_ERR;
++			val = status;
++		} else {
++			memcpy(&type, args[2].buf, sizeof(type));
++			err = mtk_ccci_lookup_eint(args[0].buf, args[0].len,
++						   type, &val);
++			status = err;
++			if (err)
++				val = err;
++			dev_info(ccci->dev,
++				 "RPC GET_EINT_ATTR: name=%.*s type=%u -> err=%d val=%d\n",
++				 (int)strnlen(args[0].buf, args[0].len),
++				 (const char *)args[0].buf, type, err, val);
++		}
++		resp[0].len = sizeof(status);
++		resp[0].buf = &status;
++		resp[1].len = sizeof(val);
++		resp[1].buf = &val;
++		resp_num = 2;
++		break;
++	}
++
++	case IPC_RPC_GET_TDD_EINT_NUM_OP:
++	case IPC_RPC_GET_GPIO_NUM_OP:
++	case IPC_RPC_GET_ADC_NUM_OP: {
++		if (hdr.para_num < 2 || args[0].len == 0) {
++			val = MTK_CCCI_RPC_PARAM_ERR;
++		} else if (hdr.op_id == IPC_RPC_GET_TDD_EINT_NUM_OP) {
++			val = MTK_CCCI_RPC_FUNC_FAIL;
++		} else if (hdr.op_id == IPC_RPC_GET_GPIO_NUM_OP) {
++			int pin = mtk_ccci_lookup_gpio(args[0].buf, args[0].len);
++
++			val = (pin >= 0) ? pin : MTK_CCCI_RPC_FUNC_FAIL;
++		} else {
++			val = ADVAN_X1_MD_ADC_CH;
++		}
++		dev_info(ccci->dev, "RPC op=0x%04x name=%.*s -> %d\n",
++			 hdr.op_id,
++			 hdr.para_num >= 1 ? (int)strnlen(args[0].buf, args[0].len) : 0,
++			 hdr.para_num >= 1 ? (const char *)args[0].buf : "", val);
++		resp[0].len = sizeof(val);
++		resp[0].buf = &val;
++		resp[1].len = sizeof(val);
++		resp[1].buf = &val;
++		resp_num = 2;
++		break;
++	}
++
++	case IPC_RPC_GET_EMI_CLK_TYPE_OP: {
++		val = (hdr.para_num == 0) ? MTK_CCCI_RPC_FUNC_FAIL :
++					    MTK_CCCI_RPC_PARAM_ERR;
++		dev_info(ccci->dev, "RPC GET_EMI_CLK_TYPE -> %d\n", val);
++		resp[0].len = sizeof(val);
++		resp[0].buf = &val;
++		resp[1].len = sizeof(val);
++		resp[1].buf = &val;
++		resp[2].len = sizeof(val);
++		resp[2].buf = &val;
++		resp_num = 3;
++		break;
++	}
++
++	case IPC_RPC_GET_GPIO_VAL_OP:
++	case IPC_RPC_GET_ADC_VAL_OP: {
++		u32 num = 0;
++
++		if (hdr.para_num != 1 || args[0].len < sizeof(u32)) {
++			val = MTK_CCCI_RPC_PARAM_ERR;
++		} else {
++			memcpy(&num, args[0].buf, sizeof(num));
++			val = (hdr.op_id == IPC_RPC_GET_ADC_VAL_OP) ?
++			      ADVAN_X1_MD_ADC_RAW : 0;
++		}
++		dev_info(ccci->dev, "RPC op=0x%04x num=%u -> %d\n",
++			 hdr.op_id, num, val);
++		resp[0].len = sizeof(val);
++		resp[0].buf = &val;
++		resp[1].len = sizeof(val);
++		resp[1].buf = &val;
++		resp_num = 2;
++		break;
++	}
++
++	case IPC_RPC_GET_GPIO_ADC_OP: {
++		if (hdr.para_num == 1 &&
++		    args[0].len == sizeof(struct mtk_ccci_rpc_gpio_adc_in)) {
++			struct mtk_ccci_rpc_gpio_adc_in in;
++			struct mtk_ccci_rpc_gpio_adc_out out;
++
++			memcpy(&in, args[0].buf, sizeof(in));
++			mtk_ccci_rpc_fill_gpio_adc(ccci, &in, &out);
++			status = MTK_CCCI_RPC_OK;
++			resp[0].len = sizeof(status);
++			resp[0].buf = &status;
++			resp[1].len = sizeof(out);
++			resp[1].buf = &out;
++			resp_num = 2;
++			mtk_ccci_rpc_send_reply(ccci, &hdr, resp, resp_num);
++			return;
++		}
++		if (hdr.para_num == 1 &&
++		    args[0].len == sizeof(struct mtk_ccci_rpc_gpio_adc_in_v2)) {
++			struct mtk_ccci_rpc_gpio_adc_in_v2 *in_v2;
++			struct mtk_ccci_rpc_gpio_adc_out_v2 *out_v2;
++
++			in_v2 = kmalloc_obj(*in_v2);
++			out_v2 = kmalloc_obj(*out_v2);
++			if (in_v2 && out_v2) {
++				memcpy(in_v2, args[0].buf, sizeof(*in_v2));
++				mtk_ccci_rpc_fill_gpio_adc_v2(ccci, in_v2, out_v2);
++				status = MTK_CCCI_RPC_OK;
++				resp[0].len = sizeof(status);
++				resp[0].buf = &status;
++				resp[1].len = sizeof(*out_v2);
++				resp[1].buf = out_v2;
++				mtk_ccci_rpc_send_reply(ccci, &hdr, resp, 2);
++			}
++			kfree(out_v2);
++			kfree(in_v2);
++			return;
++		}
++		status = MTK_CCCI_RPC_PARAM_ERR;
++		resp[0].len = sizeof(status);
++		resp[0].buf = &status;
++		resp[1].len = sizeof(status);
++		resp[1].buf = &status;
++		resp_num = 2;
++		break;
++	}
++
++	case IPC_RPC_CCCI_LHIF_MAPPING: {
++		if (hdr.para_num == 1 &&
++		    args[0].len >= sizeof(struct mtk_ccci_rpc_lhif_map)) {
++			struct mtk_ccci_rpc_lhif_map map;
++
++			memcpy(&map, args[0].buf, sizeof(map));
++			dev_info(ccci->dev,
++				 "RPC LHIF_MAPPING: net_if=%u lhif_q=%u\n",
++				 map.net_if, map.lhif_q);
++			status = MTK_CCCI_RPC_OK;
++		} else {
++			status = MTK_CCCI_RPC_PARAM_ERR;
++		}
++		resp[0].len = sizeof(status);
++		resp[0].buf = &status;
++		resp[1].len = sizeof(status);
++		resp[1].buf = &status;
++		resp_num = 2;
++		break;
++	}
++
++	case IPC_RPC_DTSI_QUERY_OP: {
++		if (hdr.para_num == 1 &&
++		    args[0].len >= sizeof(struct mtk_ccci_rpc_dtsi_in)) {
++			struct mtk_ccci_rpc_dtsi_in in;
++			struct mtk_ccci_rpc_dtsi_out out;
++			u32 prop_val;
++
++			memcpy(&in, args[0].buf, sizeof(in));
++			memset(&out, 0x0f, sizeof(out));
++			if (in.req == MTK_RPC_REQ_PROP_VALUE &&
++			    !mtk_ccci_lookup_md_attr(in.str_name,
++						     sizeof(in.str_name),
++						     &prop_val))
++				out.ret_value = prop_val;
++			dev_info(ccci->dev,
++				 "RPC DTSI_QUERY: req=%u name=%.*s -> 0x%08x\n",
++				 in.req,
++				 (int)strnlen(in.str_name, sizeof(in.str_name)),
++				 in.str_name, out.ret_value);
++			status = MTK_CCCI_RPC_OK;
++			resp[0].len = sizeof(status);
++			resp[0].buf = &status;
++			resp[1].len = sizeof(out);
++			resp[1].buf = &out;
++			mtk_ccci_rpc_send_reply(ccci, &hdr, resp, 2);
++			return;
++		}
++		status = MTK_CCCI_RPC_PARAM_ERR;
++		resp[0].len = sizeof(status);
++		resp[0].buf = &status;
++		resp[1].len = sizeof(status);
++		resp[1].buf = &status;
++		resp_num = 2;
++		break;
++	}
++
++	case IPC_RPC_TRNG: {
++		if (hdr.para_num != 1) {
++			status = MTK_CCCI_RPC_PARAM_ERR;
++			u32_val = status;
++		} else {
++			status = MTK_CCCI_RPC_OK;
++			u32_val = get_random_u32();
++			dev_info(ccci->dev, "RPC TRNG -> 0x%08x\n", u32_val);
++		}
++		resp[0].len = sizeof(status);
++		resp[0].buf = &status;
++		resp[1].len = sizeof(u32_val);
++		resp[1].buf = &u32_val;
++		resp_num = 2;
++		break;
++	}
++
++	case IPC_RPC_QUERY_CARD_TYPE: {
++		dev_info(ccci->dev, "RPC QUERY_CARD_TYPE: para=%u\n",
++			 hdr.para_num);
++		for (i = 0; i < hdr.para_num; i++)
++			resp[i] = args[i];
++		resp_num = hdr.para_num;
++		break;
++	}
++
++	case IPC_RPC_IT_OP: {
++		status = 1;
++		u32_val = 0xa5a5U;
++		dev_info(ccci->dev, "RPC IT_OP -> (1, 0xa5a5)\n");
++		resp[0].len = sizeof(status);
++		resp[0].buf = &status;
++		resp[1].len = sizeof(u32_val);
++		resp[1].buf = &u32_val;
++		resp_num = 2;
++		break;
++	}
++
++	default:
++		dev_warn(ccci->dev,
++			 "RPC unhandled op=0x%08x para=%u len=%u rsv=0x%08x\n",
++			 hdr.op_id, hdr.para_num, len, hdr.ccci.reserved);
++		print_hex_dump(KERN_INFO, "mtk-ccci rpc: ", DUMP_PREFIX_OFFSET,
++			       16, 1, pkt, min_t(u32, len, 64), true);
++		return;
++	}
++
++	mtk_ccci_rpc_send_reply(ccci, &hdr, resp, resp_num);
++	return;
++
++err_malformed:
++	dev_warn(ccci->dev,
++		 "RPC malformed packet op=0x%08x para=%u len=%u\n",
++		 hdr.op_id, hdr.para_num, len);
++	print_hex_dump(KERN_INFO, "mtk-ccci rpc: ", DUMP_PREFIX_OFFSET,
++		       16, 1, pkt, min_t(u32, len, 64), true);
++}
+-- 
+2.55.0
+
