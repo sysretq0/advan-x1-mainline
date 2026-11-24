@@ -1,7 +1,7 @@
-From 499bfe6b0aaab6827b28943aeb46851fc0210d64 Mon Sep 17 00:00:00 2001
+From a59f5d3d9b4f39616ca6f0ae7b98620881d80517 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 04:29:28 +0000
-Subject: [PATCH 2/4] clk: mediatek: Add MT6789 core clock drivers
+Subject: [PATCH] clk: mediatek: Add MT6789 core clock drivers
 
 Add clock drivers for the MediaTek MT6789 apmixedsys PLLs, topckgen
 muxes and dividers, and infracfg_ao peripheral clock gates and resets.
@@ -12,14 +12,14 @@ Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
  drivers/clk/mediatek/Makefile                |   2 +
  drivers/clk/mediatek/clk-mt6789-apmixedsys.c | 153 ++++
  drivers/clk/mediatek/clk-mt6789-infra_ao.c   | 251 ++++++
- drivers/clk/mediatek/clk-mt6789-topckgen.c   | 768 +++++++++++++++++++
- 5 files changed, 1185 insertions(+)
+ drivers/clk/mediatek/clk-mt6789-topckgen.c   | 852 +++++++++++++++++++
+ 5 files changed, 1269 insertions(+)
  create mode 100644 drivers/clk/mediatek/clk-mt6789-apmixedsys.c
  create mode 100644 drivers/clk/mediatek/clk-mt6789-infra_ao.c
  create mode 100644 drivers/clk/mediatek/clk-mt6789-topckgen.c
 
 diff --git a/drivers/clk/mediatek/Kconfig b/drivers/clk/mediatek/Kconfig
-index ba1ca9c90..eec64ac59 100644
+index ba1ca9c..eec64ac 100644
 --- a/drivers/clk/mediatek/Kconfig
 +++ b/drivers/clk/mediatek/Kconfig
 @@ -303,6 +303,17 @@ config COMMON_CLK_MT6779_AUDSYS
@@ -41,7 +41,7 @@ index ba1ca9c90..eec64ac59 100644
  	tristate "Clock driver for MediaTek MT6795"
  	depends on ARCH_MEDIATEK || COMPILE_TEST
 diff --git a/drivers/clk/mediatek/Makefile b/drivers/clk/mediatek/Makefile
-index 892a54eeb..d0af93d81 100644
+index 892a54e..d0af93d 100644
 --- a/drivers/clk/mediatek/Makefile
 +++ b/drivers/clk/mediatek/Makefile
 @@ -23,6 +23,8 @@ obj-$(CONFIG_COMMON_CLK_MT6779_VDECSYS) += clk-mt6779-vdec.o
@@ -55,7 +55,7 @@ index 892a54eeb..d0af93d81 100644
  obj-$(CONFIG_COMMON_CLK_MT6795_MFGCFG) += clk-mt6795-mfg.o
 diff --git a/drivers/clk/mediatek/clk-mt6789-apmixedsys.c b/drivers/clk/mediatek/clk-mt6789-apmixedsys.c
 new file mode 100644
-index 000000000..a223d1017
+index 0000000..a223d10
 --- /dev/null
 +++ b/drivers/clk/mediatek/clk-mt6789-apmixedsys.c
 @@ -0,0 +1,153 @@
@@ -214,7 +214,7 @@ index 000000000..a223d1017
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/clk/mediatek/clk-mt6789-infra_ao.c b/drivers/clk/mediatek/clk-mt6789-infra_ao.c
 new file mode 100644
-index 000000000..412ca7977
+index 0000000..412ca79
 --- /dev/null
 +++ b/drivers/clk/mediatek/clk-mt6789-infra_ao.c
 @@ -0,0 +1,251 @@
@@ -471,16 +471,19 @@ index 000000000..412ca7977
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/clk/mediatek/clk-mt6789-topckgen.c b/drivers/clk/mediatek/clk-mt6789-topckgen.c
 new file mode 100644
-index 000000000..7d7a64123
+index 0000000..0686648
 --- /dev/null
 +++ b/drivers/clk/mediatek/clk-mt6789-topckgen.c
-@@ -0,0 +1,768 @@
+@@ -0,0 +1,852 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +//
 +// Copyright (c) 2022 MediaTek Inc.
 +// Author: Owen Chen <owen.chen@mediatek.com>
 +
++#include <linux/clk.h>
 +#include <linux/clk-provider.h>
++#include <linux/delay.h>
++#include <linux/io.h>
 +#include <linux/platform_device.h>
 +#include <dt-bindings/clock/mt6789-clk.h>
 +
@@ -1012,6 +1015,12 @@ index 000000000..7d7a64123
 +	/* CLK_CFG_4 */
 +	MUX_GATE_CLR_SET_UPD(CLK_TOP_MFG_REF_SEL, "mfg_ref_sel",
 +		mfg_ref_parents, 0x0050, 0x0054, 0x0058, 16, 2, 23, 0x0004, 18),
++	/*
++	 * Do not attach generic mtk_clk_mux_notifier_cb to mfg_pll_sel:
++	 * an initial 0 -> 1 parent switch fires POST_RATE_CHANGE and
++	 * reverts hardware to index 0. Parking is handled on
++	 * CLK_TOP_MFGPLL below.
++	 */
 +	MUX_CLR_SET(CLK_TOP_MFG_PLL_SEL, "mfg_pll_sel",
 +		mfg_pll_parents, 0x0050, 0x0054, 0x0058, 18, 1),
 +	MUX_GATE_CLR_SET_UPD(CLK_TOP_CAMTG_SEL, "camtg_sel",
@@ -1161,10 +1170,72 @@ index 000000000..7d7a64123
 +		0x0320, 10, 0x0338, 8, 16),
 +};
 +
++#define MT6789_CLK_CFG_4		0x0050
++#define MT6789_CLK_CFG_4_SET		0x0054
++#define MT6789_CLK_CFG_4_CLR		0x0058
++#define MT6789_MFG_PLL_SEL_BIT		BIT(18)
++
++struct mt6789_mfg_mux_nb {
++	struct notifier_block nb;
++	void __iomem *base;
++	bool parked;
++};
++
++/*
++ * Park CLK_TOP_MFG_PLL_SEL on top_mfg_ref (index 0) while mfgpll changes
++ * rate/POSDIV, avoiding live PLL glitches during Panfrost devfreq scaling.
++ * Registered on CLK_TOP_MFGPLL (parent 1) so 0 -> 1 parent switches on
++ * mfg_pll_sel never trigger the notifier. mfg0 holds CLK_TOP_MFG_REF_SEL
++ * ("alt") active so index 0 is always ungated while GPU power is on.
++ */
++static int mt6789_mfg_mux_notifier_cb(struct notifier_block *nb,
++				      unsigned long event, void *data)
++{
++	struct mt6789_mfg_mux_nb *mfg_nb =
++		container_of(nb, struct mt6789_mfg_mux_nb, nb);
++	unsigned long flags;
++	u32 val;
++	int i;
++
++	switch (event) {
++	case PRE_RATE_CHANGE:
++		spin_lock_irqsave(&mt6789_clk_lock, flags);
++		val = readl(mfg_nb->base + MT6789_CLK_CFG_4);
++		if (val & MT6789_MFG_PLL_SEL_BIT) {
++			writel(MT6789_MFG_PLL_SEL_BIT,
++			       mfg_nb->base + MT6789_CLK_CFG_4_CLR);
++			mfg_nb->parked = true;
++		} else {
++			mfg_nb->parked = false;
++		}
++		spin_unlock_irqrestore(&mt6789_clk_lock, flags);
++		break;
++	case POST_RATE_CHANGE:
++	case ABORT_RATE_CHANGE:
++		if (!mfg_nb->parked)
++			break;
++		for (i = 0; i < 6; i++) {
++			spin_lock_irqsave(&mt6789_clk_lock, flags);
++			writel(MT6789_MFG_PLL_SEL_BIT,
++			       mfg_nb->base + MT6789_CLK_CFG_4_SET);
++			val = readl(mfg_nb->base + MT6789_CLK_CFG_4);
++			spin_unlock_irqrestore(&mt6789_clk_lock, flags);
++			if (val & MT6789_MFG_PLL_SEL_BIT)
++				break;
++			udelay(10);
++		}
++		mfg_nb->parked = false;
++		break;
++	}
++
++	return NOTIFY_OK;
++}
++
 +static int clk_mt6789_topck_probe(struct platform_device *pdev)
 +{
 +	struct clk_hw_onecell_data *top_clk_data;
 +	struct device_node *node = pdev->dev.of_node;
++	struct mt6789_mfg_mux_nb *mfg_nb;
 +	void __iomem *base;
 +	int r;
 +
@@ -1193,6 +1264,19 @@ index 000000000..7d7a64123
 +					&mt6789_clk_lock, top_clk_data);
 +	if (r)
 +		goto unregister_muxes;
++
++	mfg_nb = devm_kzalloc(&pdev->dev, sizeof(*mfg_nb), GFP_KERNEL);
++	if (!mfg_nb) {
++		r = -ENOMEM;
++		goto unregister_composites;
++	}
++	mfg_nb->base = base;
++	mfg_nb->nb.notifier_call = mt6789_mfg_mux_notifier_cb;
++	r = devm_clk_notifier_register(&pdev->dev,
++				       top_clk_data->hws[CLK_TOP_MFGPLL]->clk,
++				       &mfg_nb->nb);
++	if (r)
++		goto unregister_composites;
 +
 +	r = of_clk_add_hw_provider(node, of_clk_hw_onecell_get, top_clk_data);
 +	if (r)

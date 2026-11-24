@@ -1,24 +1,23 @@
-From c52862cad7486155895013b5e641399b16d6fdd9 Mon Sep 17 00:00:00 2001
+From 1aafa3f93b957e7ed9701f51bda82b0e33ef0f41 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 04:29:56 +0000
-Subject: [PATCH 6/7] dt-bindings: display: panel: Add Chipone ICNL9922C
- binding
+Subject: [PATCH] dt-bindings: display: panel: Add Chipone ICNL9922C binding
 
 Add devicetree schema for the Chipone ICNL9922C 1080x2460 MIPI-DSI
 LCD panel.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- .../display/panel/chipone,icnl9922c.yaml      | 71 +++++++++++++++++++
- 1 file changed, 71 insertions(+)
+ .../display/panel/chipone,icnl9922c.yaml      | 72 +++++++++++++++++++
+ 1 file changed, 72 insertions(+)
  create mode 100644 Documentation/devicetree/bindings/display/panel/chipone,icnl9922c.yaml
 
 diff --git a/Documentation/devicetree/bindings/display/panel/chipone,icnl9922c.yaml b/Documentation/devicetree/bindings/display/panel/chipone,icnl9922c.yaml
 new file mode 100644
-index 000000000..6b7efc2bc
+index 0000000..1499a5d
 --- /dev/null
 +++ b/Documentation/devicetree/bindings/display/panel/chipone,icnl9922c.yaml
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,72 @@
 +# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
 +%YAML 1.2
 +---
@@ -28,7 +27,8 @@ index 000000000..6b7efc2bc
 +title: Chipone ICNL9922C 1080x2460 MIPI-DSI LCD Panel
 +
 +maintainers:
-+  - sysretq0 <324514544+sysretq0@users.noreply.github.com>
++  - Neil Armstrong <neil.armstrong@linaro.org>
++  - Jessica Zhang <jessica.zhang@oss.qualcomm.com>
 +
 +allOf:
 +  - $ref: panel-common.yaml#

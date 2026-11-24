@@ -1,7 +1,7 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 69eebf4abe66ad2909182b694e84f1f48ba949da Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Mon, 23 Nov 2026 12:54:32 +0000
-Subject: [PATCH 2/2] pinctrl: mediatek: Add MT6789 pinctrl driver
+Subject: [PATCH] pinctrl: mediatek: Add MT6789 pinctrl driver
 
 Add PARIS pinctrl, GPIO, and EINT driver support for the MediaTek
 MT6789 SoC across its 189 pins and 7 IOCFG register banks.
@@ -17,7 +17,7 @@ Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
  create mode 100644 drivers/pinctrl/mediatek/pinctrl-mtk-mt6789.h
 
 diff --git a/drivers/pinctrl/mediatek/Kconfig b/drivers/pinctrl/mediatek/Kconfig
-index 912d782fb..9f447ecee 100644
+index 912d782..9f447ec 100644
 --- a/drivers/pinctrl/mediatek/Kconfig
 +++ b/drivers/pinctrl/mediatek/Kconfig
 @@ -252,6 +252,18 @@ config PINCTRL_MT8183
@@ -40,7 +40,7 @@ index 912d782fb..9f447ecee 100644
  	tristate "MediaTek MT8186 pin control"
  	depends on OF
 diff --git a/drivers/pinctrl/mediatek/Makefile b/drivers/pinctrl/mediatek/Makefile
-index 998286635..ae1c29e86 100644
+index 9982866..ae1c29e 100644
 --- a/drivers/pinctrl/mediatek/Makefile
 +++ b/drivers/pinctrl/mediatek/Makefile
 @@ -35,6 +35,7 @@ obj-$(CONFIG_PINCTRL_MT7988)		+= pinctrl-mt7988.o
@@ -53,7 +53,7 @@ index 998286635..ae1c29e86 100644
  obj-$(CONFIG_PINCTRL_MT8189)            += pinctrl-mt8189.o
 diff --git a/drivers/pinctrl/mediatek/pinctrl-mt6789.c b/drivers/pinctrl/mediatek/pinctrl-mt6789.c
 new file mode 100644
-index 000000000..2378672a1
+index 0000000..2378672
 --- /dev/null
 +++ b/drivers/pinctrl/mediatek/pinctrl-mt6789.c
 @@ -0,0 +1,1256 @@
@@ -1315,7 +1315,7 @@ index 000000000..2378672a1
 +MODULE_DESCRIPTION("MediaTek MT6789 Pinctrl Driver");
 diff --git a/drivers/pinctrl/mediatek/pinctrl-mtk-mt6789.h b/drivers/pinctrl/mediatek/pinctrl-mtk-mt6789.h
 new file mode 100644
-index 000000000..7f0b22d59
+index 0000000..d1796ae
 --- /dev/null
 +++ b/drivers/pinctrl/mediatek/pinctrl-mtk-mt6789.h
 @@ -0,0 +1,1773 @@
@@ -3092,3 +3092,6 @@ index 000000000..7f0b22d59
 +};
 +
 +#endif /* __PINCTRL_MTK_MT6789_H */
+-- 
+2.55.0
+

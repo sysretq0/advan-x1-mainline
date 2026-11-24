@@ -1,7 +1,8 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From a876c36ba7b48037adc653118f615fbdeadc0039 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Tue, 24 Nov 2026 00:20:00 +0000
-Subject: [PATCH] dt-bindings: net: Add MediaTek MT6789 CCCI, CCIF, and DPMAIF bindings
+Subject: [PATCH] dt-bindings: net: Add MediaTek MT6789 CCCI, CCIF, and DPMAIF
+ bindings
 
 Add devicetree binding schemas for the MediaTek MT6789 cellular modem
 subsystems:
@@ -16,16 +17,16 @@ subsystems:
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  .../bindings/net/mediatek,mt6789-ccci.yaml    | 136 ++++++++++++++++++
- .../bindings/net/mediatek,mt6789-dpmaif.yaml  |  85 ++++++++++++
- .../soc/mediatek/mediatek,mt6789-ccif.yaml    |  83 ++++++++++++
- 3 files changed, 304 insertions(+)
+ .../bindings/net/mediatek,mt6789-dpmaif.yaml  |  86 +++++++++++
+ .../soc/mediatek/mediatek,mt6789-ccif.yaml    |  84 +++++++++++
+ 3 files changed, 306 insertions(+)
  create mode 100644 Documentation/devicetree/bindings/net/mediatek,mt6789-ccci.yaml
  create mode 100644 Documentation/devicetree/bindings/net/mediatek,mt6789-dpmaif.yaml
  create mode 100644 Documentation/devicetree/bindings/soc/mediatek/mediatek,mt6789-ccif.yaml
 
 diff --git a/Documentation/devicetree/bindings/net/mediatek,mt6789-ccci.yaml b/Documentation/devicetree/bindings/net/mediatek,mt6789-ccci.yaml
 new file mode 100644
-index 000000000..111111111
+index 0000000..ec09f11
 --- /dev/null
 +++ b/Documentation/devicetree/bindings/net/mediatek,mt6789-ccci.yaml
 @@ -0,0 +1,136 @@
@@ -38,7 +39,8 @@ index 000000000..111111111
 +title: MediaTek MT6789 CCCI Cellular Modem Controller
 +
 +maintainers:
-+  - sysretq0 <324514544+sysretq0@users.noreply.github.com>
++  - Matthias Brugger <matthias.bgg@gmail.com>
++  - AngeloGioacchino Del Regno <angelogioacchino.delregno@collabora.com>
 +
 +description:
 +  The MediaTek Cross-Core Communication Interface (CCCI) modem controller on
@@ -132,7 +134,6 @@ index 000000000..111111111
 +  - interrupt-names
 +  - power-domains
 +  - mediatek,ccif
-+  - mediatek,dpmaif
 +
 +additionalProperties: false
 +
@@ -167,10 +168,10 @@ index 000000000..111111111
 +    };
 diff --git a/Documentation/devicetree/bindings/net/mediatek,mt6789-dpmaif.yaml b/Documentation/devicetree/bindings/net/mediatek,mt6789-dpmaif.yaml
 new file mode 100644
-index 000000000..222222222
+index 0000000..5d0ca71
 --- /dev/null
 +++ b/Documentation/devicetree/bindings/net/mediatek,mt6789-dpmaif.yaml
-@@ -0,0 +1,85 @@
+@@ -0,0 +1,86 @@
 +# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 +%YAML 1.2
 +---
@@ -180,7 +181,8 @@ index 000000000..222222222
 +title: MediaTek MT6789 DPMAIF v1 Cellular Data-Plane DMA Engine
 +
 +maintainers:
-+  - sysretq0 <324514544+sysretq0@users.noreply.github.com>
++  - Matthias Brugger <matthias.bgg@gmail.com>
++  - AngeloGioacchino Del Regno <angelogioacchino.delregno@collabora.com>
 +
 +description:
 +  The Data Plane Modem Application Interface (DPMAIF) v1 on MediaTek MT6789
@@ -258,10 +260,10 @@ index 000000000..222222222
 +    };
 diff --git a/Documentation/devicetree/bindings/soc/mediatek/mediatek,mt6789-ccif.yaml b/Documentation/devicetree/bindings/soc/mediatek/mediatek,mt6789-ccif.yaml
 new file mode 100644
-index 000000000..333333333
+index 0000000..364084c
 --- /dev/null
 +++ b/Documentation/devicetree/bindings/soc/mediatek/mediatek,mt6789-ccif.yaml
-@@ -0,0 +1,83 @@
+@@ -0,0 +1,84 @@
 +# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 +%YAML 1.2
 +---
@@ -271,7 +273,8 @@ index 000000000..333333333
 +title: MediaTek MT6789 Cross-Core Interface (CCIF) Mailbox
 +
 +maintainers:
-+  - sysretq0 <324514544+sysretq0@users.noreply.github.com>
++  - Matthias Brugger <matthias.bgg@gmail.com>
++  - AngeloGioacchino Del Regno <angelogioacchino.delregno@collabora.com>
 +
 +description:
 +  The MediaTek Cross-Core Interface (CCIF) provides doorbell channels and a
@@ -345,5 +348,6 @@ index 000000000..333333333
 +            clock-names = "ccif-ap", "ccif-md";
 +        };
 +    };
-+-- 
-+2.55.0
+-- 
+2.55.0
+

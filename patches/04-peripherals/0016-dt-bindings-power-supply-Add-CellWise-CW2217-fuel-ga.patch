@@ -1,4 +1,4 @@
-From f2025cf9aa77a8f7f1075e62635dc4f0cc49d861 Mon Sep 17 00:00:00 2001
+From fab07402f6546f62059257ae38ba0cf3b7c1963b Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Mon, 23 Nov 2026 12:19:32 +0000
 Subject: [PATCH] dt-bindings: power: supply: Add CellWise CW2217 fuel gauge
@@ -15,7 +15,7 @@ Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 
 diff --git a/Documentation/devicetree/bindings/power/supply/cellwise,cw2217.yaml b/Documentation/devicetree/bindings/power/supply/cellwise,cw2217.yaml
 new file mode 100644
-index 0000000..fb9efe3
+index 0000000..3a32ad7
 --- /dev/null
 +++ b/Documentation/devicetree/bindings/power/supply/cellwise,cw2217.yaml
 @@ -0,0 +1,54 @@
@@ -28,7 +28,7 @@ index 0000000..fb9efe3
 +title: CellWise CW2215/CW2217 Battery Fuel Gauge
 +
 +maintainers:
-+  - sysretq0 <324514544+sysretq0@users.noreply.github.com>
++  - Sebastian Reichel <sre@kernel.org>
 +
 +allOf:
 +  - $ref: power-supply.yaml#

@@ -1,11 +1,17 @@
-From 06e3c36b51b67d0c7351f4e64e1c17973375d3e3 Mon Sep 17 00:00:00 2001
+From a5a7f88607d22aa6a37834bf1f2e101cc6f531e2 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 04:29:52 +0000
-Subject: [PATCH 2/2] drm/panfrost: Add MT6789 Mali-G57 MC2 compatible
+Subject: [PATCH] drm/panfrost: Add MT6789 Mali-G57 MC2 compatible
 
 Add mediatek,mt6789-mali match entry with GPU_QUIRK_FORCE_AARCH64_PGTABLE
 for the Mali-G57 MC2 Valhall GPU in MediaTek MT6789 (2 power domains,
 coupled single supply, matching MT8370/MT8188/MT8192 Valhall quirks).
+
+Use BIT(GPU_PM_RT) | BIT(GPU_PM_VREG_OFF) so Panfrost disables and
+re-enables CLK_MFGCFG_BG3D across runtime suspend/resume: cycling the
+MT6789 MFG1 power domain hardware-resets MFG_TOP_CONFIG (0x13fbf000)
+back to gated BG3D and default external CG settings, which must be
+restored before GPU_CMD_SOFT_RESET.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
@@ -13,7 +19,7 @@ Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
  1 file changed, 10 insertions(+)
 
 diff --git a/drivers/gpu/drm/panfrost/panfrost_drv.c b/drivers/gpu/drm/panfrost/panfrost_drv.c
-index eeda11303..4a2b81f90 100644
+index eeda113..0d696a4 100644
 --- a/drivers/gpu/drm/panfrost/panfrost_drv.c
 +++ b/drivers/gpu/drm/panfrost/panfrost_drv.c
 @@ -940,6 +940,15 @@ static const struct panfrost_compatible mediatek_mt8183_b_data = {
@@ -42,3 +48,4 @@ index eeda11303..4a2b81f90 100644
  	{ .compatible = "mediatek,mt8186-mali", .data = &mediatek_mt8186_data },
 -- 
 2.55.0
+

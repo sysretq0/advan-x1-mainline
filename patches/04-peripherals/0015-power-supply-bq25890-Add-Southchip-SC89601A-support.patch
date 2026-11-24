@@ -1,7 +1,7 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 3fe94cd2e32a44156613da2afbb4cdcfcc008208 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Mon, 23 Nov 2026 12:19:31 +0000
-Subject: [PATCH 15/17] power: supply: bq25890: Add Southchip SC89601A support
+Subject: [PATCH] power: supply: bq25890: Add Southchip SC89601A support
 
 The Southchip SC89601A switching battery charger shares the TI BQ25890
 register map (0x00..0x14) and reports part number ID 4 in REG14[5:3].
@@ -17,7 +17,7 @@ in REG02 during initialization for SC89601A.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- drivers/power/supply/bq25890_charger.c | 36 +++++++++++++++++++++++--
+ drivers/power/supply/bq25890_charger.c | 36 ++++++++++++++++++++++++--
  1 file changed, 34 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/power/supply/bq25890_charger.c b/drivers/power/supply/bq25890_charger.c
@@ -128,3 +128,6 @@ index 6af1811..88c91cf 100644
  	{ },
  };
  MODULE_DEVICE_TABLE(of, bq25890_of_match);
+-- 
+2.55.0
+

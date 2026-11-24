@@ -82,9 +82,9 @@
 
 		/*
 		 * Advan X1 LK-configured EMI MPU regions for the integrated
-		 * Gen95 modem (md1img DRAM, AP-MD SMEM, CCCI tags, SCP DRAM).
-		 * Verified from stock runtime_merged.dts and pl_lk.txt; note
-		 * md1img DRAM sits 32 MiB lower (0xdc000000) than Q25.
+		 * Gen95 modem (md1img DRAM at 0xdc000000, AP-MD SMEM, CCCI
+		 * tags, SCP DRAM), verified from stock runtime_merged.dts
+		 * (mblock-20..28) and live telemetry.
 		 */
 		md_c_smem: memory@8c000000 {
 			reg = <0x00 0x8c000000 0x00 0x016a0000>;
@@ -880,14 +880,6 @@
 		pins-reset {
 			pinmux = <PINMUX_GPIO107__FUNC_GPIO107>;
 			output-high;
-		};
-	};
-
-	i2c3_pins: i2c3-default-pins {
-		pins-bus {
-			pinmux = <PINMUX_GPIO136__FUNC_SCL3>,
-				 <PINMUX_GPIO137__FUNC_SDA3>;
-			bias-pull-up;
 		};
 	};
 

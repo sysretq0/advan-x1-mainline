@@ -1,4 +1,4 @@
-From 134f69c9a6aaf1289e61c8ef2c5b19c7de46208d Mon Sep 17 00:00:00 2001
+From c03fc565c9cd021eebaad57dc68883ecbd1acd0d Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Mon, 23 Nov 2026 14:15:51 +0000
 Subject: [PATCH] arm64: dts: mediatek: Add Advan X1 board device tree
@@ -9,16 +9,16 @@ vibrator, TPS65132 display bias, and Chipone ICNL9922C DSI panel).
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- .../boot/dts/mediatek/mt6789-advan-x1.dts     | 1046 ++++++++++++++++++++++
- 1 file changed, 1046 insertions(+)
+ .../boot/dts/mediatek/mt6789-advan-x1.dts     | 1038 +++++++++++++++++
+ 1 file changed, 1038 insertions(+)
  create mode 100644 arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
 
 diff --git a/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
 new file mode 100644
-index 000000000..111111111
+index 0000000..601dfe1
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
-@@ -0,0 +1,1046 @@
+@@ -0,0 +1,1038 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Device Tree Source for the Advan X1 smartphone (MediaTek MT6789).
@@ -103,9 +103,9 @@ index 000000000..111111111
 +
 +		/*
 +		 * Advan X1 LK-configured EMI MPU regions for the integrated
-+		 * Gen95 modem (md1img DRAM, AP-MD SMEM, CCCI tags, SCP DRAM).
-+		 * Verified from stock runtime_merged.dts and pl_lk.txt; note
-+		 * md1img DRAM sits 32 MiB lower (0xdc000000) than Q25.
++		 * Gen95 modem (md1img DRAM at 0xdc000000, AP-MD SMEM, CCCI
++		 * tags, SCP DRAM), verified from stock runtime_merged.dts
++		 * (mblock-20..28) and live telemetry.
 +		 */
 +		md_c_smem: memory@8c000000 {
 +			reg = <0x00 0x8c000000 0x00 0x016a0000>;
@@ -904,14 +904,6 @@ index 000000000..111111111
 +		};
 +	};
 +
-+	i2c3_pins: i2c3-default-pins {
-+		pins-bus {
-+			pinmux = <PINMUX_GPIO136__FUNC_SCL3>,
-+				 <PINMUX_GPIO137__FUNC_SDA3>;
-+			bias-pull-up;
-+		};
-+	};
-+
 +	nfc_pins: nfc-default-pins {
 +		pins-irq {
 +			pinmux = <PINMUX_GPIO1__FUNC_GPIO1>;
@@ -1067,3 +1059,4 @@ index 000000000..111111111
 +};
 -- 
 2.55.0
+

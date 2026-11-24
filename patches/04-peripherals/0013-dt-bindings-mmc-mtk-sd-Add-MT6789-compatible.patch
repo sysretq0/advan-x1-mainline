@@ -1,7 +1,7 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 57eab32479c76a81d5ea43d74b345a219501d9e7 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Mon, 23 Nov 2026 12:19:28 +0000
-Subject: [PATCH 13/17] dt-bindings: mmc: mtk-sd: Add MT6789 compatible
+Subject: [PATCH] dt-bindings: mmc: mtk-sd: Add MT6789 compatible
 
 Document the MediaTek MT6789 MSDC host controller compatible string
 with mediatek,mt8183-mmc fallback.
@@ -12,7 +12,7 @@ Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
  1 file changed, 1 insertion(+)
 
 diff --git a/Documentation/devicetree/bindings/mmc/mtk-sd.yaml b/Documentation/devicetree/bindings/mmc/mtk-sd.yaml
-index a4d032224..ce08a3e51 100644
+index a4d0322..ce08a3e 100644
 --- a/Documentation/devicetree/bindings/mmc/mtk-sd.yaml
 +++ b/Documentation/devicetree/bindings/mmc/mtk-sd.yaml
 @@ -33,6 +33,7 @@ properties:
@@ -23,3 +23,6 @@ index a4d032224..ce08a3e51 100644
                - mediatek,mt6893-mmc
                - mediatek,mt8186-mmc
                - mediatek,mt8188-mmc
+-- 
+2.55.0
+

@@ -1,4 +1,4 @@
-From c3a0719de12a1d651b4173ca8c4a558285bc521c Mon Sep 17 00:00:00 2001
+From 4f864adbeb65c4535c7e827266dd4827274b62e0 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 04:29:29 +0000
 Subject: [PATCH] dt-bindings: pinctrl: mediatek: Add MT6789 pinctrl bindings
@@ -8,18 +8,18 @@ Add devicetree schema and pinfunc header for the MediaTek MT6789
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- .../pinctrl/mediatek,mt6789-pinctrl.yaml      |  150 +++
+ .../pinctrl/mediatek,mt6789-pinctrl.yaml      |  151 +++
  include/dt-bindings/pinctrl/mt6789-pinfunc.h  | 1136 +++++++++++++++++
- 2 files changed, 1286 insertions(+)
+ 2 files changed, 1287 insertions(+)
  create mode 100644 Documentation/devicetree/bindings/pinctrl/mediatek,mt6789-pinctrl.yaml
  create mode 100644 include/dt-bindings/pinctrl/mt6789-pinfunc.h
 
 diff --git a/Documentation/devicetree/bindings/pinctrl/mediatek,mt6789-pinctrl.yaml b/Documentation/devicetree/bindings/pinctrl/mediatek,mt6789-pinctrl.yaml
 new file mode 100644
-index 0000000..ed1440b
+index 0000000..62964e8
 --- /dev/null
 +++ b/Documentation/devicetree/bindings/pinctrl/mediatek,mt6789-pinctrl.yaml
-@@ -0,0 +1,150 @@
+@@ -0,0 +1,151 @@
 +# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 +%YAML 1.2
 +---
@@ -29,7 +29,8 @@ index 0000000..ed1440b
 +title: MediaTek MT6789 Pin Controller
 +
 +maintainers:
-+  - sysretq0 <324514544+sysretq0@users.noreply.github.com>
++  - Sean Wang <sean.wang@kernel.org>
++  - AngeloGioacchino Del Regno <angelogioacchino.delregno@collabora.com>
 +
 +description:
 +  The MediaTek MT6789 pin controller is used to control SoC pins,

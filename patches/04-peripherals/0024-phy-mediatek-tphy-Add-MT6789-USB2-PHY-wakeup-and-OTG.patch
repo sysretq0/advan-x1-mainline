@@ -1,4 +1,4 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From b4aeb5fb1426b101035a975608af5ac202b27090 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Mon, 23 Nov 2026 21:42:00 +0000
 Subject: [PATCH] phy: mediatek: tphy: Add MT6789 USB2 PHY wakeup and OTG
@@ -22,11 +22,11 @@ downstream MT6789 PHY initialization sequence.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- drivers/phy/mediatek/phy-mtk-tphy.c | 64 +++++++++++++++++++++++++++-
+ drivers/phy/mediatek/phy-mtk-tphy.c | 64 ++++++++++++++++++++++++++++-
  1 file changed, 63 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/phy/mediatek/phy-mtk-tphy.c b/drivers/phy/mediatek/phy-mtk-tphy.c
-index 22273a4..824c999 100644
+index 22273a4..6108d42 100644
 --- a/drivers/phy/mediatek/phy-mtk-tphy.c
 +++ b/drivers/phy/mediatek/phy-mtk-tphy.c
 @@ -111,11 +111,22 @@
@@ -158,3 +158,6 @@ index 22273a4..824c999 100644
  	{ .compatible = "mediatek,mt8173-u3phy", .data = &mt8173_pdata },
  	{ .compatible = "mediatek,mt8195-tphy", .data = &mt8195_pdata },
  	{ .compatible = "mediatek,generic-tphy-v1", .data = &tphy_v1_pdata },
+-- 
+2.55.0
+

@@ -1,7 +1,8 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 3a43af92aecbc3692e8cfe3dfda3b69b2b1621d4 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Mon, 23 Nov 2026 21:10:00 +0000
-Subject: [PATCH] regulator: tps65132: Sync enable GPIO state and wait for I2C wakeup
+Subject: [PATCH] regulator: tps65132: Sync enable GPIO state and wait for I2C
+ wakeup
 
 The TI TPS65132 (and pin-compatible LCD bias regulators) powers down its
 I2C interface whenever both ENP and ENN enable GPIOs are low. If a board
@@ -70,3 +71,6 @@ index 912db82..28a0ace 100644
  	for (id = 0; id < TPS65132_MAX_REGULATORS; ++id) {
  		config.regmap = rmap;
  		config.dev = dev;
+-- 
+2.55.0
+

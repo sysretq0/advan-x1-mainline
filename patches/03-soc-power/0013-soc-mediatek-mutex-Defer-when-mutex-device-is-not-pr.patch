@@ -1,7 +1,8 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 41c184238a2e91403d83ffc34b9e5b73407ae656 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Tue, 24 Nov 2026 09:30:00 +0000
-Subject: [PATCH] soc: mediatek: mutex: Defer when mutex device is not probed yet
+Subject: [PATCH] soc: mediatek: mutex: Defer when mutex device is not probed
+ yet
 
 mtk_mutex_get() dereferences dev_get_drvdata(dev) without checking if
 the disp-mutex platform device has finished probing. When the display
@@ -18,7 +19,7 @@ Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
  1 file changed, 3 insertions(+)
 
 diff --git a/drivers/soc/mediatek/mtk-mutex.c b/drivers/soc/mediatek/mtk-mutex.c
-index 111111111..222222222 100644
+index 6b50dec..d1e2691 100644
 --- a/drivers/soc/mediatek/mtk-mutex.c
 +++ b/drivers/soc/mediatek/mtk-mutex.c
 @@ -872,6 +872,9 @@ struct mtk_mutex *mtk_mutex_get(struct device *dev)
@@ -33,3 +34,4 @@ index 111111111..222222222 100644
  			mtx->mutex[i].claimed = true;
 -- 
 2.55.0
+

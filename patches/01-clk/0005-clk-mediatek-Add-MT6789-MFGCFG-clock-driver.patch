@@ -1,4 +1,4 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 4e7e1e3f417535e43bd6f9d8b9b1ff83d8dce78e Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Tue, 24 Nov 2026 09:52:00 +0000
 Subject: [PATCH] clk: mediatek: Add MT6789 MFGCFG clock driver
@@ -25,7 +25,7 @@ Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
  create mode 100644 drivers/clk/mediatek/clk-mt6789-mfgcfg.c
 
 diff --git a/drivers/clk/mediatek/Makefile b/drivers/clk/mediatek/Makefile
-index 0290929dd..3a1c8e4f1 100644
+index 0290929..ade9dcb 100644
 --- a/drivers/clk/mediatek/Makefile
 +++ b/drivers/clk/mediatek/Makefile
 @@ -25,7 +25,7 @@ obj-$(CONFIG_COMMON_CLK_MT6779_MFGCFG) += clk-mt6779-mfg.o
@@ -39,7 +39,7 @@ index 0290929dd..3a1c8e4f1 100644
  obj-$(CONFIG_COMMON_CLK_MT6795_MFGCFG) += clk-mt6795-mfg.o
 diff --git a/drivers/clk/mediatek/clk-mt6789-mfgcfg.c b/drivers/clk/mediatek/clk-mt6789-mfgcfg.c
 new file mode 100644
-index 000000000..111111111
+index 0000000..56f69c3
 --- /dev/null
 +++ b/drivers/clk/mediatek/clk-mt6789-mfgcfg.c
 @@ -0,0 +1,160 @@
@@ -205,3 +205,4 @@ index 000000000..111111111
 +MODULE_LICENSE("GPL");
 -- 
 2.55.0
+

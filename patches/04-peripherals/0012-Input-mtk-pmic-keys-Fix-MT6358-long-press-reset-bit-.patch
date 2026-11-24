@@ -1,7 +1,7 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 6280dcb888ba8380c4e96671378a960c10902a89 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 17:55:00 +0000
-Subject: [PATCH 12/12] Input: mtk-pmic-keys - Fix MT6358 long-press reset bit
+Subject: [PATCH] Input: mtk-pmic-keys - Fix MT6358 long-press reset bit
  positions
 
 On MT6358 and MT6366, TOP_RST_MISC (0x14c) places RG_PWRKEY_RST_EN at
@@ -22,7 +22,7 @@ Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
  1 file changed, 7 insertions(+), 3 deletions(-)
 
 diff --git a/drivers/input/keyboard/mtk-pmic-keys.c b/drivers/input/keyboard/mtk-pmic-keys.c
-index 6f14318f3..422a1f429 100644
+index 6f14318..422a1f4 100644
 --- a/drivers/input/keyboard/mtk-pmic-keys.c
 +++ b/drivers/input/keyboard/mtk-pmic-keys.c
 @@ -29,6 +29,10 @@
@@ -54,4 +54,5 @@ index 6f14318f3..422a1f429 100644
  };
  
 -- 
-2.43.0
+2.55.0
+

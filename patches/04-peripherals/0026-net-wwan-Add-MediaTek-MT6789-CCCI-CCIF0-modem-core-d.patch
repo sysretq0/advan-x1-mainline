@@ -1,4 +1,4 @@
-From 93f7e4d29b773eaf6a0b6a1e4d79002a255b6830 Mon Sep 17 00:00:00 2001
+From 9fc2fbbb5476bc2c40895659164ddbc828845426 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Tue, 24 Nov 2026 03:47:43 +0000
 Subject: [PATCH] net: wwan: Add MediaTek MT6789 CCCI/CCIF0 modem core driver
@@ -16,23 +16,23 @@ integrated cellular modem (Phase 5.2):
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- drivers/net/wwan/Kconfig                     |   15 +
+ drivers/net/wwan/Kconfig                     |   14 +
  drivers/net/wwan/Makefile                    |    1 +
  drivers/net/wwan/mtk_ccci/Makefile           |    5 +
  drivers/net/wwan/mtk_ccci/mtk_ccci.h         |  329 +++++
- drivers/net/wwan/mtk_ccci/mtk_ccci_core.c    | 1260 ++++++++++++++++++
+ drivers/net/wwan/mtk_ccci/mtk_ccci_core.c    | 1309 ++++++++++++++++++
  drivers/net/wwan/mtk_ccci/mtk_ccci_ringbuf.c |  213 +++
- 6 files changed, 1823 insertions(+)
+ 6 files changed, 1871 insertions(+)
  create mode 100644 drivers/net/wwan/mtk_ccci/Makefile
  create mode 100644 drivers/net/wwan/mtk_ccci/mtk_ccci.h
  create mode 100644 drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
  create mode 100644 drivers/net/wwan/mtk_ccci/mtk_ccci_ringbuf.c
 
 diff --git a/drivers/net/wwan/Kconfig b/drivers/net/wwan/Kconfig
-index 958dbc7..3063866 100644
+index 958dbc7..b80ff43 100644
 --- a/drivers/net/wwan/Kconfig
 +++ b/drivers/net/wwan/Kconfig
-@@ -121,6 +121,21 @@ config MTK_T7XX
+@@ -121,6 +121,20 @@ config MTK_T7XX
  
  	  If unsure, say N.
  
@@ -41,10 +41,9 @@ index 958dbc7..3063866 100644
 +	depends on ARM64 && OF && HAVE_ARM_SMCCC
 +	select REGMAP
 +	help
-+	  Enables clean mainline support for the integrated MediaTek MT6789
-+	  (Helio G99 / Gen95) cellular modem over CCIF0 mailboxes and
-+	  shared memory, replacing the monolithic out-of-tree vendor ECCCI
-+	  driver stack.
++	  Enables the MediaTek MT6789 (Helio G99 / Gen95) CCCI/CCIF0 modem
++	  boot, mailbox ringbuffer, and sysfs telemetry core. WWAN control
++	  ports and DPMAIF network data plane support are staged separately.
 +
 +	  To compile this driver as a module, choose M here: the module will
 +	  be called mtk_ccci.
@@ -76,7 +75,7 @@ index 0000000..b394724
 +mtk_ccci-y := mtk_ccci_core.o mtk_ccci_ringbuf.o
 diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci.h b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
 new file mode 100644
-index 0000000..4bb2956
+index 0000000..1df583f
 --- /dev/null
 +++ b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
 @@ -0,0 +1,329 @@
@@ -98,10 +97,10 @@ index 0000000..4bb2956
 +#include <linux/regulator/consumer.h>
 +#include <linux/spinlock.h>
 +#include <linux/types.h>
++#include <linux/soc/mediatek/mtk_sip_svc.h>
 +#include <linux/workqueue.h>
 +
-+/* EL3 / BL31 SiP SMC IDs and sub-commands (verified on MT6789 BL31) */
-+#define MTK_SIP_KERNEL_CCCI_CONTROL	0xc2000505
++/* EL3 / BL31 SiP SMC sub-commands (verified on MT6789 BL31) */
 +
 +#define MTK_CCCI_SMC_CLOCK_REQ		5
 +#define MTK_CCCI_SMC_POWER_CONFIG	6
@@ -411,10 +410,10 @@ index 0000000..4bb2956
 +#endif /* __MTK_CCCI_H__ */
 diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
 new file mode 100644
-index 0000000..61f3902
+index 0000000..a9acd56
 --- /dev/null
 +++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
-@@ -0,0 +1,1260 @@
+@@ -0,0 +1,1309 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * MediaTek MT6789 CCCI cellular modem core driver (Phase 5.2: LK pre-load
@@ -475,11 +474,20 @@ index 0000000..61f3902
 +	[MTK_CCCI_STATE_FAILED]		= "failed",
 +};
 +
-+static void mtk_ccci_smc(u32 req_id, u32 sub_op, u32 arg,
-+			 struct arm_smccc_res *res)
++static int mtk_ccci_smc(u32 req_id, u32 sub_op, u32 arg,
++			struct arm_smccc_res *res)
 +{
++	long smc_ret;
++
 +	arm_smccc_smc(MTK_SIP_KERNEL_CCCI_CONTROL, req_id, sub_op, arg,
 +		      0, 0, 0, 0, res);
++	smc_ret = (long)res->a0;
++	if (smc_ret == SMCCC_RET_NOT_SUPPORTED)
++		return -EOPNOTSUPP;
++	if (smc_ret < 0)
++		return -EACCES;
++
++	return 0;
 +}
 +
 +static void mtk_ccci_peek_md1rom(struct mtk_ccci_dev *ccci)
@@ -489,10 +497,16 @@ index 0000000..61f3902
 +
 +	md_va = ioremap_wc(ccci->md_img_phys, 0x20);
 +	if (md_va) {
++		u32 w0 = readl(md_va + 0x0);
++		u32 w1 = readl(md_va + 0x4);
++		u32 w2 = readl(md_va + 0x8);
++		u32 w3 = readl(md_va + 0xc);
++
 +		dev_info(ccci->dev, "md1rom @ %pa: %08x %08x %08x %08x\n",
-+			 &ccci->md_img_phys,
-+			 readl(md_va + 0x0), readl(md_va + 0x4),
-+			 readl(md_va + 0x8), readl(md_va + 0xc));
++			 &ccci->md_img_phys, w0, w1, w2, w3);
++		if (w0 == 0 || w0 == 0xffffffff)
++			dev_warn(ccci->dev,
++				 "md1rom unreadable (EMI MPU may still be locked)\n");
 +		iounmap(md_va);
 +	}
 +
@@ -1245,7 +1259,15 @@ index 0000000..61f3902
 +		return;
 +	}
 +
-+	mtk_ccci_smc(MTK_CCCI_SMC_POWER_CONFIG, MTK_CCCI_PWR_BOOT_STATUS, 0, &res);
++	ret = mtk_ccci_smc(MTK_CCCI_SMC_POWER_CONFIG,
++			   MTK_CCCI_PWR_BOOT_STATUS, 0, &res);
++	if (ret) {
++		dev_err(ccci->dev,
++			"EL3 CCCI_CONTROL SMC rejected (%d, a0=0x%lx)\n",
++			ret, res.a0);
++		ccci->state = MTK_CCCI_STATE_FAILED;
++		return;
++	}
 +	dev_info(ccci->dev, "pre-reset MD boot_status=0x%lx/0x%lx\n",
 +		 res.a1, res.a2);
 +
@@ -1276,8 +1298,21 @@ index 0000000..61f3902
 +	}
 +
 +	/*
-+	 * Unconditionally power off MD MTCMOS to cleanly reset MD out of LK's
-+	 * BROM stage (matches stock MT6789 md_start_platform -> md_cd_power_off).
++	 * Guard against forcing MD MTCMOS off if a chainloader already
++	 * booted MD past BROM and started CCIF traffic (BL31 has no MD-stop
++	 * SMC, so cutting MTCMOS on a running modem hangs TOP_AXI_PROT_EN_MD).
++	 */
++	if (readl(ccci->ccif_ap_base + APCCIF_RCHNUM)) {
++		dev_err(ccci->dev,
++			"CCIF0 active before reset (rch=0x%x); refusing unsafe MTCMOS off\n",
++			readl(ccci->ccif_ap_base + APCCIF_RCHNUM));
++		ccci->state = MTK_CCCI_STATE_FAILED;
++		return;
++	}
++
++	/*
++	 * Power off MD MTCMOS to cleanly reset MD out of LK's BROM stage
++	 * (matches stock MT6789 md_start_platform -> md_cd_power_off).
 +	 */
 +	ret = pm_runtime_put_sync(ccci->dev);
 +	if (ccci->scpsys)
@@ -1293,13 +1328,17 @@ index 0000000..61f3902
 +	mtk_ccif_hw_reset(ccci);
 +
 +	if (ccci->vmodem) {
-+		regulator_set_voltage(ccci->vmodem, 825000, 825000);
++		ret = regulator_set_voltage(ccci->vmodem, 825000, 825000);
++		if (ret)
++			dev_warn(ccci->dev, "vmodem set_voltage failed: %d\n", ret);
 +		ret = regulator_enable(ccci->vmodem);
 +		if (ret)
 +			dev_warn(ccci->dev, "vmodem enable failed: %d\n", ret);
 +	}
 +	if (ccci->vsram) {
-+		regulator_set_voltage(ccci->vsram, 825000, 825000);
++		ret = regulator_set_voltage(ccci->vsram, 825000, 825000);
++		if (ret)
++			dev_warn(ccci->dev, "vsram set_voltage failed: %d\n", ret);
 +		ret = regulator_enable(ccci->vsram);
 +		if (ret)
 +			dev_warn(ccci->dev, "vsram enable failed: %d\n", ret);
@@ -1332,10 +1371,16 @@ index 0000000..61f3902
 +	ccci->md_running = true;
 +
 +	/* Release MD boot slave (EL3 writes 1 to 0x20000024) */
-+	mtk_ccci_smc(MTK_CCCI_SMC_POWER_CONFIG, MTK_CCCI_PWR_KERNEL_BOOT_UP, 0, &res);
++	ret = mtk_ccci_smc(MTK_CCCI_SMC_POWER_CONFIG,
++			   MTK_CCCI_PWR_KERNEL_BOOT_UP, 0, &res);
 +	dev_info(ccci->dev,
 +		 "MD_KERNEL_BOOT_UP: ret=%lu status0=0x%lx status1=0x%lx slave=%lu\n",
 +		 res.a0, res.a1, res.a2, res.a3);
++	if (ret) {
++		dev_err(ccci->dev, "MD_KERNEL_BOOT_UP SMC failed (%d)\n", ret);
++		ccci->state = MTK_CCCI_STATE_FAILED;
++		return;
++	}
 +
 +	if (!wait_for_completion_timeout(&ccci->hs1_comp, msecs_to_jiffies(5000))) {
 +		mtk_ccci_smc(MTK_CCCI_SMC_POWER_CONFIG, MTK_CCCI_PWR_BOOT_STATUS, 0, &res);
@@ -1585,9 +1630,12 @@ index 0000000..61f3902
 +
 +	mtk_ccci_parse_mem_region(&pdev->dev, "ccci-tag",
 +				  &ccci->tag_mem_phys, &ccci->tag_mem_size);
-+	mtk_ccci_parse_mem_region(&pdev->dev, "md-mem0",
-+				  &ccci->md_img_phys, &md_mem0_sz);
-+	ccci->md_img_size = CCCI_MD_DEFAULT_IMG_SIZE;
++	if (!mtk_ccci_parse_mem_region(&pdev->dev, "md-mem0",
++				       &ccci->md_img_phys, &md_mem0_sz) &&
++	    md_mem0_sz)
++		ccci->md_img_size = min_t(size_t, md_mem0_sz, U32_MAX);
++	else
++		ccci->md_img_size = CCCI_MD_DEFAULT_IMG_SIZE;
 +
 +	mtk_ccci_verify_lk_tags(ccci);
 +

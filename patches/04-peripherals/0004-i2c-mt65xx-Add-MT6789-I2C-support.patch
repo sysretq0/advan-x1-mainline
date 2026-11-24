@@ -1,18 +1,18 @@
-From 7030519a6906ea5a63a761fa2cc9efd906f24754 Mon Sep 17 00:00:00 2001
+From c0f427b322b278845d6d948f2cf460ee0564f17e Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Sun, 22 Nov 2026 04:29:40 +0000
-Subject: [PATCH 04/11] i2c: mt65xx: Add MT6789 I2C support
+Subject: [PATCH] i2c: mt65xx: Add MT6789 I2C support
 
 Add mediatek,mt6789-i2c match entry using mt8188_compat (regs_v3,
 dma_sync=0) to i2c-mt65xx.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- drivers/i2c/busses/i2c-mt65xx.c | 12 +++++++++++-
- 1 file changed, 11 insertions(+), 1 deletion(-)
+ drivers/i2c/busses/i2c-mt65xx.c | 1 +
+ 1 file changed, 1 insertion(+)
 
 diff --git a/drivers/i2c/busses/i2c-mt65xx.c b/drivers/i2c/busses/i2c-mt65xx.c
-index 45d0d7156..7c7c8c64b 100644
+index 45d0d71..ba2d3bb 100644
 --- a/drivers/i2c/busses/i2c-mt65xx.c
 +++ b/drivers/i2c/busses/i2c-mt65xx.c
 @@ -527,6 +527,7 @@ static const struct of_device_id mtk_i2c_of_match[] = {
@@ -23,24 +23,6 @@ index 45d0d7156..7c7c8c64b 100644
  	{ .compatible = "mediatek,mt7622-i2c", .data = &mt7622_compat },
  	{ .compatible = "mediatek,mt7981-i2c", .data = &mt7981_compat },
  	{ .compatible = "mediatek,mt7986-i2c", .data = &mt7986_compat },
-@@ -1222,7 +1223,16 @@ static int mtk_i2c_do_transfer(struct mtk_i2c *i2c, struct i2c_msg *msgs,
- 	}
- 
- 	if (ret == 0) {
--		dev_dbg(i2c->dev, "addr: %x, transfer timeout\n", msgs->addr);
-+		dev_err(i2c->dev,
-+			"addr: 0x%x timeout (SLAVE=0x%x STAT=0x%x CTRL=0x%x DBG=0x%x/%x DMA_EN=0x%x CON=0x%x 4G=0x%x)\n",
-+			msgs->addr, mtk_i2c_readw(i2c, OFFSET_SLAVE_ADDR),
-+			mtk_i2c_readw(i2c, OFFSET_INTR_STAT),
-+			mtk_i2c_readw(i2c, OFFSET_CONTROL),
-+			mtk_i2c_readw(i2c, OFFSET_DEBUGSTAT),
-+			mtk_i2c_readw(i2c, OFFSET_DEBUGCTRL),
-+			readl(i2c->pdmabase + OFFSET_EN),
-+			readl(i2c->pdmabase + OFFSET_CON),
-+			readl(i2c->pdmabase + OFFSET_TX_4G_MODE));
- 		i2c_dump_register(i2c);
- 		mtk_i2c_init_hw(i2c);
- 		return -ETIMEDOUT;
 -- 
 2.55.0
 

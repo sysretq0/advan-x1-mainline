@@ -1,4 +1,4 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From e4828fb2358d9169e444f439032eec706b87bbc4 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 Date: Tue, 24 Nov 2026 09:30:01 +0000
 Subject: [PATCH] drm/mediatek: Defer probe until disp-mutex device is bound
@@ -22,7 +22,7 @@ Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
  1 file changed, 16 insertions(+), 3 deletions(-)
 
 diff --git a/drivers/gpu/drm/mediatek/mtk_drm_drv.c b/drivers/gpu/drm/mediatek/mtk_drm_drv.c
-index 111111111..222222222 100644
+index 5b1a067..4d5b424 100644
 --- a/drivers/gpu/drm/mediatek/mtk_drm_drv.c
 +++ b/drivers/gpu/drm/mediatek/mtk_drm_drv.c
 @@ -648,10 +648,11 @@ static int mtk_drm_bind(struct device *dev)
@@ -61,3 +61,4 @@ index 111111111..222222222 100644
  			}
 -- 
 2.55.0
+
