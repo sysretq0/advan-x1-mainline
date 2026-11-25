@@ -1,0 +1,57 @@
+From f052c02e56641d46b35b7510b0afb5a23460ca9f Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Wed, 25 Nov 2026 06:20:47 +0000
+Subject: [PATCH] i2c: mt65xx: Avoid looking up child vbus-supply as bus
+ regulator
+
+of_get_regulator() falls back to of_get_child_regulator() when the
+requested supply property is absent on the controller node itself.
+Because i2c-mt65xx calls devm_regulator_get_optional(&pdev->dev, "vbus")
+for an optional I2C bus pull-up supply, any I2C client node on the bus
+that declares a "vbus-supply" property (such as a USB Type-C port
+controller like richtek,rt1711h) has its VBUS supply picked up by the
+I2C controller.
+
+When that VBUS regulator is provided by another slave on the same I2C
+bus (e.g., a charger OTG boost regulator), the I2C controller defers
+probe indefinitely waiting for its own child device.
+
+Check of_property_present(pdev->dev.of_node, "vbus-supply") before
+requesting the optional bus regulator, and log deferred/error reasons
+via dev_err_probe().
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ drivers/i2c/busses/i2c-mt65xx.c | 16 ++++++++++------
+ 1 file changed, 10 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/i2c/busses/i2c-mt65xx.c b/drivers/i2c/busses/i2c-mt65xx.c
+index ba2d3bb2e..1dfe3ce7d 100644
+--- a/drivers/i2c/busses/i2c-mt65xx.c
++++ b/drivers/i2c/busses/i2c-mt65xx.c
+@@ -1416,12 +1416,16 @@ static int mtk_i2c_probe(struct platform_device *pdev)
+ 	i2c->adap.quirks = i2c->dev_comp->quirks;
+ 	i2c->adap.timeout = 2 * HZ;
+ 	i2c->adap.retries = 1;
+-	i2c->adap.bus_regulator = devm_regulator_get_optional(&pdev->dev, "vbus");
+-	if (IS_ERR(i2c->adap.bus_regulator)) {
+-		if (PTR_ERR(i2c->adap.bus_regulator) == -ENODEV)
+-			i2c->adap.bus_regulator = NULL;
+-		else
+-			return PTR_ERR(i2c->adap.bus_regulator);
++	if (of_property_present(pdev->dev.of_node, "vbus-supply")) {
++		i2c->adap.bus_regulator = devm_regulator_get_optional(&pdev->dev, "vbus");
++		if (IS_ERR(i2c->adap.bus_regulator)) {
++			if (PTR_ERR(i2c->adap.bus_regulator) == -ENODEV)
++				i2c->adap.bus_regulator = NULL;
++			else
++				return dev_err_probe(&pdev->dev,
++						     PTR_ERR(i2c->adap.bus_regulator),
++						     "failed to get vbus regulator\n");
++		}
+ 	}
+ 
+ 	ret = mtk_i2c_parse_dt(pdev->dev.of_node, i2c);
+-- 
+2.55.0
+

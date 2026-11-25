@@ -1,4 +1,4 @@
-From b9df30ee2dc1b5dcc31f95dacf0a0f70fcf030fa Mon Sep 17 00:00:00 2001
+From 7ca14a7388410a7ce53c07ee77330d971f950fba Mon Sep 17 00:00:00 2001
 From: sysretq0 <sysretq0@proton.me>
 Date: Wed, 25 Nov 2026 05:27:27 +0000
 Subject: [PATCH] ASoC: codecs: Add FourSemi FS1599 analog speaker amplifier
@@ -10,17 +10,17 @@ MediaTek MT6789 boards (driven from the MT6366 PMIC LINEOUT output).
 
 Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
- sound/soc/codecs/Kconfig  |   8 +
+ sound/soc/codecs/Kconfig  |  13 ++
  sound/soc/codecs/Makefile |   2 +
- sound/soc/codecs/fs1599.c | 318 ++++++++++++++++++++++++++++++++++++++
+ sound/soc/codecs/fs1599.c | 313 ++++++++++++++++++++++++++++++++++++++
  3 files changed, 328 insertions(+)
  create mode 100644 sound/soc/codecs/fs1599.c
 
 diff --git a/sound/soc/codecs/Kconfig b/sound/soc/codecs/Kconfig
-index ba59dabee..5f22ec7cc 100644
+index ba59dabee..61582785d 100644
 --- a/sound/soc/codecs/Kconfig
 +++ b/sound/soc/codecs/Kconfig
-@@ -1351,6 +1351,17 @@ config SND_SOC_FRAMER
+@@ -1351,6 +1351,19 @@ config SND_SOC_FRAMER
  	  To compile this driver as a module, choose M here: the module
  	  will be called snd-soc-framer.
  
@@ -30,7 +30,9 @@ index ba59dabee..5f22ec7cc 100644
 +	select REGMAP_I2C
 +	help
 +	  Enable support for the FourSemi FS1599 I2C-controlled Class-K
-+	  boost analog-input speaker amplifier.
++	  boost analog-input speaker amplifier. The amplifier is configured
++	  over I2C and exposes DAPM power controls for external speaker
++	  routing.
 +
 +	  To compile this driver as a module, choose M here: the module
 +	  will be called snd-soc-fs1599.
@@ -60,10 +62,10 @@ index 3826f9e4f..5f454785d 100644
  obj-$(CONFIG_SND_SOC_GTM601)    += snd-soc-gtm601.o
 diff --git a/sound/soc/codecs/fs1599.c b/sound/soc/codecs/fs1599.c
 new file mode 100644
-index 000000000..0612d9ada
+index 000000000..410be1052
 --- /dev/null
 +++ b/sound/soc/codecs/fs1599.c
-@@ -0,0 +1,318 @@
+@@ -0,0 +1,313 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * FourSemi FS1599 I2C-controlled analog speaker amplifier driver
@@ -82,15 +84,14 @@ index 000000000..0612d9ada
 +
 +#define FS1599_REG_DEVID		0x01
 +#define FS1599_REG_REV			0x02
-+#define FS1599_REG_DEVID_ALT		0x03
 +#define FS1599_REG_STATUS		0x0e
 +#define FS1599_REG_SYSCTRL		0x10
 +#define FS1599_REG_AMPCTRL		0x11
 +#define FS1599_REG_ACCESS		0x1f
 +#define FS1599_REG_BSTCTRL		0xc0
 +
-+#define FS1599_DEVID_MASK		0xff00
-+#define FS1599_DEVID_FS1599		0x2100
++#define FS1599_DEVID_MASK		0x00ff
++#define FS1599_DEVID_FS1599		0x0021
 +
 +#define FS1599_SYSCTRL_PWDN		BIT(0)
 +#define FS1599_SYSCTRL_I2CR		BIT(1)
@@ -327,12 +328,8 @@ index 000000000..0612d9ada
 +				     "failed to init regmap\n");
 +
 +	ret = regmap_read(fs->regmap, FS1599_REG_DEVID, &devid);
-+	if (ret || (devid & FS1599_DEVID_MASK) != FS1599_DEVID_FS1599) {
-+		ret = regmap_read(fs->regmap, FS1599_REG_DEVID_ALT, &devid);
-+		if (ret)
-+			return dev_err_probe(dev, ret,
-+					     "failed to read device ID\n");
-+	}
++	if (ret)
++		return dev_err_probe(dev, ret, "failed to read device ID\n");
 +
 +	if ((devid & FS1599_DEVID_MASK) != FS1599_DEVID_FS1599)
 +		return dev_err_probe(dev, -ENODEV,
@@ -382,3 +379,6 @@ index 000000000..0612d9ada
 +MODULE_AUTHOR("sysretq0 <sysretq0@proton.me>");
 +MODULE_DESCRIPTION("FourSemi FS1599 analog speaker amplifier driver");
 +MODULE_LICENSE("GPL");
+-- 
+2.55.0
+
