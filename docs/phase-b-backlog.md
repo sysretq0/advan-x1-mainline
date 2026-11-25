@@ -1,93 +1,84 @@
-# Phase B backlog — deferred modernization items
+# Phase B backlog & modernization progress
 
-Phase A (`074d43d..c39ac03`) is remediation only. The items below were
-investigated with Tier A evidence and deliberately deferred because a correct
-fix needs a new upstream-able driver/binding or a build-order refactor, not a
-stable tweak. Each entry carries the exact evidence needed to resume.
+Phase A (`074d43d..8a923d3`) addressed stable Tier A remediations and review
+corrections. Phase B implements the upstream-able drivers and bindings below
+from Tier A evidence; items requiring out-of-tree DSP/connectivity firmware
+or live hardware efuse readback remain tracked as deferred.
 
-## D2-22 — MT6366 XO_NFC clock buffer (NFC power)
+## D2-22 — MT6366 XO_NFC clock buffer (NFC power) — **IMPLEMENTED (Phase B)**
 
-- Stock `runtime_merged.dts:4325-4336`:
-  `mt6366_clock_buffer` compat `mediatek,clock_buffer`, `xo-mode-num=<4>`,
-  `xo-buf-name = "XO_SOC","XO_WCN","XO_NFC","XO_CEL","RSV1","RSV2","XO_EXT"`,
-  `xo-buf-allow-control[2]=1` (XO_NFC), `mediatek,enable`.
-- Stock `runtime_merged.dts:4485-4492`: `clock_buffer_ctrl` compat
-  `mediatek,clock_buffer_ctrl`, `pmif=<0x54 0>`, `mediatek,enable`.
-- Stock `mtk-clkbuf-dcxo-6366.c:79-86`: XO_NFC uses `XO_EXTBUF3_EN_M`
-  (`DCXO_CW00` bit 8), `MT6366_XO_STATIC_AUXOUT_ADDR` (`DCXO_CW19` = `0x7b6`)
-  bit 0, `xo_en_auxout_sel=6`.
-- Stock NFC node `runtime_merged.dts:5241-5246` has **no** `clocks` property;
-  XO_NFC is enabled board-wide by the clock-buffer driver, not by the NFC
-  client. Upstream `drivers/nfc/st-nci/` has zero clock code and its binding
-  (`st,st-nci.yaml`) forbids extra properties — a DT `clocks` property on
-  `nfc@8` would fail `dtbs_check` and be ignored by the driver.
-- Phase A verified mainline `nfc@8` DT is otherwise correct (`&pio` IRQ GPIO1
-  level-high, `nfc_pins`, reset GPIO106), and `CONFIG_NFC_ST_NCI_I2C=y`.
-- **Phase B:** add a mainline MT6366 clock-buffer driver/binding (regmap via
-  `mt6397-core`) that enables DCXO index 2 at probe; no NFC DT change needed.
+- Stock `runtime_merged.dts:4325-4336`, `mtk-clkbuf-dcxo-6366.c:79-86`, and
+  `clkbuf.ko`: `XO_NFC` (DCXO index 2, `EXTBUF3`) uses `DCXO_CW00` (`0x788`)
+  mode bits `[7:6]` + `en_m` bit `8`, verified via `DCXO_CW18/19`
+  (`0x7b4/0x7b6`, `auxout_sel=6`, bit `0`).
+- **Implemented:** patches `04-peripherals/0041` (`mediatek,mt6366-clkbuf.yaml`
+  + `mediatek,mt6397.yaml`) and `0042` (`drivers/soc/mediatek/mtk-mt6366-clkbuf.c`
+  + `mt6397-core.c` MFD cell), wired under `pmic` in `mt6789-advan-x1.dts`
+  with `mediatek,xo-buf-enable = <2>;` (no `clocks` property added to `nfc@8`,
+  keeping `st,st-nci.yaml` valid) and `CONFIG_MTK_MT6366_CLKBUF=y`.
 
-## D2-09 remainder — MT6366 PMIC + consys thermal zones
+## D2-09 remainder — MT6366 PMIC thermal (**IMPLEMENTED**) + consys thermal (**DEFERRED**)
 
-- Stock `runtime_merged.dts:728-736`: `mt6366_temp` compat
-  `mediatek,mt6366-pmic-temp`, PMIC AUXADC channels 5-8, `nvmem-cells` to
-  `mt6366_e_data`; zones `pmic6366_pmu/bk1/bk2/bk3` at `:892-921`.
-- Stock `runtime_merged.dts:7391-7407`: `consys@18002000` compat
-  `mediatek,mt6789-consys` with `#thermal-sensor-cells=<0>`; zone `consys`.
-- Neither driver exists upstream. `mp01-kernel/drivers/thermal/mediatek/pmic_temp.c`
-  derives each zone from **per-unit efuse** slope/intercept (`o_slope`,
-  `o_slope_sign`, `o_vts`, `degc_cali` read via nvmem), not a fixed table —
-  a generic-adc-thermal substitute would report wrong temperatures.
-- **Phase B:** port `pmic_temp` + MT6366 efuse nvmem binding; add consys sensor
-  driver. Do not add placeholder zones.
+- **MT6366 PMIC thermal — IMPLEMENTED (Phase B):**
+  - Patches `04-peripherals/0043` (`mediatek,mt6358-efuse.yaml`,
+    `mediatek,mt6366-pmic-temp.yaml`, `mediatek,mt6397.yaml`), `0044`
+    (`drivers/nvmem/mt6358-efuse.c` implementing `reg_v1` OTP readback), and
+    `0045` (`drivers/thermal/mediatek/mt6366_thermal.c` implementing stock
+    `mt6366_get_cali_data()` / `pmic_raw_to_temp()` on raw 12-bit
+    `mt6359-auxadc` channels `CHIP_TEMP/VCORE_TEMP/VPROC_TEMP/VGPU_TEMP`).
+  - Wired `pmic_efuse` (`nvmem-layout` `thermal-cali@40`), `mt6366_temp`, and
+    thermal zones `pmic-pmu/bk1/bk2/bk3-thermal` in `mt6789-advan-x1.dts`;
+    enabled `CONFIG_NVMEM_MT6358_EFUSE=y` and `CONFIG_MTK_MT6366_THERMAL=y`.
+- **Consys thermal (`consys@18002000`) — DEFERRED:**
+  - Stock `runtime_merged.dts:7391-7407` binds `mediatek,mt6789-consys`.
+  - Requires powering and initializing the MT6789 ConnSys/WMT connectivity
+    subsystem (Wi-Fi/BT/GPS firmware bring-up, out of scope for Phase B).
 
-## D2-17 remainder — ACCDET efuse / moisture fallback
+## D2-17 remainder — ACCDET efuse / moisture / CDD — **IMPLEMENTED (Phase B)**
 
-- `mt6358-accdet.ko` logs: `"accdet no 4-key-thrsh dts, use efuse"`,
-  `"moisture_efuse efuse=0x%x,moisture_offset=%d mv"`,
-  `"moisture_vdd efuse=0x%x, moisture_vdd_offset=%d mv"`,
-  `"headset-three-key-threshold-CDD"`, `"mt63xx-accdet-efuse"`.
-- Stock `runtime_merged.dts:3785-3812`: PMIC efuse nvmem
-  (`mediatek,mt6358-efuse`, child `mt6366_e_data` at `reg=<0x40 0x0c>`),
-  `nvmem = <0x4d>`, `nvmem-names = "mt63xx-accdet-efuse"`.
-- Phase A added the CDD key array (`<0 121 192 600>`) and parser but not the
-  efuse/moisture paths (no mainline PMIC efuse nvmem node, no nvmem consumer
-  in patch 0036).
-- **Phase B:** add PMIC efuse nvmem node + `devm_nvmem_device_get` /
-  `nvmem_device_read` parsing and moisture compensation; then wire CDD
-  selection to accessory/jack-type detection.
+- Stock `mt6358-accdet.ko` and `mp01` `mt6358-accdet.c` read MT6366 PMIC
+  eFuse rows `115..119` (`0xe6..0xee`) for `auxadc_offset`, `four-key`
+  fallback, `moisture_vdd_offset`, and `moisture_offset`, and carry
+  `headset-three-key-threshold-CDD = <0 121 192 600>`.
+- **Implemented:** patches `04-peripherals/0043` (`nvmem-cells` in
+  `mediatek,mt6358-accdet.yaml`) and `0046` (`mt6358-accdet.c` eFuse loader,
+  `auxadc_offset` subtraction in button detection, 4-key eFuse fallback, and
+  `mediatek,three-key-threshold-cdd` selection), wired to `pmic_efuse` cells
+  `@e6/@e8/@ec/@ee` in `mt6789-advan-x1.dts`.
 
-## D2-15 remainder — FS1599 Re25/F0
+## D2/D6 — CCIF SRAM size / reset version DT-driven — **IMPLEMENTED (Phase B)**
 
-- See `docs/audio-speaker-protection.md`. Needs SCP audio task, Audio IPI and
-  `fs1599.fsm`; Phase A caps LINEOUT at −200 mB instead.
+- **Implemented:** patch `04-peripherals/0040` adds optional
+  `mediatek,ccif-sram-size` (default 512) and `mediatek,ccif-hw-reset-ver`
+  (default 0) to `mediatek,mt6789-ccif.yaml` and parses them in
+  `mtk_ccci_parse_ccif()` with bounds validation; `mt6789.dtsi` sets
+  `mediatek,ccif-sram-size = <0x200>;` on `ccif0` (matching stock
+  `runtime_merged.dts:4662`).
 
-## D2/D6 — CCIF SRAM size / reset version DT-driven
+## D2-15 remainder — FS1599 Re25/F0 — **DEFERRED (Vendor SCP DSP required)**
 
-- Patch `0026` hardcodes `MTK_CCIF_SRAM_SIZE 512` and CCIF0 reset version 0
-  (`RST3_SET BIT(8)` at `0x150`); stock `runtime_merged.dts:4662` has
-  `mediatek,sram_size=<0x200>` and no reset-version property (implies 0).
-- A DT-driven conversion was attempted but overlaps hunks in patches `0027`
-  and `0028`; it is deliberately deferred to avoid destabilising the
-  validated apply order. The fallback semantics are already correct (512/0),
-  so this is provenance/cleanliness, not a functional risk.
-- **Phase B:** add `mediatek,ccif-sram-size` / `mediatek,ccif-hw-reset-ver`
-  to binding `0025`, parse in `0026` with 512/0 defaults, then regenerate
-  `0027`/`0028` against the shifted context.
+- See `docs/audio-speaker-protection.md`. Needs SCP audio task
+  (`scp_rv55.bin`), Audio IPI, and closed-source `fs1599.fsm` (note stock
+  `runtime_merged.dts:6099` sets `snd_scp_audio` `status = "disabled"`).
+  Phase A caps LINEOUT at −200 mB instead.
 
-## D-17 / D3-16 — USB2 PHY calibration and microSD VCORE
+## D-17 / D3-16 — USB2 PHY calibration and microSD VCORE — **DEFERRED (Live HW check)**
 
-- Stock `runtime_merged.dts:7871-7885` has `rev4=1`, `rx_sqth=5` and an
-  `intr_cal` efuse mask `0x1f` on `u2port0`; mainline `dtsi:1025-1032` omits
-  them. No USB failure is currently attributed to this — defer.
-- Stock `runtime_merged.dts:6233-6234` has `req-vcore = <650000>` on MSDC1;
-  mainline omits it. microSD CD polarity was corrected in Phase A; test card
-  I/O first, add the vote only if SDR104 shows voltage droop.
+- Stock `runtime_merged.dts:6128-6131,7871-7885` references `u2_phy_data` at
+  downstream `mediatek,devinfo` offset `0x1b0` (`intr_cal` mask `0x1f`), plus
+  `rev4=1` and `rx_sqth=5`. Because downstream `devinfo` ATAG offsets are
+  shifted relative to physical MMIO `efuse@11c10000` (e.g. LVTS `0x1b4` ->
+  MMIO `0x1a4`), physical MMIO readback on live hardware is required before
+  wiring `nvmem-cells = <&u2_phy_data>` on `u2port0`.
+- Stock `runtime_merged.dts:6233-6234` has `req-vcore = <650000>` on MSDC1.
+  microSD CD polarity was corrected in Phase A; test card I/O first and add
+  an OPP/DVFSRC vote only if SDR104 shows voltage droop.
 
-## F01 / F06 / F07 — provenance comments in existing commits
+## F01 / F06 / F07 — provenance comments in existing commits — **CLOSED**
 
 - `3b1f69f` / `docs/ccci-bringup-plan.md` (Zinwa Q25 cross-checks), `ce06c2e`
   (Motorola `chipone_tddi_mmi_v2`), `7a2c78a` (Motorola `ti,tps65132` boards)
   cite sibling ODMs in commit bodies/docs.
-- Rewriting those messages would require rebasing signed history. Phase A
-  records the authority rule in `docs/upstream-status.md` §4 instead; the
-  code itself was already re-verified against Tier A.
+- Rewriting those messages would require rebasing signed history. Authority
+  hierarchy is documented in `docs/upstream-status.md` §4; all code has been
+  re-verified against Tier A.

@@ -10,18 +10,18 @@ mainline Linux port.
 
 ---
 
-## 1. Patch Series Layout (75 Upstream Patches + 2 Optional)
+## 1. Patch Series Layout (82 Upstream Patches + 2 Optional)
 
 | Directory | Count | Scope |
 |---|---:|---|
 | `patches/01-clk/` | 5 | MT6789 clock/reset bindings, core clocks (`apmixedsys`, `topckgen`, `infra_ao` + MFGPLL mux-park notifier), `imp_iic_wrap`, `mmsys`, `mfgcfg` |
 | `patches/02-pinctrl/` | 2 | MT6789 pinctrl binding and 188-pin pinctrl/EINT driver |
 | `patches/03-soc-power/` | 14 | SCPSYS power domains, MT6789 PMIC wrapper (`mt6789_regs[]`), regulator coupler, MMSYS, disp-mutex (+ probe deferral), SMI, socinfo, disp IOMMU (`mtk-iommu`) |
-| `patches/04-peripherals/` | 39 | SPI, I²C (`mt6789_compat (dma_sync=1, Tier A)`), eFuse, watchdog, LVTS thermal (+ per-SoC zero-MSR guard), DISP PWM, MT6358 long-press fix, MMC, SC89601A charger, CW2217 fuel gauge, Chipone ICNL9922C SPI touch, MT6789 AFE/MT6366 audio + FourSemi FS1599 + MT6358 ACCDET, UFS/USB PHY bindings + T-PHY wake/OTG, `tps65132` wakeup, CCCI/CCIF0/RPC/FS/WWAN AT/DPMAIF v1 + SMEM UL modem stack |
+| `patches/04-peripherals/` | 46 | SPI, I²C (`mt6789_compat (dma_sync=1, Tier A)`), eFuse, watchdog, LVTS thermal (+ per-SoC zero-MSR guard & STAGE3 hw reboot), MT6366 PMIC thermal + MT6358/MT6366 PMIC eFuse + MT6366 DCXO `XO_NFC` clkbuf, DISP PWM, MT6358 long-press fix, MMC, SC89601A charger, CW2217 fuel gauge, Chipone ICNL9922C SPI touch, MT6789 AFE/MT6366 audio + FourSemi FS1599 + MT6358 ACCDET (+ eFuse/moisture/CDD), UFS/USB PHY bindings + T-PHY wake/OTG, `tps65132` wakeup, CCCI/CCIF0 (+ DT-driven SRAM size/reset ver)/RPC/FS/WWAN AT/DPMAIF v1 + SMEM UL modem stack |
 | `patches/05-gpu/` | 2 | Mali-G57 MC2 (`panfrost`) binding and compatible |
 | `patches/06-display/` | 10 | MIPI-TX DSI PHY, `mediatek-drm` pipeline + OVL0 splash DMA halt, DSI + hardware DSC 1.1, Chipone ICNL9922C panel binding & driver, disp-mutex bind deferral |
 | `patches/07-dts/` | 3 | SoC/board binding, `mt6789.dtsi`, `mt6789-advan-x1.dts` |
-| **Total (`patches/`)** | **75** | **Upstream submission series** |
+| **Total (`patches/`)** | **82** | **Upstream submission series** |
 | `patches-extra/` | 2 | Out-of-tree Chipone vendor TDDI fallback (`cts_core`). **Excluded from upstream submission.** |
 
 ---
@@ -39,7 +39,7 @@ history at commit `0d9a170`) has been **100% remediated and hardware-verified**:
 | **Phase 1: Core correctness** | `3b1f69f` | Fixed live Mali-G57 MFGPLL devfreq freeze via `CLK_TOP_MFG_PLL_SEL` mux-park notifier (`#0011`), added `i2c3_pins` pinctrl (`M4`), replaced generic LVTS change with per-SoC zero-MSR guard (`M3`), hardened CCCI SMC/regulators/carveout (`M2a`/`M6`), demoted I²C chatter to `dev_dbg`, fixed series patch hygiene (`M13`). |
 | **Phase 2: IOMMU, WDT, MFGCFG** | `e204148` | Enabled `disp_iommu` (`14016000.iommu`, eliminating `swiotlb` exhaustion `#0012`/`M1`), added `syscon-reboot-mode` on `10007000.watchdog` (`M10`), documented CCCI EL3 SiP ABI (`docs/ccci-sip-abi.md`, `M2b`), added spinlock + HW readback to `clk-mt6789-mfgcfg` (`M5`). |
 | **Phase 3: Polish & HW verification** | `b1a3ae6` | Halted bootloader OVL0 splash DMA in `mtk_disp_ovl_probe()` → **0 M4U faults** and 0.8 ms DSI bind across full 198.6 s Wayland session; removed spurious `mediatek,pre-emphasis` from `u2port0` (`M14`); verified 0 HW-on clock leaks (`M7`), `GPIO 85/107` active-low resets (`M9`), and live `st_nci` IRQ 16 (`M11`); oracle-verified SCPSYS/CCIF0/clock constants (`B3-02/04/07/08/10`). |
-| **Author cleanup & DSC fix** | `0d9a170` | Cleared `priv->dsc = NULL` in `mtk_dsc_stop()` (`B2-05`); standardized patch email to `sysretq0@proton.me` across all 60 `patches/` at `0d9a170` (maintained across all 75 `patches/` today), 2 `patches-extra/`, and board DTS. |
+| **Author cleanup & DSC fix** | `0d9a170` | Cleared `priv->dsc = NULL` in `mtk_dsc_stop()` (`B2-05`); standardized patch email to `sysretq0@proton.me` across all 60 `patches/` at `0d9a170` (maintained across all 82 `patches/` today), 2 `patches-extra/`, and board DTS. |
 
 ---
 
