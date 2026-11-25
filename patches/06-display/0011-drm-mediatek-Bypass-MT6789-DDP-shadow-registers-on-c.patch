@@ -1,0 +1,308 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Wed, 25 Nov 2026 16:08:00 +0000
+Subject: [PATCH] drm/mediatek: Bypass MT6789 DDP shadow registers on cold
+ power-on
+
+On MediaTek MT6789, OVL0, COLOR0, CCORR0, AAL0, and DITHER0 default to
+shadow-register mode after MT6789_POWER_DOMAIN_DISP powers off during
+s2idle system suspend (unlike runtime DPMS, where DISP remains powered
+because non-pm_runtime DDP sub-blocks stay active).
+
+Without setting each block's BYPASS_SHADOW control bit ahead of its size
+and configuration writes (matching downstream platform/mtk_drm_6789.c
+need_bypass_shadow = true), working frame dimensions remain 0x0 after
+DISP power-domain resume. The DDP pipeline stalls on the first frame,
+producing CRTC0 vblank timeouts, larb0 sleep_ctrl timeout (0x1), and
+permanent ovl0 runtime resume failure (-EINVAL) on subsequent enables.
+
+- mtk_disp_ovl: set DISP_OVL_BYPASS_SHADOW (BIT(22) in DISP_REG_OVL_EN)
+  before writing ROI size/bgclr in mtk_ovl_config().
+- mtk_disp_color: add mt6789_color_driver_data with bypass_shadow and
+  set COLOR_BYPASS_SHADOW (BIT(0) in 0x0cb0) in mtk_color_config().
+- mtk_disp_ccorr: add mt6789_ccorr_driver_data with bypass_shadow, set
+  CCORR_BYPASS_SHADOW (BIT(2) in 0x00a0), and default DISP_CCORR_CFG to
+  CCORR_RELAY_MODE until a CTM matrix is loaded (preventing zero-matrix
+  blackout after cold DISP reset).
+- mtk_disp_aal: add mt6789_aal_driver_data with bypass_shadow, set
+  AAL_BYPASS_SHADOW (BIT(0) in 0x00f0), and select AAL_RELAY_MODE in
+  mtk_aal_config().
+- mtk_disp_gamma: select GAMMA_RELAY_MODE in mtk_gamma_config() when
+  dither-in-gamma is absent (cleared by mtk_gamma_set() if a LUT loads).
+- mtk_ddp_comp: set DITHER_BYPASS_SHADOW (BIT(0) in 0x0100) for
+  mediatek,mt6789-disp-dither in mtk_dither_config().
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ drivers/gpu/drm/mediatek/mtk_ddp_comp.c   | 10 ++++++++++
+ drivers/gpu/drm/mediatek/mtk_disp_aal.c   | 18 +++++++++++++++++-
+ drivers/gpu/drm/mediatek/mtk_disp_ccorr.c | 30 ++++++++++++++++++++++++++----
+ drivers/gpu/drm/mediatek/mtk_disp_color.c | 15 ++++++++++++++-
+ drivers/gpu/drm/mediatek/mtk_disp_gamma.c |  3 +++
+ drivers/gpu/drm/mediatek/mtk_disp_ovl.c   |  5 +++++
+ 6 files changed, 75 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/gpu/drm/mediatek/mtk_ddp_comp.c b/drivers/gpu/drm/mediatek/mtk_ddp_comp.c
+index 3e5965463..e87c344dc 100644
+--- a/drivers/gpu/drm/mediatek/mtk_ddp_comp.c
++++ b/drivers/gpu/drm/mediatek/mtk_ddp_comp.c
+@@ -29,6 +29,8 @@
+ #define DITHER_ENGINE_EN			BIT(1)
+ #define DISP_DITHERING				BIT(2)
+ #define DISP_REG_DITHER_SIZE			0x0030
++#define DISP_REG_DITHER_SHADOW			0x0100
++#define DITHER_BYPASS_SHADOW			BIT(0)
+ #define DISP_REG_DITHER_5			0x0114
+ #define DISP_REG_DITHER_7			0x011c
+ #define DISP_REG_DITHER_15			0x013c
+@@ -97,6 +99,7 @@ struct mtk_ddp_comp_dev {
+ 	struct cmdq_client_reg cmdq_reg;
+ 	const struct drm_dsc_config *dsc;
+ 	bool need_obuf_sw;
++	bool bypass_shadow;
+ };
+ 
+ void mtk_ddp_write(struct cmdq_pkt *cmdq_pkt, unsigned int value,
+@@ -190,6 +193,12 @@ static void mtk_dither_config(struct device *dev, unsigned int w,
+ {
+ 	struct mtk_ddp_comp_dev *priv = dev_get_drvdata(dev);
+ 
++	if (priv->bypass_shadow)
++		mtk_ddp_write_mask(cmdq_pkt, DITHER_BYPASS_SHADOW,
++				   &priv->cmdq_reg, priv->regs,
++				   DISP_REG_DITHER_SHADOW,
++				   DITHER_BYPASS_SHADOW);
++
+ 	mtk_ddp_write(cmdq_pkt, w << 16 | h, &priv->cmdq_reg, priv->regs, DISP_REG_DITHER_SIZE);
+ 	mtk_ddp_write(cmdq_pkt, DITHER_RELAY_MODE, &priv->cmdq_reg, priv->regs,
+ 		      DISP_REG_DITHER_CFG);
+@@ -895,6 +904,7 @@ int mtk_ddp_comp_init(struct device *dev, struct device_node *node, struct mtk_d
+ #endif
+ 
+ 	priv->need_obuf_sw = of_device_is_compatible(node, "mediatek,mt6789-disp-dsc");
++	priv->bypass_shadow = of_device_is_compatible(node, "mediatek,mt6789-disp-dither");
+ 
+ 	platform_set_drvdata(comp_pdev, priv);
+ 
+diff --git a/drivers/gpu/drm/mediatek/mtk_disp_aal.c b/drivers/gpu/drm/mediatek/mtk_disp_aal.c
+index 6790d747a..e983835cf 100644
+--- a/drivers/gpu/drm/mediatek/mtk_disp_aal.c
++++ b/drivers/gpu/drm/mediatek/mtk_disp_aal.c
+@@ -24,6 +24,8 @@
+ #define DISP_AAL_SIZE				0x0030
+ #define DISP_AAL_SIZE_HSIZE				GENMASK(28, 16)
+ #define DISP_AAL_SIZE_VSIZE				GENMASK(12, 0)
++#define DISP_AAL_SHADOW_CTRL			0x00f0
++#define AAL_BYPASS_SHADOW				BIT(0)
+ #define DISP_AAL_OUTPUT_SIZE			0x04d8
+ #define DISP_AAL_GAMMA_LUT			0x0700
+ #define DISP_AAL_GAMMA_LUT_R				GENMASK(29, 20)
+@@ -34,6 +36,7 @@
+ 
+ struct mtk_disp_aal_data {
+ 	bool has_gamma;
++	bool bypass_shadow;
+ };
+ 
+  /**
+@@ -71,6 +74,15 @@ void mtk_aal_config(struct device *dev, unsigned int w,
+ 	struct mtk_disp_aal *aal = dev_get_drvdata(dev);
+ 	u32 sz;
+ 
++	if (aal->data && aal->data->bypass_shadow) {
++		mtk_ddp_write_mask(cmdq_pkt, AAL_BYPASS_SHADOW,
++				   &aal->cmdq_reg, aal->regs,
++				   DISP_AAL_SHADOW_CTRL, AAL_BYPASS_SHADOW);
++		mtk_ddp_write_mask(cmdq_pkt, AAL_RELAY_MODE,
++				   &aal->cmdq_reg, aal->regs,
++				   DISP_AAL_CFG, AAL_RELAY_MODE);
++	}
++
+ 	sz = FIELD_PREP(DISP_AAL_SIZE_HSIZE, w);
+ 	sz |= FIELD_PREP(DISP_AAL_SIZE_VSIZE, h);
+ 
+@@ -205,12 +217,16 @@ static void mtk_disp_aal_remove(struct platform_device *pdev)
+ 	component_del(&pdev->dev, &mtk_disp_aal_component_ops);
+ }
+ 
++static const struct mtk_disp_aal_data mt6789_aal_driver_data = {
++	.bypass_shadow = true,
++};
++
+ static const struct mtk_disp_aal_data mt8173_aal_driver_data = {
+ 	.has_gamma = true,
+ };
+ 
+ static const struct of_device_id mtk_disp_aal_driver_dt_match[] = {
+-	{ .compatible = "mediatek,mt6789-disp-aal" },
++	{ .compatible = "mediatek,mt6789-disp-aal", .data = &mt6789_aal_driver_data },
+ 	{ .compatible = "mediatek,mt8173-disp-aal", .data = &mt8173_aal_driver_data },
+ 	{ .compatible = "mediatek,mt8183-disp-aal" },
+ 	{ /* sentinel */ }
+diff --git a/drivers/gpu/drm/mediatek/mtk_disp_ccorr.c b/drivers/gpu/drm/mediatek/mtk_disp_ccorr.c
+index 631c8bbcc..03c5cea0c 100644
+--- a/drivers/gpu/drm/mediatek/mtk_disp_ccorr.c
++++ b/drivers/gpu/drm/mediatek/mtk_disp_ccorr.c
+@@ -28,9 +28,12 @@
+ #define DISP_CCORR_COEF_2			0x0088
+ #define DISP_CCORR_COEF_3			0x008C
+ #define DISP_CCORR_COEF_4			0x0090
++#define DISP_CCORR_SHADOW			0x00a0
++#define CCORR_BYPASS_SHADOW			BIT(2)
+ 
+ struct mtk_disp_ccorr_data {
+ 	u32 matrix_bits;
++	bool bypass_shadow;
+ };
+ 
+ struct mtk_disp_ccorr {
+@@ -60,10 +63,16 @@ void mtk_ccorr_config(struct device *dev, unsigned int w,
+ {
+ 	struct mtk_disp_ccorr *ccorr = dev_get_drvdata(dev);
+ 
++	if (ccorr->data->bypass_shadow)
++		mtk_ddp_write_mask(cmdq_pkt, CCORR_BYPASS_SHADOW,
++				   &ccorr->cmdq_reg, ccorr->regs,
++				   DISP_CCORR_SHADOW, CCORR_BYPASS_SHADOW);
++
+ 	mtk_ddp_write(cmdq_pkt, w << 16 | h, &ccorr->cmdq_reg, ccorr->regs,
+ 		      DISP_CCORR_SIZE);
+-	mtk_ddp_write(cmdq_pkt, CCORR_ENGINE_EN, &ccorr->cmdq_reg, ccorr->regs,
+-		      DISP_CCORR_CFG);
++	mtk_ddp_write(cmdq_pkt,
++		      ccorr->data->bypass_shadow ? CCORR_RELAY_MODE : CCORR_ENGINE_EN,
++		      &ccorr->cmdq_reg, ccorr->regs, DISP_CCORR_CFG);
+ }
+ 
+ void mtk_ccorr_start(struct device *dev)
+@@ -91,8 +100,13 @@ void mtk_ccorr_ctm_set(struct device *dev, struct drm_crtc_state *state)
+ 	struct cmdq_pkt *cmdq_pkt = NULL;
+ 	u32 matrix_bits = ccorr->data->matrix_bits;
+ 
+-	if (!blob)
++	if (!blob) {
++		if (ccorr->data->bypass_shadow)
++			mtk_ddp_write(cmdq_pkt, CCORR_RELAY_MODE,
++				      &ccorr->cmdq_reg, ccorr->regs,
++				      DISP_CCORR_CFG);
+ 		return;
++	}
+ 
+ 	ctm = (struct drm_color_ctm *)blob->data;
+ 	input = ctm->matrix;
+@@ -110,6 +124,9 @@ void mtk_ccorr_ctm_set(struct device *dev, struct drm_crtc_state *state)
+ 		      &ccorr->cmdq_reg, ccorr->regs, DISP_CCORR_COEF_3);
+ 	mtk_ddp_write(cmdq_pkt, coeffs[8] << 16,
+ 		      &ccorr->cmdq_reg, ccorr->regs, DISP_CCORR_COEF_4);
++	if (ccorr->data->bypass_shadow)
++		mtk_ddp_write(cmdq_pkt, CCORR_ENGINE_EN, &ccorr->cmdq_reg,
++			      ccorr->regs, DISP_CCORR_CFG);
+ }
+ 
+ static int mtk_disp_ccorr_bind(struct device *dev, struct device *master,
+@@ -169,6 +186,11 @@ static void mtk_disp_ccorr_remove(struct platform_device *pdev)
+ 	component_del(&pdev->dev, &mtk_disp_ccorr_component_ops);
+ }
+ 
++static const struct mtk_disp_ccorr_data mt6789_ccorr_driver_data = {
++	.matrix_bits = 11,
++	.bypass_shadow = true,
++};
++
+ static const struct mtk_disp_ccorr_data mt8183_ccorr_driver_data = {
+ 	.matrix_bits = 10,
+ };
+@@ -179,7 +201,7 @@ static const struct mtk_disp_ccorr_data mt8192_ccorr_driver_data = {
+ 
+ static const struct of_device_id mtk_disp_ccorr_driver_dt_match[] = {
+ 	{ .compatible = "mediatek,mt6789-disp-ccorr",
+-	  .data = &mt8192_ccorr_driver_data},
++	  .data = &mt6789_ccorr_driver_data},
+ 	{ .compatible = "mediatek,mt8183-disp-ccorr",
+ 	  .data = &mt8183_ccorr_driver_data},
+ 	{ .compatible = "mediatek,mt8192-disp-ccorr",
+diff --git a/drivers/gpu/drm/mediatek/mtk_disp_color.c b/drivers/gpu/drm/mediatek/mtk_disp_color.c
+index 5d3ca9fc7..872855531 100644
+--- a/drivers/gpu/drm/mediatek/mtk_disp_color.c
++++ b/drivers/gpu/drm/mediatek/mtk_disp_color.c
+@@ -22,12 +22,15 @@
+ #define DISP_COLOR_START(comp)			((comp)->data->color_offset)
+ #define DISP_COLOR_WIDTH(comp)			(DISP_COLOR_START(comp) + 0x50)
+ #define DISP_COLOR_HEIGHT(comp)			(DISP_COLOR_START(comp) + 0x54)
++#define DISP_COLOR_SHADOW_CTRL			0x0cb0
++#define COLOR_BYPASS_SHADOW			BIT(0)
+ 
+ #define COLOR_BYPASS_ALL			BIT(7)
+ #define COLOR_SEQ_SEL				BIT(13)
+ 
+ struct mtk_disp_color_data {
+ 	unsigned int color_offset;
++	bool bypass_shadow;
+ };
+ 
+ /*
+@@ -63,6 +66,11 @@ void mtk_color_config(struct device *dev, unsigned int w,
+ {
+ 	struct mtk_disp_color *color = dev_get_drvdata(dev);
+ 
++	if (color->data->bypass_shadow)
++		mtk_ddp_write_mask(cmdq_pkt, COLOR_BYPASS_SHADOW,
++				   &color->cmdq_reg, color->regs,
++				   DISP_COLOR_SHADOW_CTRL, COLOR_BYPASS_SHADOW);
++
+ 	mtk_ddp_write(cmdq_pkt, w, &color->cmdq_reg, color->regs, DISP_COLOR_WIDTH(color));
+ 	mtk_ddp_write(cmdq_pkt, h, &color->cmdq_reg, color->regs, DISP_COLOR_HEIGHT(color));
+ }
+@@ -140,6 +148,11 @@ static const struct mtk_disp_color_data mt8167_color_driver_data = {
+ 	.color_offset = DISP_COLOR_START_MT8167,
+ };
+ 
++static const struct mtk_disp_color_data mt6789_color_driver_data = {
++	.color_offset = DISP_COLOR_START_MT8173,
++	.bypass_shadow = true,
++};
++
+ static const struct mtk_disp_color_data mt8173_color_driver_data = {
+ 	.color_offset = DISP_COLOR_START_MT8173,
+ };
+@@ -148,7 +161,7 @@ static const struct of_device_id mtk_disp_color_driver_dt_match[] = {
+ 	{ .compatible = "mediatek,mt2701-disp-color",
+ 	  .data = &mt2701_color_driver_data},
+ 	{ .compatible = "mediatek,mt6789-disp-color",
+-	  .data = &mt8173_color_driver_data},
++	  .data = &mt6789_color_driver_data},
+ 	{ .compatible = "mediatek,mt8167-disp-color",
+ 	  .data = &mt8167_color_driver_data},
+ 	{ .compatible = "mediatek,mt8173-disp-color",
+diff --git a/drivers/gpu/drm/mediatek/mtk_disp_gamma.c b/drivers/gpu/drm/mediatek/mtk_disp_gamma.c
+index 739f263dd..14ea2ffc7 100644
+--- a/drivers/gpu/drm/mediatek/mtk_disp_gamma.c
++++ b/drivers/gpu/drm/mediatek/mtk_disp_gamma.c
+@@ -220,6 +220,9 @@ void mtk_gamma_config(struct device *dev, unsigned int w,
+ 	if (gamma->data && gamma->data->has_dither)
+ 		mtk_dither_set_common(gamma->regs, &gamma->cmdq_reg, bpc,
+ 				      DISP_GAMMA_CFG, GAMMA_DITHERING, cmdq_pkt);
++	else
++		mtk_ddp_write(cmdq_pkt, GAMMA_RELAY_MODE, &gamma->cmdq_reg,
++			      gamma->regs, DISP_GAMMA_CFG);
+ }
+ 
+ void mtk_gamma_start(struct device *dev)
+diff --git a/drivers/gpu/drm/mediatek/mtk_disp_ovl.c b/drivers/gpu/drm/mediatek/mtk_disp_ovl.c
+index 35153e0e5..b3eb67dbc 100644
+--- a/drivers/gpu/drm/mediatek/mtk_disp_ovl.c
++++ b/drivers/gpu/drm/mediatek/mtk_disp_ovl.c
+@@ -322,6 +322,11 @@ void mtk_ovl_config(struct device *dev, unsigned int w,
+ {
+ 	struct mtk_disp_ovl *ovl = dev_get_drvdata(dev);
+ 
++	if (ovl->data->bypass_shadow)
++		mtk_ddp_write_mask(cmdq_pkt, DISP_OVL_BYPASS_SHADOW,
++				   &ovl->cmdq_reg, ovl->regs,
++				   DISP_REG_OVL_EN, DISP_OVL_BYPASS_SHADOW);
++
+ 	if (w != 0 && h != 0)
+ 		mtk_ddp_write_relaxed(cmdq_pkt, h << 16 | w, &ovl->cmdq_reg, ovl->regs,
+ 				      DISP_REG_OVL_ROI_SIZE);
+-- 
+2.55.0
