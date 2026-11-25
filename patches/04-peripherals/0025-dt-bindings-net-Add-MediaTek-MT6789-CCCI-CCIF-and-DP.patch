@@ -18,7 +18,7 @@ Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  .../bindings/net/mediatek,mt6789-ccci.yaml    | 136 ++++++++++++++++++
  .../bindings/net/mediatek,mt6789-dpmaif.yaml  |  86 +++++++++++
- .../soc/mediatek/mediatek,mt6789-ccif.yaml    |  84 +++++++++++
+ .../soc/mediatek/mediatek,mt6789-ccif.yaml    |  99 +++++++++++
  3 files changed, 306 insertions(+)
  create mode 100644 Documentation/devicetree/bindings/net/mediatek,mt6789-ccci.yaml
  create mode 100644 Documentation/devicetree/bindings/net/mediatek,mt6789-dpmaif.yaml
@@ -267,7 +267,7 @@ new file mode 100644
 index 0000000..364084c
 --- /dev/null
 +++ b/Documentation/devicetree/bindings/soc/mediatek/mediatek,mt6789-ccif.yaml
-@@ -0,0 +1,84 @@
+@@ -0,0 +1,97 @@
 +# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 +%YAML 1.2
 +---
@@ -321,6 +321,19 @@ index 0000000..364084c
 +        - ccif2-md
 +        - ccif4-md
 +        - ccif5-md
++
++  mediatek,ccif-sram-size:
++    $ref: /schemas/types.yaml#/definitions/uint32
++    description: Size in bytes of the AP-MD shared CCIF SRAM window
++    minimum: 128
++    maximum: 4096
++    default: 512
++
++  mediatek,ccif-hw-reset-ver:
++    $ref: /schemas/types.yaml#/definitions/uint32
++    description: INFRACFG_AO CCIF0 reset register layout version (0 for RST3_SET/CLR)
++    enum: [0, 1]
++    default: 0
 +
 +required:
 +  - compatible

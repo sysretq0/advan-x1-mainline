@@ -1,0 +1,269 @@
+From 029b7978135e6f1ac5d1b7ed877dd09c2c8f218d Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Wed, 25 Nov 2026 13:04:17 +0000
+Subject: [PATCH] nvmem: Add MediaTek MT6358/MT6366 PMIC eFuse driver
+
+Add a read-only NVMEM provider driver for the MediaTek MT6358/MT6366 PMIC
+OTP eFuse array (128 x 16-bit rows = 256 bytes) and register its MFD cell
+in mt6397-core.c. Provides per-unit calibration cells for MT6366 PMIC
+thermal sensors and MT6358/MT6366 ACCDET.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ drivers/mfd/mt6397-core.c    |   3 +
+ drivers/nvmem/Kconfig        |  11 ++
+ drivers/nvmem/Makefile       |   2 +
+ drivers/nvmem/mt6358-efuse.c | 197 +++++++++++++++++++++++++++++++++++
+ 4 files changed, 213 insertions(+)
+ create mode 100644 drivers/nvmem/mt6358-efuse.c
+
+diff --git a/drivers/mfd/mt6397-core.c b/drivers/mfd/mt6397-core.c
+index 8d87dab10..a6f8a4242 100644
+--- a/drivers/mfd/mt6397-core.c
++++ b/drivers/mfd/mt6397-core.c
+@@ -243,6 +243,9 @@ static const struct mfd_cell mt6358_devs[] = {
+ 	}, {
+ 		.name = "mt6366-clkbuf",
+ 		.of_compatible = "mediatek,mt6366-clkbuf"
++	}, {
++		.name = "mt6358-efuse",
++		.of_compatible = "mediatek,mt6358-efuse"
+ 	},
+ };
+ 
+diff --git a/drivers/nvmem/Kconfig b/drivers/nvmem/Kconfig
+index d2f5bb236..2ea43455e 100644
+--- a/drivers/nvmem/Kconfig
++++ b/drivers/nvmem/Kconfig
+@@ -596,4 +596,15 @@ config NVMEM_QORIQ_EFUSE
+ 	  This driver can also be built as a module. If so, the module
+ 	  will be called nvmem_qoriq_efuse.
+ 
++config NVMEM_MT6358_EFUSE
++	tristate "MediaTek MT6358/MT6366 PMIC eFuse Support"
++	depends on MFD_MT6397
++	help
++	  This driver provides read-only access to the OTP eFuse array inside
++	  MediaTek MT6358 and MT6366 PMICs, used by PMIC thermal and ACCDET
++	  calibration consumers.
++
++	  This driver can also be built as a module. If so, the module
++	  will be called nvmem-mt6358-efuse.
++
+ endif # NVMEM
+diff --git a/drivers/nvmem/Makefile b/drivers/nvmem/Makefile
+index 5e70bad9f..d1413bfda 100644
+--- a/drivers/nvmem/Makefile
++++ b/drivers/nvmem/Makefile
+@@ -104,3 +104,5 @@ obj-$(CONFIG_NVMEM_ZYNQMP)		+= nvmem_zynqmp_nvmem.o
+ nvmem_zynqmp_nvmem-y			:= zynqmp_nvmem.o
+ obj-$(CONFIG_NVMEM_QORIQ_EFUSE)		+= nvmem-qoriq-efuse.o
+ nvmem-qoriq-efuse-y			:= qoriq-efuse.o
++obj-$(CONFIG_NVMEM_MT6358_EFUSE)	+= nvmem-mt6358-efuse.o
++nvmem-mt6358-efuse-y			:= mt6358-efuse.o
+diff --git a/drivers/nvmem/mt6358-efuse.c b/drivers/nvmem/mt6358-efuse.c
+new file mode 100644
+index 000000000..d3e4bdf29
+--- /dev/null
++++ b/drivers/nvmem/mt6358-efuse.c
+@@ -0,0 +1,197 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * MediaTek MT6358/MT6366 PMIC OTP eFuse NVMEM driver.
++ *
++ * Register map verified against MT6789/MT6366 stock mt635x-efuse (reg_v1):
++ *   TOP_CKPDN_CON0  = 0x10c (SET +2, CLR +4, mask BIT(4))
++ *   TOP_CKHWEN_CON0 = 0x12a (SET +2, CLR +4, mask BIT(2))
++ *   OTP_CON0  (PA)      = 0x38a
++ *   OTP_CON8  (RD_TRIG) = 0x39a
++ *   OTP_CON11 (RD_SW)   = 0x3a0
++ *   OTP_CON12 (DOUT_SW) = 0x3a2
++ *   OTP_CON13 (RD_BUSY) = 0x3a4
++ *
++ * Copyright (c) 2026 sysretq0 <sysretq0@proton.me>
++ */
++
++#include <linux/bits.h>
++#include <linux/delay.h>
++#include <linux/mfd/mt6397/core.h>
++#include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/nvmem-provider.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/regmap.h>
++
++#define MT6358_TOP_CKPDN_CON0		0x010c
++#define MT6358_TOP_CKHWEN_CON0		0x012a
++#define MT6358_OTP_CON0			0x038a
++#define MT6358_OTP_CON8			0x039a
++#define MT6358_OTP_CON11		0x03a0
++#define MT6358_OTP_CON12		0x03a2
++#define MT6358_OTP_CON13		0x03a4
++
++#define MT6358_EFUSE_SET_OFFSET		2
++#define MT6358_EFUSE_CLR_OFFSET		4
++
++#define RG_EFUSE_CK_PDN_HWEN_MASK	BIT(2)
++#define RG_EFUSE_CK_PDN_MASK		BIT(4)
++#define RG_OTP_RD_BUSY_MASK		BIT(0)
++
++#define MT6358_EFUSE_ROW_COUNT		128
++#define MT6358_EFUSE_WORD_SIZE		2
++#define MT6358_EFUSE_POLL_DELAY_US	50
++#define MT6358_EFUSE_POLL_TIMEOUT_US	30000
++#define MT6358_EFUSE_READ_DELAY_US	80
++
++struct mt6358_efuse {
++	struct device *dev;
++	struct regmap *regmap;
++	struct mutex lock; /* serializes PMIC OTP read sequence */
++	unsigned int trig_sta;
++};
++
++static int mt6358_efuse_read(void *context, unsigned int offset,
++			     void *buf, size_t bytes)
++{
++	struct mt6358_efuse *efuse = context;
++	unsigned int end = offset + bytes;
++	u16 *out = buf;
++	int ret;
++
++	mutex_lock(&efuse->lock);
++
++	ret = regmap_write(efuse->regmap,
++			   MT6358_TOP_CKHWEN_CON0 + MT6358_EFUSE_CLR_OFFSET,
++			   RG_EFUSE_CK_PDN_HWEN_MASK);
++	if (ret)
++		goto out_unlock;
++
++	ret = regmap_write(efuse->regmap,
++			   MT6358_TOP_CKPDN_CON0 + MT6358_EFUSE_CLR_OFFSET,
++			   RG_EFUSE_CK_PDN_MASK);
++	if (ret)
++		goto out_disable;
++
++	ret = regmap_write(efuse->regmap, MT6358_OTP_CON11, 1);
++	if (ret)
++		goto out_disable;
++
++	for (; offset < end; offset += MT6358_EFUSE_WORD_SIZE) {
++		unsigned int val = 0;
++
++		ret = regmap_write(efuse->regmap, MT6358_OTP_CON0, offset);
++		if (ret)
++			goto out_disable;
++
++		efuse->trig_sta ^= 1;
++		ret = regmap_write(efuse->regmap, MT6358_OTP_CON8,
++				   efuse->trig_sta);
++		if (ret) {
++			efuse->trig_sta ^= 1;
++			goto out_disable;
++		}
++
++		usleep_range(MT6358_EFUSE_POLL_DELAY_US,
++			     MT6358_EFUSE_POLL_DELAY_US * 2);
++		ret = regmap_read_poll_timeout(efuse->regmap, MT6358_OTP_CON13,
++					       val, !(val & RG_OTP_RD_BUSY_MASK),
++					       MT6358_EFUSE_POLL_DELAY_US,
++					       MT6358_EFUSE_POLL_TIMEOUT_US);
++		if (ret) {
++			dev_err(efuse->dev, "eFuse busy timeout at 0x%x\n",
++				offset);
++			goto out_disable;
++		}
++
++		usleep_range(MT6358_EFUSE_READ_DELAY_US,
++			     MT6358_EFUSE_READ_DELAY_US + 20);
++		ret = regmap_read(efuse->regmap, MT6358_OTP_CON12, &val);
++		if (ret)
++			goto out_disable;
++
++		*out++ = (u16)val;
++	}
++
++out_disable:
++	regmap_write(efuse->regmap, MT6358_OTP_CON11, 0);
++	regmap_write(efuse->regmap,
++		     MT6358_TOP_CKHWEN_CON0 + MT6358_EFUSE_SET_OFFSET,
++		     RG_EFUSE_CK_PDN_HWEN_MASK);
++	regmap_write(efuse->regmap,
++		     MT6358_TOP_CKPDN_CON0 + MT6358_EFUSE_SET_OFFSET,
++		     RG_EFUSE_CK_PDN_MASK);
++out_unlock:
++	mutex_unlock(&efuse->lock);
++	return ret;
++}
++
++static int mt6358_efuse_probe(struct platform_device *pdev)
++{
++	struct nvmem_config econfig = { };
++	struct device *dev = &pdev->dev;
++	struct nvmem_device *nvmem;
++	struct mt6358_efuse *efuse;
++	int ret;
++
++	efuse = devm_kzalloc(dev, sizeof(*efuse), GFP_KERNEL);
++	if (!efuse)
++		return -ENOMEM;
++
++	efuse->regmap = dev_get_regmap(dev->parent, NULL);
++	if (!efuse->regmap) {
++		struct mt6397_chip *chip = dev_get_drvdata(dev->parent);
++
++		if (!chip || !chip->regmap)
++			return -ENODEV;
++		efuse->regmap = chip->regmap;
++	}
++
++	ret = regmap_read(efuse->regmap, MT6358_OTP_CON8, &efuse->trig_sta);
++	if (ret)
++		return dev_err_probe(dev, ret, "failed to read OTP_CON8\n");
++	efuse->trig_sta &= 1;
++
++	mutex_init(&efuse->lock);
++	efuse->dev = dev;
++	platform_set_drvdata(pdev, efuse);
++
++	econfig.dev = dev;
++	econfig.name = dev_name(dev);
++	econfig.id = NVMEM_DEVID_NONE;
++	econfig.owner = THIS_MODULE;
++	econfig.stride = MT6358_EFUSE_WORD_SIZE;
++	econfig.word_size = MT6358_EFUSE_WORD_SIZE;
++	econfig.size = MT6358_EFUSE_ROW_COUNT * MT6358_EFUSE_WORD_SIZE;
++	econfig.read_only = true;
++	econfig.reg_read = mt6358_efuse_read;
++	econfig.priv = efuse;
++
++	nvmem = devm_nvmem_register(dev, &econfig);
++	if (IS_ERR(nvmem))
++		return dev_err_probe(dev, PTR_ERR(nvmem),
++				     "failed to register PMIC eFuse nvmem\n");
++
++	return 0;
++}
++
++static const struct of_device_id mt6358_efuse_of_match[] = {
++	{ .compatible = "mediatek,mt6358-efuse" },
++	{ .compatible = "mediatek,mt6359p-efuse" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, mt6358_efuse_of_match);
++
++static struct platform_driver mt6358_efuse_driver = {
++	.probe = mt6358_efuse_probe,
++	.driver = {
++		.name = "mt6358-efuse",
++		.of_match_table = mt6358_efuse_of_match,
++	},
++};
++module_platform_driver(mt6358_efuse_driver);
++
++MODULE_AUTHOR("sysretq0 <sysretq0@proton.me>");
++MODULE_DESCRIPTION("MediaTek MT6358/MT6366 PMIC eFuse NVMEM driver");
++MODULE_LICENSE("GPL");
+-- 
+2.55.0
+

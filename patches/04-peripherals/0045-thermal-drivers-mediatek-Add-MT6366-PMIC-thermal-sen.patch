@@ -1,0 +1,288 @@
+From 945499a3a4a6ad72b48d616613445fbcc2f65c17 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Wed, 25 Nov 2026 13:04:18 +0000
+Subject: [PATCH] thermal/drivers/mediatek: Add MT6366 PMIC thermal sensor
+ driver
+
+Add a thermal sensor driver for the four on-die temperature channels of
+the MediaTek MT6366 PMIC (PMU die, VCORE, VPROC, and VGPU bucks). Reads
+12-bit raw counts from mt6359-auxadc and converts them using per-unit
+eFuse slope/intercept parameters from mt6366_e_data.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ drivers/thermal/mediatek/Kconfig          |   8 +
+ drivers/thermal/mediatek/Makefile         |   1 +
+ drivers/thermal/mediatek/mt6366_thermal.c | 234 ++++++++++++++++++++++
+ 3 files changed, 243 insertions(+)
+ create mode 100644 drivers/thermal/mediatek/mt6366_thermal.c
+
+diff --git a/drivers/thermal/mediatek/Kconfig b/drivers/thermal/mediatek/Kconfig
+index d82c86d9b..9b515aa88 100644
+--- a/drivers/thermal/mediatek/Kconfig
++++ b/drivers/thermal/mediatek/Kconfig
+@@ -34,4 +34,13 @@ config MTK_LVTS_THERMAL_DEBUGFS
+        help
+          Enable this option to debug the internals of the device driver.
+ 
++config MTK_MT6366_THERMAL
++	tristate "MediaTek MT6366 PMIC Thermal Sensor Driver"
++	depends on IIO && NVMEM
++	help
++	  Enable support for the four on-die thermal sensors in the MediaTek
++	  MT6366 PMIC (PMU die, VCORE, VPROC, and VGPU bucks). Samples raw
++	  12-bit PMIC AUXADC channels and converts readings using per-unit
++	  PMIC eFuse slope and intercept calibration parameters.
++
+ endif
+diff --git a/drivers/thermal/mediatek/Makefile b/drivers/thermal/mediatek/Makefile
+index 1c6daa1e6..88ab05200 100644
+--- a/drivers/thermal/mediatek/Makefile
++++ b/drivers/thermal/mediatek/Makefile
+@@ -1,2 +1,3 @@
+ obj-$(CONFIG_MTK_SOC_THERMAL)	+= auxadc_thermal.o
+ obj-$(CONFIG_MTK_LVTS_THERMAL)	+= lvts_thermal.o
++obj-$(CONFIG_MTK_MT6366_THERMAL)	+= mt6366_thermal.o
+diff --git a/drivers/thermal/mediatek/mt6366_thermal.c b/drivers/thermal/mediatek/mt6366_thermal.c
+new file mode 100644
+index 000000000..3360ff704
+--- /dev/null
++++ b/drivers/thermal/mediatek/mt6366_thermal.c
+@@ -0,0 +1,234 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * MediaTek MT6366 PMIC 4-channel thermal sensor driver.
++ *
++ * Mirrors MT6789/MT6366 stock pmic_temp.c calibration and conversion math:
++ * reads 12-bit raw ADC counts from mt6359-auxadc (vref = 1800 mV) and
++ * converts to millidegrees Celsius using per-unit PMIC eFuse parameters
++ * from the 12-byte mt6366_e_data cell.
++ *
++ * Copyright (c) 2026 sysretq0 <sysretq0@proton.me>
++ */
++
++#include <linux/bits.h>
++#include <linux/iio/consumer.h>
++#include <linux/module.h>
++#include <linux/nvmem-consumer.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/slab.h>
++#include <linux/thermal.h>
++
++#include "../thermal_hwmon.h"
++
++#define MT6366_NUM_SENSORS		4
++#define MT6366_AUXADC_VREF_MV		1800
++#define MT6366_AUXADC_FULL_SCALE	4096
++#define MT6366_EFUSE_LEN		12
++
++struct mt6366_thermal_sensor {
++	struct device *dev;
++	struct iio_channel *chan;
++	int cali_factor;
++	int o_vts;
++	int slope1;
++	int slope2;
++	int intercept;
++};
++
++struct mt6366_thermal {
++	struct device *dev;
++	struct mt6366_thermal_sensor sensors[MT6366_NUM_SENSORS];
++	int degc_cali;
++	int o_slope;
++	int o_slope_sign;
++	int id;
++	int adc_cali_en;
++};
++
++static const char *const mt6366_chan_names[MT6366_NUM_SENSORS] = {
++	"pmic6366_ts1",
++	"pmic6366_ts2",
++	"pmic6366_ts3",
++	"pmic6366_ts4",
++};
++
++static const int mt6366_cali_factors[MT6366_NUM_SENSORS] = {
++	1681, 1863, 1863, 1863,
++};
++
++static int mt6366_thermal_get_temp(struct thermal_zone_device *tz, int *temp)
++{
++	struct mt6366_thermal_sensor *sensor = thermal_zone_device_priv(tz);
++	int raw = 0, mv, ret;
++
++	ret = iio_read_channel_raw(sensor->chan, &raw);
++	if (ret < 0)
++		return ret;
++
++	/* Convert 12-bit PMIC AUXADC raw count to millivolts (vref=1800 mV) */
++	mv = (raw * MT6366_AUXADC_VREF_MV) / MT6366_AUXADC_FULL_SCALE;
++	*temp = sensor->intercept +
++		div_s64((s64)sensor->slope1 * mv, sensor->slope2);
++	return 0;
++}
++
++static const struct thermal_zone_device_ops mt6366_thermal_ops = {
++	.get_temp = mt6366_thermal_get_temp,
++};
++
++static int mt6366_thermal_load_efuse(struct mt6366_thermal *priv)
++{
++	struct nvmem_cell *cell;
++	size_t len = 0;
++	u16 *buf;
++
++	priv->degc_cali = 50;
++	priv->o_slope = 0;
++	priv->o_slope_sign = 0;
++	priv->adc_cali_en = 0;
++
++	cell = nvmem_cell_get(priv->dev, "mt6366_e_data");
++	if (IS_ERR(cell)) {
++		int err = PTR_ERR(cell);
++
++		if (err == -EPROBE_DEFER)
++			return err;
++		dev_warn(priv->dev,
++			 "mt6366_e_data nvmem unavailable (%d), using defaults\n",
++			 err);
++		return 0;
++	}
++
++	buf = nvmem_cell_read(cell, &len);
++	nvmem_cell_put(cell);
++	if (IS_ERR(buf))
++		return PTR_ERR(buf);
++
++	if (len != MT6366_EFUSE_LEN) {
++		kfree(buf);
++		dev_warn(priv->dev, "unexpected eFuse size %zu (expected %d)\n",
++			 len, MT6366_EFUSE_LEN);
++		return 0;
++	}
++
++	priv->adc_cali_en = (buf[0] & BIT(8)) >> 8;
++	if (priv->adc_cali_en) {
++		priv->sensors[0].o_vts = buf[1] & GENMASK(12, 0);
++		priv->sensors[1].o_vts = buf[4] & GENMASK(12, 0);
++		priv->sensors[2].o_vts = buf[5] & GENMASK(12, 0);
++		priv->sensors[3].o_vts = (buf[3] & GENMASK(15, 5)) >> 5;
++
++		priv->degc_cali = buf[0] & GENMASK(5, 0);
++		priv->o_slope_sign = (buf[2] & BIT(8)) >> 8;
++		priv->o_slope = buf[2] & GENMASK(5, 0);
++		priv->id = (buf[3] & BIT(4)) >> 4;
++
++		if (priv->id == 0)
++			priv->o_slope = 0;
++		if (priv->degc_cali < 38 || priv->degc_cali > 60)
++			priv->degc_cali = 53;
++	}
++
++	kfree(buf);
++	dev_info(priv->dev,
++		 "MT6366 thermal cali: en=%d degc=%d slope=%d sign=%d o_vts=%u/%u/%u/%u\n",
++		 priv->adc_cali_en, priv->degc_cali, priv->o_slope,
++		 priv->o_slope_sign, priv->sensors[0].o_vts,
++		 priv->sensors[1].o_vts, priv->sensors[2].o_vts,
++		 priv->sensors[3].o_vts);
++	return 0;
++}
++
++static void mt6366_thermal_init_params(struct mt6366_thermal *priv)
++{
++	int i;
++
++	for (i = 0; i < MT6366_NUM_SENSORS; i++) {
++		struct mt6366_thermal_sensor *s = &priv->sensors[i];
++		int factor = s->cali_factor;
++		int vbe_t, denom_int;
++
++		s->slope1 = 100 * 1000 * 10;
++		if (priv->o_slope_sign == 0) {
++			s->slope2 = -(factor + priv->o_slope);
++			denom_int = -(factor + priv->o_slope * 10);
++		} else {
++			s->slope2 = -(factor - priv->o_slope);
++			denom_int = -(factor - priv->o_slope * 10);
++		}
++
++		vbe_t = -((s->o_vts * MT6366_AUXADC_VREF_MV) /
++			  MT6366_AUXADC_FULL_SCALE) * 1000;
++		s->intercept = (int)div_s64((s64)vbe_t * 1000, denom_int) +
++			       priv->degc_cali * 500;
++	}
++}
++
++static int mt6366_thermal_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct mt6366_thermal *priv;
++	int i, ret;
++
++	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
++	if (!priv)
++		return -ENOMEM;
++
++	priv->dev = dev;
++
++	for (i = 0; i < MT6366_NUM_SENSORS; i++) {
++		struct mt6366_thermal_sensor *s = &priv->sensors[i];
++
++		s->dev = dev;
++		s->cali_factor = mt6366_cali_factors[i];
++		s->o_vts = 1600;
++		s->chan = devm_iio_channel_get(dev, mt6366_chan_names[i]);
++		if (IS_ERR(s->chan))
++			return dev_err_probe(dev, PTR_ERR(s->chan),
++					     "failed to get IIO channel %s\n",
++					     mt6366_chan_names[i]);
++	}
++
++	ret = mt6366_thermal_load_efuse(priv);
++	if (ret)
++		return ret;
++
++	mt6366_thermal_init_params(priv);
++
++	for (i = 0; i < MT6366_NUM_SENSORS; i++) {
++		struct thermal_zone_device *tz;
++
++		tz = devm_thermal_of_zone_register(dev, i, &priv->sensors[i],
++						   &mt6366_thermal_ops);
++		if (IS_ERR(tz)) {
++			if (PTR_ERR(tz) == -ENODEV)
++				continue;
++			return dev_err_probe(dev, PTR_ERR(tz),
++					     "failed to register zone %d\n", i);
++		}
++		devm_thermal_add_hwmon_sysfs(dev, tz);
++	}
++
++	platform_set_drvdata(pdev, priv);
++	return 0;
++}
++
++static const struct of_device_id mt6366_thermal_of_match[] = {
++	{ .compatible = "mediatek,mt6366-pmic-temp" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, mt6366_thermal_of_match);
++
++static struct platform_driver mt6366_thermal_driver = {
++	.probe = mt6366_thermal_probe,
++	.driver = {
++		.name = "mt6366-pmic-temp",
++		.of_match_table = mt6366_thermal_of_match,
++	},
++};
++module_platform_driver(mt6366_thermal_driver);
++
++MODULE_AUTHOR("sysretq0 <sysretq0@proton.me>");
++MODULE_DESCRIPTION("MediaTek MT6366 PMIC thermal sensor driver");
++MODULE_LICENSE("GPL");
+-- 
+2.55.0
+

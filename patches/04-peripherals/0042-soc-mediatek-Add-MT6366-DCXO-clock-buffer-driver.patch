@@ -1,0 +1,232 @@
+From dfac6af30bfb114fd821a0cbf039b358bed82615 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Wed, 25 Nov 2026 13:02:42 +0000
+Subject: [PATCH] soc: mediatek: Add MT6366 DCXO clock buffer driver
+
+Add a regmap-backed MFD sub-device driver for the MediaTek MT6366 PMIC
+DCXO external clock buffer (DCXO_CW00 = 0x788, auxout CW18/CW19 =
+0x7b4/0x7b6). Enables board-requested buffers such as XO_NFC (index 2,
+EXTBUF3) in SW mode at probe and restores prior CW00 bits on remove.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ drivers/mfd/mt6397-core.c                |   3 +
+ drivers/soc/mediatek/Kconfig             |   8 ++
+ drivers/soc/mediatek/Makefile            |   1 +
+ drivers/soc/mediatek/mtk-mt6366-clkbuf.c | 163 +++++++++++++++++++++++
+ 4 files changed, 175 insertions(+)
+ create mode 100644 drivers/soc/mediatek/mtk-mt6366-clkbuf.c
+
+diff --git a/drivers/mfd/mt6397-core.c b/drivers/mfd/mt6397-core.c
+index 1338d25f0..8d87dab10 100644
+--- a/drivers/mfd/mt6397-core.c
++++ b/drivers/mfd/mt6397-core.c
+@@ -240,6 +240,9 @@ static const struct mfd_cell mt6358_devs[] = {
+ 		.num_resources = ARRAY_SIZE(mt6358_accdet_resources),
+ 		.resources = mt6358_accdet_resources,
+ 		.of_compatible = "mediatek,mt6358-accdet"
++	}, {
++		.name = "mt6366-clkbuf",
++		.of_compatible = "mediatek,mt6366-clkbuf"
+ 	},
+ };
+ 
+diff --git a/drivers/soc/mediatek/Kconfig b/drivers/soc/mediatek/Kconfig
+index d7293977f..379d97015 100644
+--- a/drivers/soc/mediatek/Kconfig
++++ b/drivers/soc/mediatek/Kconfig
+@@ -89,4 +89,13 @@ config MTK_SOCINFO
+ 	  information about the SoC to the userspace including the
+ 	  manufacturer name, marketing name and soc name.
+ 
++config MTK_MT6366_CLKBUF
++	tristate "MediaTek MT6366 PMIC DCXO Clock Buffer"
++	depends on MFD_MT6397
++	help
++	  Enable support for the MediaTek MT6366 PMIC 26 MHz DCXO external
++	  clock buffer controller (XO_SOC, XO_WCN, XO_NFC, XO_CEL). Used to
++	  enable board-wide external clock buffers such as XO_NFC for NFC
++	  controllers whose upstream drivers do not model a PMIC clock.
++
+ endmenu
+diff --git a/drivers/soc/mediatek/Makefile b/drivers/soc/mediatek/Makefile
+index 0665573e3..1b27a9284 100644
+--- a/drivers/soc/mediatek/Makefile
++++ b/drivers/soc/mediatek/Makefile
+@@ -9,3 +9,4 @@ obj-$(CONFIG_MTK_MMSYS) += mtk-mmsys.o
+ obj-$(CONFIG_MTK_MMSYS) += mtk-mutex.o
+ obj-$(CONFIG_MTK_SVS) += mtk-svs.o
+ obj-$(CONFIG_MTK_SOCINFO) += mtk-socinfo.o
++obj-$(CONFIG_MTK_MT6366_CLKBUF) += mtk-mt6366-clkbuf.o
+diff --git a/drivers/soc/mediatek/mtk-mt6366-clkbuf.c b/drivers/soc/mediatek/mtk-mt6366-clkbuf.c
+new file mode 100644
+index 000000000..9e900d1ef
+--- /dev/null
++++ b/drivers/soc/mediatek/mtk-mt6366-clkbuf.c
+@@ -0,0 +1,163 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * MediaTek MT6366 PMIC DCXO external clock buffer controller.
++ *
++ * Register layout verified against MT6789/MT6366 stock clkbuf.ko and
++ * mtk-clkbuf-dcxo-6366.h:
++ *   DCXO_CW00 (0x788): EXTBUF1..4 mode (2-bit) and en_m (1-bit)
++ *   DCXO_CW18 (0x7b4): XO_STATIC_AUXOUT_SEL[5:0]
++ *   DCXO_CW19 (0x7b6): XO_STATIC_AUXOUT[15:0]
++ *
++ * Copyright (c) 2026 sysretq0 <sysretq0@proton.me>
++ */
++
++#include <linux/bits.h>
++#include <linux/mfd/mt6397/core.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/regmap.h>
++
++#define MT6366_DCXO_CW00			0x0788
++#define MT6366_DCXO_CW18			0x07b4
++#define MT6366_DCXO_CW19			0x07b6
++
++#define MT6366_XO_STATIC_AUXOUT_SEL_MASK	GENMASK(5, 0)
++
++struct mt6366_xo_buf_desc {
++	const char *name;
++	u8 mode_shift;
++	u8 en_shift;
++	u8 auxout_sel;
++	u8 auxout_bit;
++};
++
++static const struct mt6366_xo_buf_desc mt6366_xo_bufs[] = {
++	[0] = { "XO_SOC", 0, 2, 5, 0 },
++	[1] = { "XO_WCN", 3, 5, 5, 6 },
++	[2] = { "XO_NFC", 6, 8, 6, 0 },
++	[3] = { "XO_CEL", 9, 11, 6, 6 },
++};
++
++struct mt6366_clkbuf {
++	struct device *dev;
++	struct regmap *regmap;
++	u32 enabled_mask;
++	unsigned int saved_cw00;
++};
++
++static int mt6366_clkbuf_read_auxout(struct mt6366_clkbuf *priv,
++				     const struct mt6366_xo_buf_desc *desc,
++				     bool *enabled)
++{
++	unsigned int val = 0;
++	int ret;
++
++	ret = regmap_update_bits(priv->regmap, MT6366_DCXO_CW18,
++				 MT6366_XO_STATIC_AUXOUT_SEL_MASK,
++				 desc->auxout_sel);
++	if (ret)
++		return ret;
++
++	ret = regmap_read(priv->regmap, MT6366_DCXO_CW19, &val);
++	if (ret)
++		return ret;
++
++	*enabled = !!(val & BIT(desc->auxout_bit));
++	return 0;
++}
++
++static int mt6366_clkbuf_probe(struct platform_device *pdev)
++{
++	struct mt6397_chip *mt6397 = dev_get_drvdata(pdev->dev.parent);
++	struct device *dev = &pdev->dev;
++	struct mt6366_clkbuf *priv;
++	u32 bufs[ARRAY_SIZE(mt6366_xo_bufs)];
++	int count, i, ret;
++
++	if (!mt6397 || !mt6397->regmap)
++		return -ENODEV;
++
++	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
++	if (!priv)
++		return -ENOMEM;
++
++	priv->dev = dev;
++	priv->regmap = mt6397->regmap;
++	platform_set_drvdata(pdev, priv);
++
++	ret = regmap_read(priv->regmap, MT6366_DCXO_CW00, &priv->saved_cw00);
++	if (ret)
++		return dev_err_probe(dev, ret, "failed to read DCXO_CW00\n");
++
++	count = of_property_count_u32_elems(dev->of_node,
++					    "mediatek,xo-buf-enable");
++	if (count <= 0)
++		return 0;
++
++	if (count > ARRAY_SIZE(bufs))
++		count = ARRAY_SIZE(bufs);
++
++	ret = of_property_read_u32_array(dev->of_node,
++					 "mediatek,xo-buf-enable", bufs, count);
++	if (ret)
++		return ret;
++
++	for (i = 0; i < count; i++) {
++		const struct mt6366_xo_buf_desc *desc;
++		unsigned int mask, val;
++		bool live = false;
++
++		if (bufs[i] >= ARRAY_SIZE(mt6366_xo_bufs)) {
++			dev_warn(dev, "ignoring unsupported XO buffer index %u\n",
++				 bufs[i]);
++			continue;
++		}
++
++		desc = &mt6366_xo_bufs[bufs[i]];
++		/* Switch buffer to SW control (mode=0) and assert en_m=1 */
++		mask = (0x3U << desc->mode_shift) | BIT(desc->en_shift);
++		val = BIT(desc->en_shift);
++		ret = regmap_update_bits(priv->regmap, MT6366_DCXO_CW00,
++					 mask, val);
++		if (ret)
++			return dev_err_probe(dev, ret, "failed to enable %s\n",
++					     desc->name);
++
++		priv->enabled_mask |= mask;
++		if (!mt6366_clkbuf_read_auxout(priv, desc, &live))
++			dev_info(dev, "%s enabled (auxout=%d)\n",
++				 desc->name, live);
++	}
++
++	return 0;
++}
++
++static void mt6366_clkbuf_remove(struct platform_device *pdev)
++{
++	struct mt6366_clkbuf *priv = platform_get_drvdata(pdev);
++
++	if (priv->enabled_mask)
++		regmap_update_bits(priv->regmap, MT6366_DCXO_CW00,
++				   priv->enabled_mask, priv->saved_cw00);
++}
++
++static const struct of_device_id mt6366_clkbuf_of_match[] = {
++	{ .compatible = "mediatek,mt6366-clkbuf" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, mt6366_clkbuf_of_match);
++
++static struct platform_driver mt6366_clkbuf_driver = {
++	.probe = mt6366_clkbuf_probe,
++	.remove = mt6366_clkbuf_remove,
++	.driver = {
++		.name = "mt6366-clkbuf",
++		.of_match_table = mt6366_clkbuf_of_match,
++	},
++};
++module_platform_driver(mt6366_clkbuf_driver);
++
++MODULE_AUTHOR("sysretq0 <sysretq0@proton.me>");
++MODULE_DESCRIPTION("MediaTek MT6366 PMIC DCXO clock buffer driver");
++MODULE_LICENSE("GPL");
+-- 
+2.55.0
+

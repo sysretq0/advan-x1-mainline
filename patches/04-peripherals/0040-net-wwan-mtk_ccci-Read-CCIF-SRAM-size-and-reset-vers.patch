@@ -1,0 +1,101 @@
+From ec0bf1a85b487b39b6a00456eb849cca12626dab Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Wed, 25 Nov 2026 13:02:40 +0000
+Subject: [PATCH] net: wwan: mtk_ccci: Read CCIF SRAM size and reset version
+ from DT
+
+Parse optional mediatek,ccif-sram-size (default 512 bytes, matching stock
+runtime_merged.dts:4662 mediatek,sram_size = <0x200>) and
+mediatek,ccif-hw-reset-ver (default 0, INFRACFG_AO RST3_SET/CLR) from the
+CCIF0 devicetree node instead of hardcoding MTK_CCIF_SRAM_SIZE and reset
+version 0.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ drivers/net/wwan/mtk_ccci/mtk_ccci.h          |  2 ++
+ drivers/net/wwan/mtk_ccci/mtk_ccci_core.c     | 27 ++++++++++++++-----
+ 2 files changed, 21 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci.h b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
+index 1fe473e84..c30afc9fc 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci.h
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
+@@ -408,6 +408,8 @@ struct mtk_ccci_dev {
+ 
+ 	u32 srclken_o1;
+ 	u32 power_flow_config;
++	u32 ccif_sram_size;
++	u32 ccif_hw_reset_ver;
+ 
+ 	int wdt_irq;
+ 	int ccif_irq0;
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+index e784e7ccc..81f0a0bda 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+@@ -168,7 +168,7 @@ static void mtk_ccif_hw_reset(struct mtk_ccci_dev *ccci)
+ {
+ 	u32 i;
+ 
+-	if (ccci->infracfg) {
++	if (ccci->infracfg && ccci->ccif_hw_reset_ver == 0) {
+ 		regmap_write(ccci->infracfg, MTK_INFRA_AO_RST3_SET,
+ 			     MTK_INFRA_RST3_CCIF0_BIT);
+ 		usleep_range(10, 20);
+@@ -176,18 +176,18 @@ static void mtk_ccif_hw_reset(struct mtk_ccci_dev *ccci)
+ 			     MTK_INFRA_RST3_CCIF0_BIT);
+ 	}
+ 
+-	for (i = 0; i < MTK_CCIF_SRAM_SIZE; i += 4) {
++	for (i = 0; i < ccci->ccif_sram_size; i += 4) {
+ 		writel(0, ccci->ccif_ap_base + APCCIF_CHDATA + i);
+ 		writel(0, ccci->ccif_md_base + APCCIF_CHDATA + i);
+ 	}
+ 
+ 	/* Write Gen95 bootup trace / MDSS_DBG footer at tail of CCIF0 SRAM */
+ 	writel(MTK_CCIF_RTBN_MAGIC,
+-	       ccci->ccif_ap_base + APCCIF_CHDATA + MTK_CCIF_SRAM_SIZE - 12);
++	       ccci->ccif_ap_base + APCCIF_CHDATA + ccci->ccif_sram_size - 12);
+ 	writel(MTK_MD_NC_SMEM_MD_BASE + NC_OFF_MDSS_DBG,
+-	       ccci->ccif_ap_base + APCCIF_CHDATA + MTK_CCIF_SRAM_SIZE - 8);
++	       ccci->ccif_ap_base + APCCIF_CHDATA + ccci->ccif_sram_size - 8);
+ 	writel(NC_SZ_MDSS_DBG,
+-	       ccci->ccif_ap_base + APCCIF_CHDATA + MTK_CCIF_SRAM_SIZE - 4);
++	       ccci->ccif_ap_base + APCCIF_CHDATA + ccci->ccif_sram_size - 4);
+ 
+ 	writel(0xffffffff, ccci->ccif_ap_base + APCCIF_ACK);
+ 	memset(ccci->tx_seq, 0, sizeof(ccci->tx_seq));
+@@ -218,7 +218,7 @@ static void mtk_ccci_dump_timeout_state(struct mtk_ccci_dev *ccci)
+ 		readl(ccci->ccif_md_base + APCCIF_START),
+ 		readl(ccci->ccif_md_base + APCCIF_RCHNUM));
+ 
+-	for (off = 0; off < MTK_CCIF_SRAM_SIZE; off += 16) {
++	for (off = 0; off < ccci->ccif_sram_size; off += 16) {
+ 		w0 = readl(ccci->ccif_ap_base + APCCIF_CHDATA + off);
+ 		w1 = readl(ccci->ccif_ap_base + APCCIF_CHDATA + off + 4);
+ 		w2 = readl(ccci->ccif_ap_base + APCCIF_CHDATA + off + 8);
+@@ -1582,6 +1582,21 @@ static int mtk_ccci_parse_ccif(struct mtk_ccci_dev *ccci)
+ 		goto err_put;
+ 	}
+ 
++	ccci->ccif_sram_size = MTK_CCIF_SRAM_SIZE;
++	of_property_read_u32(ccif_np, "mediatek,ccif-sram-size",
++			     &ccci->ccif_sram_size);
++	if (ccci->ccif_sram_size < sizeof(struct mtk_ccci_sram_layout) + 12 ||
++	    ccci->ccif_sram_size > 4096 || (ccci->ccif_sram_size & 3)) {
++		dev_warn(ccci->dev,
++			 "invalid mediatek,ccif-sram-size=%u, using %u\n",
++			 ccci->ccif_sram_size, MTK_CCIF_SRAM_SIZE);
++		ccci->ccif_sram_size = MTK_CCIF_SRAM_SIZE;
++	}
++
++	ccci->ccif_hw_reset_ver = 0;
++	of_property_read_u32(ccif_np, "mediatek,ccif-hw-reset-ver",
++			     &ccci->ccif_hw_reset_ver);
++
+ 	ccci->ccif_irq0 = of_irq_get(ccif_np, 0);
+ 	ccci->ccif_irq1 = of_irq_get(ccif_np, 1);
+ 	if (ccci->ccif_irq0 <= 0 || ccci->ccif_irq1 <= 0) {
+-- 
+2.55.0
+

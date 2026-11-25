@@ -743,6 +743,7 @@
 				 <&infracfg_ao CLK_IFRAO_CCIF5_MD>;
 			clock-names = "ccif-ap", "ccif-md", "ccif1-ap",
 				      "ccif1-md", "ccif4-md", "ccif5-md";
+			mediatek,ccif-sram-size = <0x200>;
 			status = "disabled";
 		};
 

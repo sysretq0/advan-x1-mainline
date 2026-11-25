@@ -1,0 +1,214 @@
+From c09ec5886af09a8a196232e7cff09de4e84c1969 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Wed, 25 Nov 2026 13:04:19 +0000
+Subject: [PATCH] ASoC: codecs: mt6358-accdet: Add PMIC eFuse offset, moisture,
+ and CDD support
+
+Read optional PMIC eFuse calibration cells (accdet-offset, moisture-vdd,
+moisture-offset, and four-key fallback) from mediatek,mt6358-efuse using
+the exact MT6366 2's-complement formulas from stock mt6358-accdet. Apply
+auxadc_offset to button ADC readings and select the
+mediatek,three-key-threshold-cdd map for 3-key detection when present.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ sound/soc/codecs/mt6358-accdet.c | 133 ++++++++++++++++++++++++++++---
+ 1 file changed, 121 insertions(+), 12 deletions(-)
+
+diff --git a/sound/soc/codecs/mt6358-accdet.c b/sound/soc/codecs/mt6358-accdet.c
+index 7768f4381..76826c56d 100644
+--- a/sound/soc/codecs/mt6358-accdet.c
++++ b/sound/soc/codecs/mt6358-accdet.c
+@@ -15,6 +15,7 @@
+ #include <linux/mod_devicetable.h>
+ #include <linux/module.h>
+ #include <linux/mutex.h>
++#include <linux/nvmem-consumer.h>
+ #include <linux/of.h>
+ #include <linux/platform_device.h>
+ #include <linux/regmap.h>
+@@ -161,6 +162,11 @@ struct mt6358_accdet {
+ 	/* Tier A: headset-three-key-threshold-CDD = <0 121 192 600> */
+ 	u32 cdd_key[4];
+ 	bool has_four_key;
++	bool has_cdd_key;
++
++	int auxadc_offset;
++	int moisture_vdd_offset;
++	int moisture_offset;
+ 
+ 	bool plugged_in;
+ 	enum accdet_state state;
+@@ -241,12 +247,19 @@ static int mt6358_accdet_check_button(struct mt6358_accdet *priv)
+ 	if (!priv->adc_chan)
+ 		return SND_JACK_BTN_0;
+ 
++	const u32 *three_key = priv->has_cdd_key ? priv->cdd_key : priv->three_key;
++
+ 	ret = iio_read_channel_processed(priv->adc_chan, &mv);
+ 	if (ret < 0) {
+ 		dev_dbg(priv->dev, "AUXADC read failed: %d\n", ret);
+ 		return SND_JACK_BTN_0;
+ 	}
+ 
++	if (mv < priv->auxadc_offset)
++		mv = 0;
++	else
++		mv -= priv->auxadc_offset;
++
+ 	if (priv->has_four_key) {
+ 		if (mv < priv->four_key[1])
+ 			return SND_JACK_BTN_0;
+@@ -259,11 +272,11 @@ static int mt6358_accdet_check_button(struct mt6358_accdet *priv)
+ 		return 0;
+ 	}
+ 
+-	if (mv < priv->three_key[1])
++	if (mv < three_key[1])
+ 		return SND_JACK_BTN_0;
+-	if (mv < priv->three_key[2])
++	if (mv < three_key[2])
+ 		return SND_JACK_BTN_2;
+-	if (mv < priv->three_key[3])
++	if (mv < three_key[3])
+ 		return SND_JACK_BTN_1;
+ 
+ 	return 0;
+@@ -542,15 +555,11 @@ static int mt6358_accdet_parse_dt(struct mt6358_accdet *priv)
+ 		of_property_read_u32_array(np, "mediatek,three-key-threshold",
+ 					   priv->three_key,
+ 					   ARRAY_SIZE(priv->three_key));
+-		/*
+-		 * Stock accdet selects this alternate key map for CDD-type
+-		 * accessories. Keep it available to the driver; accessory
+-		 * identification / selection lands with the jack-type work.
+-		 */
+-		of_property_read_u32_array(np,
+-					   "mediatek,three-key-threshold-cdd",
+-					   priv->cdd_key,
+-					   ARRAY_SIZE(priv->cdd_key));
++		if (!of_property_read_u32_array(np,
++						"mediatek,three-key-threshold-cdd",
++						priv->cdd_key,
++						ARRAY_SIZE(priv->cdd_key)))
++			priv->has_cdd_key = true;
+ 		if (!of_property_read_u32_array(np,
+ 						"mediatek,four-key-threshold",
+ 						priv->four_key,
+@@ -607,6 +616,102 @@ static void mt6358_accdet_destroy_wq(void *data)
+ 	destroy_workqueue(priv->wq);
+ }
+ 
++static int mt6358_accdet_read_efuse_u16(struct device *dev, const char *name,
++					u16 *out)
++{
++	struct nvmem_cell *cell;
++	size_t len = 0;
++	u16 *buf;
++
++	cell = nvmem_cell_get(dev, name);
++	if (IS_ERR(cell))
++		return PTR_ERR(cell);
++
++	buf = nvmem_cell_read(cell, &len);
++	nvmem_cell_put(cell);
++	if (IS_ERR(buf))
++		return PTR_ERR(buf);
++
++	if (len < sizeof(*out)) {
++		kfree(buf);
++		return -EINVAL;
++	}
++
++	*out = buf[0];
++	kfree(buf);
++	return 0;
++}
++
++static int mt6358_accdet_load_efuse(struct mt6358_accdet *priv)
++{
++	struct device *dev = priv->dev;
++	u16 val = 0;
++	int ret;
++
++	ret = mt6358_accdet_read_efuse_u16(dev, "accdet-offset", &val);
++	if (ret == -EPROBE_DEFER)
++		return ret;
++	if (!ret) {
++		int off = val & 0xff;
++
++		if (off > 128)
++			off -= 256;
++		priv->auxadc_offset = off >> 1;
++	}
++
++	ret = mt6358_accdet_read_efuse_u16(dev, "moisture-vdd", &val);
++	if (ret == -EPROBE_DEFER)
++		return ret;
++	if (!ret) {
++		int off = (val >> 8) & 0xff;
++
++		if (off > 128)
++			off -= 256;
++		priv->moisture_vdd_offset = off;
++	}
++
++	ret = mt6358_accdet_read_efuse_u16(dev, "moisture-offset", &val);
++	if (ret == -EPROBE_DEFER)
++		return ret;
++	if (!ret) {
++		int off = val & 0xff;
++
++		if (off > 128)
++			off -= 256;
++		priv->moisture_offset = off;
++	}
++
++	if (!priv->has_four_key) {
++		struct nvmem_cell *cell;
++		size_t len = 0;
++		u16 *buf;
++
++		cell = nvmem_cell_get(dev, "four-key");
++		if (PTR_ERR(cell) == -EPROBE_DEFER)
++			return -EPROBE_DEFER;
++		if (!IS_ERR(cell)) {
++			buf = nvmem_cell_read(cell, &len);
++			nvmem_cell_put(cell);
++			if (!IS_ERR(buf)) {
++				if (len >= 4) {
++					priv->four_key[0] = 0;
++					priv->four_key[1] = (buf[0] & 0xff) << 2;
++					priv->four_key[2] = ((buf[0] >> 8) & 0xff) << 2;
++					priv->four_key[3] = (buf[1] & 0xff) << 2;
++					priv->four_key[4] = 600;
++					priv->has_four_key = true;
++				}
++				kfree(buf);
++			}
++		}
++	}
++
++	dev_dbg(dev, "ACCDET eFuse: auxadc_off=%d mV moist_vdd=%d mV moist=%d mV\n",
++		priv->auxadc_offset, priv->moisture_vdd_offset,
++		priv->moisture_offset);
++	return 0;
++}
++
+ static int mt6358_accdet_probe(struct platform_device *pdev)
+ {
+ 	struct mt6397_chip *mt6397 = dev_get_drvdata(pdev->dev.parent);
+@@ -626,6 +731,10 @@ static int mt6358_accdet_probe(struct platform_device *pdev)
+ 
+ 	mt6358_accdet_parse_dt(priv);
+ 
++	ret = mt6358_accdet_load_efuse(priv);
++	if (ret)
++		return ret;
++
+ 	priv->adc_chan = devm_iio_channel_get(dev, "pmic_accdet");
+ 	if (IS_ERR(priv->adc_chan)) {
+ 		ret = PTR_ERR(priv->adc_chan);
+-- 
+2.55.0
+
