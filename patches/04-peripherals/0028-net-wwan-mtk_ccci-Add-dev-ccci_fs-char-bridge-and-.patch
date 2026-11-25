@@ -23,11 +23,10 @@ and decouple MD_KERNEL_BOOT_UP from early kernel probe:
 Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/net/wwan/mtk_ccci/Makefile        |   2 +-
- drivers/net/wwan/mtk_ccci/mtk_ccci.h      |  23 ++
- drivers/net/wwan/mtk_ccci/mtk_ccci_core.c | 138 ++++++++----
- drivers/net/wwan/mtk_ccci/mtk_ccci_fs.c   | 246 ++++++++++++++++++++++
- 4 files changed, 369 insertions(+), 40 deletions(-)
- create mode 100644 drivers/net/wwan/mtk_ccci/mtk_ccci_fs.c
+ drivers/net/wwan/mtk_ccci/mtk_ccci.h      |  25 +++
+ drivers/net/wwan/mtk_ccci/mtk_ccci_core.c | 176 ++++++++++++++++-----
+ drivers/net/wwan/mtk_ccci/mtk_ccci_fs.c   | 250 ++++++++++++++++++++++++++++++
+ 4 files changed, 411 insertions(+), 42 deletions(-)
 
 diff --git a/drivers/net/wwan/mtk_ccci/Makefile b/drivers/net/wwan/mtk_ccci/Makefile
 index f92bec6fa..92ab3d9ab 100644
@@ -40,7 +39,7 @@ index f92bec6fa..92ab3d9ab 100644
 -mtk_ccci-y := mtk_ccci_core.o mtk_ccci_ringbuf.o mtk_ccci_rpc.o
 +mtk_ccci-y := mtk_ccci_core.o mtk_ccci_ringbuf.o mtk_ccci_rpc.o mtk_ccci_fs.o
 diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci.h b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
-index f03eb8808..2f2fcc089 100644
+index f03eb8808..2132e08b9 100644
 --- a/drivers/net/wwan/mtk_ccci/mtk_ccci.h
 +++ b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
 @@ -13,11 +13,14 @@
@@ -83,7 +82,7 @@ index f03eb8808..2f2fcc089 100644
  	MTK_CCCI_STATE_BOOTING,
  	MTK_CCCI_STATE_HS1_DONE,
  	MTK_CCCI_STATE_READY,
-@@ -324,7 +332,18 @@ struct mtk_ccci_dev {
+@@ -324,9 +332,22 @@ struct mtk_ccci_dev {
  	struct completion hs1_comp;
  	struct completion hs2_comp;
  
@@ -101,8 +100,12 @@ index f03eb8808..2f2fcc089 100644
 +	atomic_t boot_triggered;
  	atomic_t hs1_done;
  	atomic_t hs2_done;
++	/* Stock ccci_fsm ctl->fs_ongoing: ccci_fsd holds /dev/ccci_fs */
++	atomic_t fs_ongoing;
  	atomic_t wdt_count;
-@@ -342,4 +361,8 @@ int mtk_ccci_rb_write(struct mtk_ccci_ringbuf *rb, const void *src, u32 len);
+ 	atomic_t rx_packets;
+ 	atomic_t rpc_count;
+@@ -342,4 +363,8 @@ int mtk_ccci_rb_write(struct mtk_ccci_ringbuf *rb, const void *src, u32 len);
  int mtk_ccci_tx_send(struct mtk_ccci_dev *ccci, u32 q, void *buf, u32 len);
  void mtk_ccci_rpc_handle(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len);
  
@@ -112,7 +115,7 @@ index f03eb8808..2f2fcc089 100644
 +
  #endif /* __MTK_CCCI_H__ */
 diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
-index 0e5e9ac14..85e0d365a 100644
+index 0e5e9ac14..9f080c286 100644
 --- a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
 +++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
 @@ -54,6 +54,7 @@ static const u32 mtk_ccif_exp_sz[MTK_CCIF_QUEUE_NUM] = {
@@ -196,7 +199,7 @@ index 0e5e9ac14..85e0d365a 100644
  	 */
  	if (res.a1 || res.a2) {
  		for (tries = 0; tries < 50; tries++) {
-@@ -980,20 +965,35 @@ static void mtk_ccci_boot_work(struct work_struct *work)
+@@ -980,20 +965,69 @@ static void mtk_ccci_boot_work(struct work_struct *work)
  		dev_err(ccci->dev,
  			"CCIF0 active before reset (rch=0x%x); refusing unsafe MTCMOS off\n",
  			readl(ccci->ccif_ap_base + APCCIF_RCHNUM));
@@ -225,6 +228,40 @@ index 0e5e9ac14..85e0d365a 100644
 +	return 0;
 +}
 +
++/*
++ * Stock: ccci_fsm_internal.h BOOT_TIMEOUT (30 * 1000) and ccci_fsm.c:432-435
++ * freeze the timeout while an NVRAM FS operation is in flight. On mainline
++ * /dev/ccci_fs is held by ccci_fsd during those operations; bound the
++ * extension to 3x so a wedged MD cannot stall boot forever.
++ */
++#define MTK_CCCI_BOOT_TIMEOUT_MS	30000
++#define MTK_CCCI_HS_POLL_MS		100
++#define MTK_CCCI_FS_EXTEND_MAX		3
++
++static unsigned long mtk_ccci_wait_hs(struct mtk_ccci_dev *ccci,
++				      struct completion *comp)
++{
++	unsigned long budget = msecs_to_jiffies(MTK_CCCI_BOOT_TIMEOUT_MS);
++	unsigned long step = msecs_to_jiffies(MTK_CCCI_HS_POLL_MS);
++	unsigned long left = budget;
++	int extensions = 0;
++
++	while (left) {
++		unsigned long wait = left < step ? left : step;
++		unsigned long ret = wait_for_completion_timeout(comp, wait);
++
++		if (ret)
++			return ret;
++		left -= wait;
++		if (atomic_read(&ccci->fs_ongoing) &&
++		    extensions < MTK_CCCI_FS_EXTEND_MAX) {
++			left = budget;
++			extensions++;
++		}
++	}
++	return 0;
++}
++
 +static void mtk_ccci_boot_work(struct work_struct *work)
 +{
 +	struct mtk_ccci_dev *ccci = container_of(work, struct mtk_ccci_dev, boot_work);
@@ -237,7 +274,7 @@ index 0e5e9ac14..85e0d365a 100644
  	/*
  	 * Reset CCIF0 hardware, clear AP+MD SRAM, and install the Gen95
  	 * 0x7274626e ("rtbn") + MDSS_DBG footer while MD is powered off
-@@ -1034,7 +1034,7 @@ static void mtk_ccci_boot_work(struct work_struct *work)
+@@ -1034,7 +1068,7 @@ static void mtk_ccci_boot_work(struct work_struct *work)
  	dev_info(ccci->dev, "MD MTCMOS ON: ret=%d pwr_sta=0x%08x\n", ret, pwr_sta);
  	if (ret) {
  		dev_err(ccci->dev, "MD MTCMOS power-on failed: %d\n", ret);
@@ -246,7 +283,7 @@ index 0e5e9ac14..85e0d365a 100644
  		return;
  	}
  
-@@ -1052,7 +1052,7 @@ static void mtk_ccci_boot_work(struct work_struct *work)
+@@ -1052,28 +1086,30 @@ static void mtk_ccci_boot_work(struct work_struct *work)
  		 res.a0, res.a1, res.a2, res.a3);
  	if (ret) {
  		dev_err(ccci->dev, "MD_KERNEL_BOOT_UP SMC failed (%d)\n", ret);
@@ -255,8 +292,12 @@ index 0e5e9ac14..85e0d365a 100644
  		return;
  	}
  
-@@ -1062,18 +1062,20 @@ static void mtk_ccci_boot_work(struct work_struct *work)
- 			"HS1 timeout (5s)! boot_status=0x%lx/0x%lx\n",
+-	if (!wait_for_completion_timeout(&ccci->hs1_comp, msecs_to_jiffies(5000))) {
++	if (!mtk_ccci_wait_hs(ccci, &ccci->hs1_comp)) {
+ 		mtk_ccci_smc(MTK_CCCI_SMC_POWER_CONFIG, MTK_CCCI_PWR_BOOT_STATUS, 0, &res);
+ 		dev_err(ccci->dev,
+-			"HS1 timeout (5s)! boot_status=0x%lx/0x%lx\n",
++			"HS1 timeout (30s, FS-extended)! boot_status=0x%lx/0x%lx\n",
  			res.a1, res.a2);
  		mtk_ccci_dump_timeout_state(ccci);
 -		ccci->state = MTK_CCCI_STATE_FAILED;
@@ -265,11 +306,11 @@ index 0e5e9ac14..85e0d365a 100644
  	}
  
 -	if (!wait_for_completion_timeout(&ccci->hs2_comp, msecs_to_jiffies(10000))) {
-+	if (!wait_for_completion_timeout(&ccci->hs2_comp, msecs_to_jiffies(20000))) {
++	if (!mtk_ccci_wait_hs(ccci, &ccci->hs2_comp)) {
  		mtk_ccci_smc(MTK_CCCI_SMC_POWER_CONFIG, MTK_CCCI_PWR_BOOT_STATUS, 0, &res);
  		dev_err(ccci->dev,
 -			"HS2 ACK timeout (10s)! boot_status=0x%lx/0x%lx ccif_rch=0x%x rx=%d rpc=%d\n",
-+			"HS2 ACK timeout (20s)! boot_status=0x%lx/0x%lx ccif_rch=0x%x rx=%d rpc=%d fs_rx=%d fs_tx=%d\n",
++			"HS2 ACK timeout (30s, FS-extended)! boot_status=0x%lx/0x%lx ccif_rch=0x%x rx=%d rpc=%d fs_rx=%d fs_tx=%d\n",
  			res.a1, res.a2,
  			readl(ccci->ccif_ap_base + APCCIF_RCHNUM),
  			atomic_read(&ccci->rx_packets),
@@ -280,7 +321,7 @@ index 0e5e9ac14..85e0d365a 100644
  		WRITE_ONCE(ccci->state, MTK_CCCI_STATE_FAILED);
  	}
  }
-@@ -1135,14 +1137,64 @@ static ssize_t rpc_count_show(struct device *dev, struct device_attribute *attr,
+@@ -1135,14 +1171,64 @@ static ssize_t rpc_count_show(struct device *dev, struct device_attribute *attr,
  }
  static DEVICE_ATTR_RO(rpc_count);
  
@@ -345,7 +386,7 @@ index 0e5e9ac14..85e0d365a 100644
  	NULL,
  };
  ATTRIBUTE_GROUPS(mtk_ccci);
-@@ -1369,11 +1421,18 @@ static int mtk_ccci_probe(struct platform_device *pdev)
+@@ -1369,11 +1455,18 @@ static int mtk_ccci_probe(struct platform_device *pdev)
  	if (ret)
  		goto err_wq;
  
@@ -367,7 +408,7 @@ index 0e5e9ac14..85e0d365a 100644
  	return 0;
  
  err_wq:
-@@ -1393,6 +1452,7 @@ static void mtk_ccci_remove(struct platform_device *pdev)
+@@ -1393,6 +1486,7 @@ static void mtk_ccci_remove(struct platform_device *pdev)
  		disable_irq(ccci->ccif_irq0);
  		disable_irq(ccci->ccif_irq1);
  	}
@@ -377,10 +418,10 @@ index 0e5e9ac14..85e0d365a 100644
  
 diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_fs.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_fs.c
 new file mode 100644
-index 000000000..9dd6d0ca2
+index 000000000..ca31d09ff
 --- /dev/null
 +++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_fs.c
-@@ -0,0 +1,246 @@
+@@ -0,0 +1,250 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * MediaTek MT6789 CCCI /dev/ccci_fs packet bridge (CCIF0 Q4 ch=14 <-> ch=15).
@@ -474,6 +515,9 @@ index 000000000..9dd6d0ca2
 +	if (atomic_cmpxchg(&ccci->fs_open, 0, 1) != 0)
 +		return -EBUSY;
 +
++	/* Freeze the HS1/HS2 boot timeout while ccci_fsd is servicing the MD. */
++	atomic_set(&ccci->fs_ongoing, 1);
++
 +	filp->private_data = ccci;
 +	nonseekable_open(inode, filp);
 +	return 0;
@@ -484,6 +528,7 @@ index 000000000..9dd6d0ca2
 +	struct mtk_ccci_dev *ccci = filp->private_data;
 +
 +	mtk_ccci_fs_purge_rx(ccci);
++	atomic_set(&ccci->fs_ongoing, 0);
 +	atomic_set(&ccci->fs_open, 0);
 +	return 0;
 +}
@@ -629,4 +674,3 @@ index 000000000..9dd6d0ca2
 +}
 -- 
 2.55.0
-
