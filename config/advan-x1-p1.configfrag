@@ -155,6 +155,10 @@ CONFIG_USB_G_HID=n
 CONFIG_USB_G_DBGP=n
 CONFIG_USB_RAW_GADGET=n
 
+# Keep /dev/mem hardened by default (override via INCLUDE_EXTRA=1 + config/extra/devmem-debug.configfrag)
+CONFIG_STRICT_DEVMEM=y
+CONFIG_IO_STRICT_DEVMEM=y
+
 # MediaTek PMIC Wrapper and MT6358/MT6366 PMIC
 CONFIG_MTK_PMIC_WRAP=y
 CONFIG_MFD_MT6397=y

@@ -9,8 +9,8 @@ mode).
 
 Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
- drivers/thermal/mediatek/lvts_thermal.c      |  255 ++-
- 1 file changed, 252 insertions(+), 3 deletions(-)
+ drivers/thermal/mediatek/lvts_thermal.c      |  253 ++-
+ 1 file changed, 252 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/thermal/mediatek/lvts_thermal.c b/drivers/thermal/mediatek/lvts_thermal.c
 index 81df7920f..376f0f082 100644
@@ -24,19 +24,20 @@ index 81df7920f..376f0f082 100644
  #define LVTS_PROTCTL(__base)	(__base + 0x00C0)
  #define LVTS_PROTTA(__base)		(__base + 0x00C4)
  #define LVTS_PROTTB(__base)		(__base + 0x00C8)
-@@ -85,6 +86,11 @@
+@@ -85,6 +86,12 @@
  #define LVTS_INT_SENSOR2			0x00247C00
  #define LVTS_INT_SENSOR3			0x1FC00000
  
 +/* MT6789 hardware thermal reset (STAGE3), mirrored from stock soc_temp_lvts.c */
 +#define LVTS_MONINT_STAGE3_INT_EN		BIT(31)
++#define LVTS_PROTCTL_PROTOFFSET_SET		GENMASK(13, 0)
 +#define LVTS_PROTCTL_PROTOFFSET			GENMASK(15, 0)
 +#define LVTS_PROTCTL_STRATEGY_MAX		(0x1 << 16)
 +
  #define LVTS_SENSOR_MAX				4
  #define LVTS_GOLDEN_TEMP_MAX		62
  #define LVTS_GOLDEN_TEMP_DEFAULT	50
-@@ -108,6 +114,20 @@
+@@ -108,6 +115,20 @@
  #define LVTS_NUM_CAL_OFFSETS_MT7988	3
  #define LVTS_NUM_CAL_OFFSETS_MT8196	2
  
@@ -57,7 +58,7 @@ index 81df7920f..376f0f082 100644
  static int golden_temp = LVTS_GOLDEN_TEMP_DEFAULT;
  static int golden_temp_offset;
  
-@@ -125,6 +145,7 @@ struct lvts_sensor_data {
+@@ -125,6 +146,7 @@ struct lvts_sensor_data {
  struct lvts_ctrl_data {
  	struct lvts_sensor_data lvts_sensor[LVTS_SENSOR_MAX];
  	u8 valid_sensor_mask;
@@ -65,7 +66,7 @@ index 81df7920f..376f0f082 100644
  	int offset;
  	enum lvts_msr_mode mode;
  };
-@@ -162,6 +183,8 @@ struct lvts_data {
+@@ -162,6 +184,8 @@ struct lvts_data {
  	u16 msr_offset;
  	u16 start_settle_us;
  	bool skip_zero_msr;
@@ -74,7 +75,7 @@ index 81df7920f..376f0f082 100644
  };
  
  struct lvts_sensor {
-@@ -179,6 +202,7 @@ struct lvts_ctrl {
+@@ -179,6 +203,7 @@ struct lvts_ctrl {
  	struct lvts_sensor sensors[LVTS_SENSOR_MAX];
  	const struct lvts_data *lvts_data;
  	u32 calibration[LVTS_SENSOR_MAX];
@@ -82,20 +83,6 @@ index 81df7920f..376f0f082 100644
  	u8 valid_sensor_mask;
  	int mode;
  	void __iomem *base;
-@@ -409,10 +433,11 @@ static void lvts_update_irq_mask(struct lvts_ctrl *lvts_ctrl)
- 		LVTS_MONINT_OFFSET_LOW_INTEN_SENSOR2,
- 		LVTS_MONINT_OFFSET_LOW_INTEN_SENSOR3,
- 	};
--	u32 value = 0;
-+	u32 value;
- 	int i;
- 
--	value = readl(LVTS_MONINT(lvts_ctrl->base));
-+	/* Preserve the armed STAGE3 hardware-reboot interrupt (MT6789). */
-+	value = readl(LVTS_MONINT(lvts_ctrl->base)) & LVTS_MONINT_STAGE3_INT_EN;
- 
- 	lvts_for_each_valid_sensor(i, lvts_ctrl) {
- 		if (lvts_ctrl->sensors[i].high_thresh == lvts_ctrl->high_thresh
 @@ -878,6 +903,21 @@ static int lvts_calibration_init(struct device *dev, struct lvts_ctrl *lvts_ctrl
  		}
  	}
@@ -230,12 +217,12 @@ index 81df7920f..376f0f082 100644
  }
  
 +/*
-+ * Program the MT6789 LVTS STAGE3 hardware reboot threshold. Mirrors stock
-+ * soc_temp_lvts.c:set_tc_hw_reboot_threshold(): force the controller to
-+ * report a very low temperature (PROTOFFSET) and mask STAGE3 while latching
-+ * the critical-trip raw threshold into PROTTC with the max-of-4 strategy,
-+ * then re-arm STAGE3 and clear the offset. The RGU reset is hardware-only,
-+ * so this protects the SoC even if the kernel hangs.
++ * Program the MT6789 LVTS STAGE3 hardware reboot threshold. Follows stock
++ * soc_temp_lvts.c:set_tc_hw_reboot_threshold(): force an extremely low
++ * reading (0x3FFF) and mask STAGE3 while latching the critical-trip raw
++ * threshold into PROTTC, then re-arm STAGE3 before clearing PROTOFFSET.
++ * Uses max-of-4 strategy (stricter than stock MT6789's per-TC dominator).
++ * The RGU reset is hardware-only, protecting the SoC even if the kernel hangs.
 + */
 +static void lvts_ctrl_set_hw_reboot(struct lvts_ctrl *lvts_ctrl, int temp)
 +{
@@ -243,7 +230,7 @@ index 81df7920f..376f0f082 100644
 +	u32 value, raw;
 +
 +	value = readl(LVTS_PROTCTL(base));
-+	writel(value | LVTS_PROTCTL_PROTOFFSET, LVTS_PROTCTL(base));
++	writel(value | LVTS_PROTCTL_PROTOFFSET_SET, LVTS_PROTCTL(base));
 +	value = readl(LVTS_MONINT(base));
 +	writel(value & ~LVTS_MONINT_STAGE3_INT_EN, LVTS_MONINT(base));
 +
@@ -255,10 +242,10 @@ index 81df7920f..376f0f082 100644
 +	writel(value, LVTS_PROTCTL(base));
 +	writel(raw, LVTS_PROTTC(base));
 +
-+	value = readl(LVTS_PROTCTL(base));
-+	writel(value & ~LVTS_PROTCTL_PROTOFFSET, LVTS_PROTCTL(base));
 +	value = readl(LVTS_MONINT(base));
 +	writel(value | LVTS_MONINT_STAGE3_INT_EN, LVTS_MONINT(base));
++	value = readl(LVTS_PROTCTL(base));
++	writel(value & ~LVTS_PROTCTL_PROTOFFSET, LVTS_PROTCTL(base));
 +}
 +
  static int lvts_ctrl_start(struct device *dev, struct lvts_ctrl *lvts_ctrl)

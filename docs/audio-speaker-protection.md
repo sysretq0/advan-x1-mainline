@@ -20,14 +20,16 @@ Stock `/work/mainline/ref/advan-x1-oracle/audio_modules/snd-soc-fs1599.ko` expor
 The measurement data comes from the MediaTek SCP DSP over Audio IPI:
 `mtk-sp-spk-amp.ko` imports `audio_send_ipi_buf_to_dsp` /
 `audio_recv_ipi_buf_to_dsp` and depends on `snd-soc-fs1599,audio_ipi,
-mtk-scp-audio,snd-soc-audiodsp-common`. Stock DTB enables it via
-`runtime_merged.dts:6100` `scp_spk_process_enable = <0x00 0x04 0x0f 0x13>`
-and `mt6789-mt6366.c` DAI link `"SCP_SPK_Process"`.
+mtk-scp-audio,snd-soc-audiodsp-common`. Stock DTB defines
+`scp_spk_process_enable = <0x00 0x04 0x0f 0x13>` inside `snd_scp_audio`
+(`runtime_merged.dts:6097-6101`, though `snd_scp_audio` itself has
+`status = "disabled"` in the merged DTB) alongside `mt6789-mt6366.c` DAI
+link `"SCP_SPK_Process"`.
 
 `fs1599.fsm` is 920 bytes of closed-source FourSemi register/coefficient
-preset data (header `00 01 66 73 ...`, DEVID `0x21a1` at `0x3c`), parsed in
-kernel by `fsm_parse_preset()` after `request_firmware()`. It is **not** a
-portable measurement algorithm.
+preset data (header `00 01 66 73 ...`, I2C addr `0x34` at `0x3e`, LE DEVID
+`0x21a1` at `0x40`), parsed in kernel by `fsm_parse_preset()` after
+`request_firmware()`. It is **not** a portable measurement algorithm.
 
 Pristine upstream `/work/mainline/linux` has no `mediatek,snd_scp_audio`
 driver, no `audio_ipi`, and no SCP speaker task firmware. A real port needs

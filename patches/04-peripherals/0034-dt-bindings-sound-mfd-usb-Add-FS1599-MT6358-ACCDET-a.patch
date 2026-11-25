@@ -16,7 +16,7 @@ Signed-off-by: sysretq0 <sysretq0@proton.me>
  .../bindings/mfd/mediatek,mt6397.yaml         |   7 ++
  .../bindings/power/supply/bq25890.yaml        |   6 +
  .../bindings/sound/foursemi,fs1599.yaml       |  43 +++++++
- .../sound/mediatek,mt6358-accdet.yaml         | 110 ++++++++++++++++++
+ .../sound/mediatek,mt6358-accdet.yaml         | 119 ++++++++++++++++++
  .../sound/mediatek,mt6789-mt6366-sound.yaml   |   8 ++
  .../bindings/usb/mediatek,musb.yaml           |   5 +-
  6 files changed, 178 insertions(+), 1 deletion(-)
@@ -112,7 +112,7 @@ new file mode 100644
 index 000000000..fb2a36609
 --- /dev/null
 +++ b/Documentation/devicetree/bindings/sound/mediatek,mt6358-accdet.yaml
-@@ -0,0 +1,110 @@
+@@ -0,0 +1,118 @@
 +# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 +%YAML 1.2
 +---
@@ -188,6 +188,14 @@ index 000000000..fb2a36609
 +    $ref: /schemas/types.yaml#/definitions/uint32-array
 +    description: |
 +      3-button headset ADC thresholds in millivolts:
++      <min, mid_max, up_max, down_max>.
++    minItems: 4
++    maxItems: 4
++
++  mediatek,three-key-threshold-cdd:
++    $ref: /schemas/types.yaml#/definitions/uint32-array
++    description: |
++      Alternate Android CDD 3-button headset ADC thresholds in millivolts:
 +      <min, mid_max, up_max, down_max>.
 +    minItems: 4
 +    maxItems: 4

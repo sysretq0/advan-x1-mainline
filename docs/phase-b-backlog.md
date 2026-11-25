@@ -85,8 +85,9 @@ stable tweak. Each entry carries the exact evidence needed to resume.
 
 ## F01 / F06 / F07 — provenance comments in existing commits
 
-- `e959721` (Zinwa Q25 MM plugin), `ce06c2e` (Motorola `chipone_tddi_mmi_v2`),
-  `7a2c78a` (Motorola `ti,tps65132` boards) cite sibling ODMs in commit bodies.
+- `3b1f69f` / `docs/ccci-bringup-plan.md` (Zinwa Q25 cross-checks), `ce06c2e`
+  (Motorola `chipone_tddi_mmi_v2`), `7a2c78a` (Motorola `ti,tps65132` boards)
+  cite sibling ODMs in commit bodies/docs.
 - Rewriting those messages would require rebasing signed history. Phase A
-  records the authority rule in `docs/upstream-status.md` §6 instead; the
+  records the authority rule in `docs/upstream-status.md` §4 instead; the
   code itself was already re-verified against Tier A.

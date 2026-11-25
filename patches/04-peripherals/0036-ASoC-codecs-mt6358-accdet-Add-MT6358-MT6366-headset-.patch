@@ -645,7 +645,7 @@ index 000000000..bf8f756f4
 +		 * identification / selection lands with the jack-type work.
 +		 */
 +		of_property_read_u32_array(np,
-+					   "mediatek,three-key-threshold-CDD",
++					   "mediatek,three-key-threshold-cdd",
 +					   priv->cdd_key,
 +					   ARRAY_SIZE(priv->cdd_key));
 +		if (!of_property_read_u32_array(np,

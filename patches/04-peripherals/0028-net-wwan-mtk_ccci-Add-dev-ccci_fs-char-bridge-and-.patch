@@ -199,7 +199,7 @@ index 0e5e9ac14..9f080c286 100644
  	 */
  	if (res.a1 || res.a2) {
  		for (tries = 0; tries < 50; tries++) {
-@@ -980,20 +965,69 @@ static void mtk_ccci_boot_work(struct work_struct *work)
+@@ -980,20 +965,80 @@ static void mtk_ccci_boot_work(struct work_struct *work)
  		dev_err(ccci->dev,
  			"CCIF0 active before reset (rch=0x%x); refusing unsafe MTCMOS off\n",
  			readl(ccci->ccif_ap_base + APCCIF_RCHNUM));
@@ -230,9 +230,10 @@ index 0e5e9ac14..9f080c286 100644
 +
 +/*
 + * Stock: ccci_fsm_internal.h BOOT_TIMEOUT (30 * 1000) and ccci_fsm.c:432-435
-+ * freeze the timeout while an NVRAM FS operation is in flight. On mainline
-+ * /dev/ccci_fs is held by ccci_fsd during those operations; bound the
-+ * extension to 3x so a wedged MD cannot stall boot forever.
++ * freeze the timeout while an NVRAM FS operation is in flight. Extend by
++ * another 30 s budget (max 3 extensions, 120 s total) only when the current
++ * 30 s budget expires with an FS request still pending or FS RX/TX traffic
++ * having progressed during that slice, so a wedged MD cannot stall forever.
 + */
 +#define MTK_CCCI_BOOT_TIMEOUT_MS	30000
 +#define MTK_CCCI_HS_POLL_MS		100
@@ -244,6 +245,8 @@ index 0e5e9ac14..9f080c286 100644
 +	unsigned long budget = msecs_to_jiffies(MTK_CCCI_BOOT_TIMEOUT_MS);
 +	unsigned long step = msecs_to_jiffies(MTK_CCCI_HS_POLL_MS);
 +	unsigned long left = budget;
++	int last_rx = atomic_read(&ccci->fs_rx_count);
++	int last_tx = atomic_read(&ccci->fs_tx_count);
 +	int extensions = 0;
 +
 +	while (left) {
@@ -253,10 +256,17 @@ index 0e5e9ac14..9f080c286 100644
 +		if (ret)
 +			return ret;
 +		left -= wait;
-+		if (atomic_read(&ccci->fs_ongoing) &&
-+		    extensions < MTK_CCCI_FS_EXTEND_MAX) {
-+			left = budget;
-+			extensions++;
++		if (!left && extensions < MTK_CCCI_FS_EXTEND_MAX) {
++			int cur_rx = atomic_read(&ccci->fs_rx_count);
++			int cur_tx = atomic_read(&ccci->fs_tx_count);
++
++			if (atomic_read(&ccci->fs_ongoing) ||
++			    cur_rx != last_rx || cur_tx != last_tx) {
++				last_rx = cur_rx;
++				last_tx = cur_tx;
++				left = budget;
++				extensions++;
++			}
 +		}
 +	}
 +	return 0;
@@ -269,6 +279,7 @@ index 0e5e9ac14..9f080c286 100644
 +	unsigned int pwr_sta = 0;
 +	int ret;
 +
++	atomic_set(&ccci->fs_ongoing, 0);
 +	WRITE_ONCE(ccci->state, MTK_CCCI_STATE_BOOTING);
 +
  	/*
@@ -502,6 +513,7 @@ index 000000000..ca31d09ff
 +	WRITE_ONCE(ccci->fs_rx_qlen, ccci->fs_rx_qlen + 1);
 +	spin_unlock_irqrestore(&ccci->fs_rx_lock, flags);
 +
++	atomic_set(&ccci->fs_ongoing, 1);
 +	atomic_inc(&ccci->fs_rx_count);
 +	wake_up_interruptible(&ccci->fs_rx_wq);
 +}
@@ -514,9 +526,6 @@ index 000000000..ca31d09ff
 +
 +	if (atomic_cmpxchg(&ccci->fs_open, 0, 1) != 0)
 +		return -EBUSY;
-+
-+	/* Freeze the HS1/HS2 boot timeout while ccci_fsd is servicing the MD. */
-+	atomic_set(&ccci->fs_ongoing, 1);
 +
 +	filp->private_data = ccci;
 +	nonseekable_open(inode, filp);
@@ -622,6 +631,8 @@ index 000000000..ca31d09ff
 +		return ret == -ENOSPC ? -EAGAIN : ret;
 +
 +	atomic_inc(&ccci->fs_tx_count);
++	if (READ_ONCE(ccci->fs_rx_qlen) == 0)
++		atomic_set(&ccci->fs_ongoing, 0);
 +	return count;
 +}
 +

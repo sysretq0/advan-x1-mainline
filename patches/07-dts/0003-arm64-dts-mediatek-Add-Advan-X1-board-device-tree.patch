@@ -9,8 +9,8 @@ vibrator, TPS65132 display bias, and Chipone ICNL9922C DSI panel).
 
 Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
- .../boot/dts/mediatek/mt6789-advan-x1.dts     | 1155 +++++++++++++++++
- 1 file changed, 1155 insertions(+)
+ .../boot/dts/mediatek/mt6789-advan-x1.dts     | 1213 +++++++++++++++++
+ 1 file changed, 1213 insertions(+)
  create mode 100644 arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
 
 diff --git a/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
@@ -615,7 +615,7 @@ index 0000000..eb12987
 +						    0x00 0x00 0x0e 0x00
 +						    0x00 0x00 0x00>;
 +			mediatek,three-key-threshold = <0 80 220 400>;
-+			mediatek,three-key-threshold-CDD = <0 121 192 600>;
++			mediatek,three-key-threshold-cdd = <0 121 192 600>;
 +			mediatek,four-key-threshold = <0 58 121 192 400>;
 +		};
 +
@@ -1232,5 +1232,5 @@ index 0000000..eb12987
 +		thermal-sensors = <&tboard_thermistor2>;
 +	};
 +};
---
+-- 
 2.55.0

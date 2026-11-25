@@ -39,7 +39,7 @@ history at commit `0d9a170`) has been **100% remediated and hardware-verified**:
 | **Phase 1: Core correctness** | `3b1f69f` | Fixed live Mali-G57 MFGPLL devfreq freeze via `CLK_TOP_MFG_PLL_SEL` mux-park notifier (`#0011`), added `i2c3_pins` pinctrl (`M4`), replaced generic LVTS change with per-SoC zero-MSR guard (`M3`), hardened CCCI SMC/regulators/carveout (`M2a`/`M6`), demoted I²C chatter to `dev_dbg`, fixed series patch hygiene (`M13`). |
 | **Phase 2: IOMMU, WDT, MFGCFG** | `e204148` | Enabled `disp_iommu` (`14016000.iommu`, eliminating `swiotlb` exhaustion `#0012`/`M1`), added `syscon-reboot-mode` on `10007000.watchdog` (`M10`), documented CCCI EL3 SiP ABI (`docs/ccci-sip-abi.md`, `M2b`), added spinlock + HW readback to `clk-mt6789-mfgcfg` (`M5`). |
 | **Phase 3: Polish & HW verification** | `b1a3ae6` | Halted bootloader OVL0 splash DMA in `mtk_disp_ovl_probe()` → **0 M4U faults** and 0.8 ms DSI bind across full 198.6 s Wayland session; removed spurious `mediatek,pre-emphasis` from `u2port0` (`M14`); verified 0 HW-on clock leaks (`M7`), `GPIO 85/107` active-low resets (`M9`), and live `st_nci` IRQ 16 (`M11`); oracle-verified SCPSYS/CCIF0/clock constants (`B3-02/04/07/08/10`). |
-| **Author cleanup & DSC fix** | `0d9a170` | Cleared `priv->dsc = NULL` in `mtk_dsc_stop()` (`B2-05`); standardized patch email to `sysretq0@proton.me` across all 75 `patches/`, 2 `patches-extra/`, and board DTS. |
+| **Author cleanup & DSC fix** | `0d9a170` | Cleared `priv->dsc = NULL` in `mtk_dsc_stop()` (`B2-05`); standardized patch email to `sysretq0@proton.me` across all 60 `patches/` at `0d9a170` (maintained across all 75 `patches/` today), 2 `patches-extra/`, and board DTS. |
 
 ---
 
@@ -66,15 +66,15 @@ submission:
    `drivers/remoteproc/`) and keep `drivers/net/wwan/` strictly for the WWAN
    port/netdev layer (see [`docs/ccci-sip-abi.md`](ccci-sip-abi.md)).
 
-## 6. Tier A provenance note (Phase A)
+## 4. Tier A provenance note (Phase A)
 
 The authoritative board ground truth is Advan stock (live Android oracle,
 stock DTB `runtime_merged.dts`, stock prebuilt `.ko` modules). Motorola
 `mp01-kernel` is used only for MT6789 SoC architecture / wire protocols, and
-older commits that cited Zinwa (`e959721`, userspace MM plugin) or Motorola
-board files (`ce06c2e` TDDI alignment, `7a2c78a` tps65132 justification)
-are retained for attribution but are **not** board authority. Where a
-sibling-SoC value conflicted with Tier A, Phase A corrected it:
+older commits/docs that cited Zinwa Q25 (`3b1f69f`, `docs/ccci-bringup-plan.md`)
+or Motorola board files (`ce06c2e` TDDI alignment, `7a2c78a` tps65132
+justification) are retained for attribution but are **not** board authority.
+Where a sibling-SoC value conflicted with Tier A, Phase A corrected it:
 
 - F11: MT6789 i2c `dma_sync=1` from stock `mt6983_compat` (was `mt8188_compat`
   with 0) — patch `0004`.
