@@ -546,12 +546,6 @@ EOF
 cat << 'EOF' > /etc/profile
 export PS1='advan-x1:\w# '
 export PATH='/bin:/sbin:/usr/bin:/usr/sbin'
-peek() {
-    devmem "$1" 32 2>/dev/null || devmem "$1" 2>/dev/null || echo "EFAULT"
-}
-poke() {
-    devmem "$1" 32 "$2"
-}
 boot_systemd() {
     if [ -f /sysroot/sbin/init ] || [ -f /sysroot/lib/systemd/systemd ]; then
         echo "Switching root to /sysroot..."
@@ -565,7 +559,7 @@ boot_systemd() {
     fi
 }
 echo "Welcome to ADVAN X1 Mainline Linux (Helio G99 / MT6789)!"
-echo "Commands available: peek <addr>, poke <addr> <val>, boot_systemd"
+echo "Commands available: boot_systemd"
 EOF
 
 # Ensure /dev/ttyGS0 is available before launching getty

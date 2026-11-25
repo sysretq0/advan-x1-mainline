@@ -1,0 +1,5 @@
+# Optional debug-only fragment: unrestricted /dev/mem access for bring-up.
+# NOT part of the default build. Enable explicitly with INCLUDE_EXTRA=1 in
+# scripts/build.sh when debugging with devmem/peek/poke is required.
+CONFIG_STRICT_DEVMEM=n
+CONFIG_IO_STRICT_DEVMEM=n
