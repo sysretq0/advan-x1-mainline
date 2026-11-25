@@ -32,47 +32,175 @@ static void test_cmdline_parser(void)
 	assert(cfg.root[0] == '\0');
 	assert(cfg.rootdelay == 5);
 	assert(cfg.root_ro == true);
+	assert(cfg.rd_shell == true);
 	assert(strcmp(cfg.real_init, "/sbin/openrc-init") == 0);
 	assert(cfg.noswitch == false);
+
+	/* Dracut root= normalization, blacklist, rd.shell=0, rd.timeout, and -- args */
+	parse_cmdline_str(
+		"root=block:/dev/disk/by-label/Advan\\x20Root "
+		"module_blacklist=panfrost,snd-soc-fs1599 rd.blacklist=uhid.ko "
+		"rd.shell=0 rd.emergency=poweroff rd.timeout=12 rootwait "
+		"-- systemd.unit=rescue.target --log-level=debug",
+		&cfg);
+	assert(strcmp(cfg.root, "LABEL=Advan Root") == 0);
+	assert(is_mod_blacklisted(&cfg, "panfrost") == true);
+	assert(is_mod_blacklisted(&cfg, "snd_soc_fs1599") == true);
+	assert(is_mod_blacklisted(&cfg, "drivers/hid/uhid.ko") == true);
+	assert(is_mod_blacklisted(&cfg, "chipone_icnl9922c") == false);
+	assert(cfg.rd_shell == false);
+	assert(strcmp(cfg.rd_emergency, "poweroff") == 0);
+	assert(cfg.rootdelay == 12);
+	assert(cfg.n_init_args == 2);
+	assert(strcmp(cfg.init_args[0], "systemd.unit=rescue.target") == 0);
+	assert(strcmp(cfg.init_args[1], "--log-level=debug") == 0);
+
+	char norm_root[128];
+	normalize_root_spec("/dev/disk/by-uuid/e8f59895-03e3-4f1c-a25a-2d7a8cd3b050",
+			    norm_root, sizeof(norm_root));
+	assert(strcmp(norm_root, "UUID=e8f59895-03e3-4f1c-a25a-2d7a8cd3b050") == 0);
+	normalize_root_spec("/dev/disk/by-partlabel/rootfs", norm_root, sizeof(norm_root));
+	assert(strcmp(norm_root, "PARTLABEL=rootfs") == 0);
+	normalize_root_spec("block:/dev/mmcblk0p2", norm_root, sizeof(norm_root));
+	assert(strcmp(norm_root, "/dev/mmcblk0p2") == 0);
 }
 
-static void test_ext4_uuid_and_gpt_sector_detect(void)
+static void test_mount_flags_split(void)
+{
+	unsigned long flags = 0;
+	char data[128];
+
+	parse_mount_flags("defaults,noatime,subvol=@,compress=zstd,nodiratime,rw",
+			  true, &flags, data, sizeof(data));
+	assert(flags == (MS_NOATIME | MS_NODIRATIME));
+	assert(strcmp(data, "subvol=@,compress=zstd") == 0);
+
+	parse_mount_flags("relatime,nosuid,discard,lazytime",
+			  true, &flags, data, sizeof(data));
+	assert(flags == (MS_RDONLY | MS_RELATIME | MS_NOSUID | MS_LAZYTIME));
+	assert(strcmp(data, "discard") == 0);
+
+	parse_mount_flags("", true, &flags, data, sizeof(data));
+	assert(flags == MS_RDONLY);
+	assert(data[0] == '\0');
+}
+
+static void zero_file(int fd, off_t sz)
+{
+	assert(ftruncate(fd, 0) == 0);
+	assert(ftruncate(fd, sz) == 0);
+}
+
+static void test_multi_fs_probe_and_gpt_sector_detect(void)
 {
 	char tmpl[] = "/tmp/advan-init-test-XXXXXX";
 	int fd = mkstemp(tmpl);
 	assert(fd >= 0);
 	unlink(tmpl);
 
-	assert(ftruncate(fd, 8192) == 0);
+	const uint8_t uuid_bytes[16] = {
+		0xe8, 0xf5, 0x98, 0x95, 0x03, 0xe3, 0x4f, 0x1c,
+		0xa2, 0x5a, 0x2d, 0x7a, 0x8c, 0xd3, 0xb0, 0x50
+	};
+	const char *uuid_expected = "e8f59895-03e3-4f1c-a25a-2d7a8cd3b050";
+	struct fs_info fi;
+
+	/* GPT sector size detection */
+	zero_file(fd, 8192);
 	assert(pwrite(fd, "EFI PART", 8, 4096) == 8);
 	assert(detect_gpt_sector_size_fd(fd, 4096) == 4096);
 
-	uint8_t zeros[8] = { 0 };
-	assert(pwrite(fd, zeros, 8, 4096) == 8);
+	zero_file(fd, 8192);
 	assert(pwrite(fd, "EFI PART", 8, 512) == 8);
 	assert(detect_gpt_sector_size_fd(fd, 4096) == 512);
 
-	assert(pwrite(fd, zeros, 8, 512) == 8);
+	zero_file(fd, 8192);
 	assert(detect_gpt_sector_size_fd(fd, 4096) == 0);
+
+	/* 1. ext4 (with stale Btrfs at 64 KiB -> ext4 MUST win) */
+	zero_file(fd, 0x11000);
+	uint8_t btrfs_sb[BTRFS_SUPER_READ_SZ];
+	memset(btrfs_sb, 0, sizeof(btrfs_sb));
+	memcpy(btrfs_sb + BTRFS_MAGIC_OFF, "_BHRfS_M", 8);
+	memcpy(btrfs_sb + BTRFS_UUID_OFF, uuid_bytes, 16);
+	memcpy(btrfs_sb + BTRFS_LABEL_OFF, "btrfs-root", 10);
+	assert(pwrite(fd, btrfs_sb, sizeof(btrfs_sb), BTRFS_SUPER_OFFSET) ==
+	       (ssize_t)sizeof(btrfs_sb));
 
 	uint8_t sb[EXT4_SUPER_SIZE];
 	memset(sb, 0, sizeof(sb));
 	sb[EXT4_MAGIC_OFF] = 0x53;
 	sb[EXT4_MAGIC_OFF + 1] = 0xEF;
-	const uint8_t uuid_bytes[16] = {
-		0xe8, 0xf5, 0x98, 0x95, 0x03, 0xe3, 0x4f, 0x1c,
-		0xa2, 0x5a, 0x2d, 0x7a, 0x8c, 0xd3, 0xb0, 0x50
-	};
 	memcpy(sb + EXT4_UUID_OFF, uuid_bytes, 16);
+	memcpy(sb + EXT4_LABEL_OFF, "debian-root", 11);
 	assert(pwrite(fd, sb, sizeof(sb), EXT4_SUPER_OFFSET) == (ssize_t)sizeof(sb));
 
-	char uuid_str[37] = { 0 };
-	assert(read_ext4_uuid_fd(fd, uuid_str) == true);
-	assert(strcmp(uuid_str, "e8f59895-03e3-4f1c-a25a-2d7a8cd3b050") == 0);
+	assert(probe_fs_fd(fd, &fi) == true);
+	assert(strcmp(fi.fstype, "ext4") == 0);
+	assert(strcmp(fi.uuid, uuid_expected) == 0);
+	assert(strcmp(fi.label, "debian-root") == 0);
 
+	/* 2. Btrfs alone (after wiping 1 KiB ext4 magic) */
 	sb[EXT4_MAGIC_OFF] = 0x00;
 	assert(pwrite(fd, sb, sizeof(sb), EXT4_SUPER_OFFSET) == (ssize_t)sizeof(sb));
-	assert(read_ext4_uuid_fd(fd, uuid_str) == false);
+	assert(probe_fs_fd(fd, &fi) == true);
+	assert(strcmp(fi.fstype, "btrfs") == 0);
+	assert(strcmp(fi.uuid, uuid_expected) == 0);
+	assert(strcmp(fi.label, "btrfs-root") == 0);
+
+	/* 3. F2FS (UTF-16LE label) */
+	zero_file(fd, 8192);
+	memset(sb, 0, sizeof(sb));
+	sb[0] = 0x10; sb[1] = 0x20; sb[2] = 0xF5; sb[3] = 0xF2;
+	memcpy(sb + F2FS_UUID_OFF, uuid_bytes, 16);
+	const char *f2fs_lbl = "f2fs-root";
+	for (size_t i = 0; f2fs_lbl[i]; i++) {
+		sb[F2FS_LABEL_OFF + i * 2] = (uint8_t)f2fs_lbl[i];
+		sb[F2FS_LABEL_OFF + i * 2 + 1] = 0;
+	}
+	assert(pwrite(fd, sb, sizeof(sb), F2FS_SUPER_OFFSET) == (ssize_t)sizeof(sb));
+	assert(probe_fs_fd(fd, &fi) == true);
+	assert(strcmp(fi.fstype, "f2fs") == 0);
+	assert(strcmp(fi.uuid, uuid_expected) == 0);
+	assert(strcmp(fi.label, "f2fs-root") == 0);
+
+	/* 4. EROFS */
+	zero_file(fd, 8192);
+	memset(sb, 0, sizeof(sb));
+	sb[0] = 0xE2; sb[1] = 0xE1; sb[2] = 0xF5; sb[3] = 0xE0;
+	memcpy(sb + EROFS_UUID_OFF, uuid_bytes, 16);
+	memcpy(sb + EROFS_LABEL_OFF, "erofs-sys", 9);
+	assert(pwrite(fd, sb, sizeof(sb), EROFS_SUPER_OFFSET) == (ssize_t)sizeof(sb));
+	assert(probe_fs_fd(fd, &fi) == true);
+	assert(strcmp(fi.fstype, "erofs") == 0);
+	assert(strcmp(fi.uuid, uuid_expected) == 0);
+	assert(strcmp(fi.label, "erofs-sys") == 0);
+
+	/* 5. XFS */
+	zero_file(fd, 8192);
+	uint8_t sb0[256];
+	memset(sb0, 0, sizeof(sb0));
+	memcpy(sb0, "XFSB", 4);
+	memcpy(sb0 + XFS_UUID_OFF, uuid_bytes, 16);
+	memcpy(sb0 + XFS_LABEL_OFF, "xfs-root", 8);
+	assert(pwrite(fd, sb0, sizeof(sb0), 0) == (ssize_t)sizeof(sb0));
+	assert(probe_fs_fd(fd, &fi) == true);
+	assert(strcmp(fi.fstype, "xfs") == 0);
+	assert(strcmp(fi.uuid, uuid_expected) == 0);
+	assert(strcmp(fi.label, "xfs-root") == 0);
+
+	/* 6. SquashFS */
+	zero_file(fd, 8192);
+	memset(sb0, 0, sizeof(sb0));
+	memcpy(sb0, "hsqs", 4);
+	assert(pwrite(fd, sb0, sizeof(sb0), 0) == (ssize_t)sizeof(sb0));
+	assert(probe_fs_fd(fd, &fi) == true);
+	assert(strcmp(fi.fstype, "squashfs") == 0);
+	assert(fi.uuid[0] == '\0' && fi.label[0] == '\0');
+
+	/* 7. Empty/unrecognized returns false */
+	zero_file(fd, 0x11000);
+	assert(probe_fs_fd(fd, &fi) == false);
 
 	close(fd);
 }
@@ -213,7 +341,8 @@ static void test_stage_initramfs_firmware(void)
 int main(void)
 {
 	test_cmdline_parser();
-	test_ext4_uuid_and_gpt_sector_detect();
+	test_mount_flags_split();
+	test_multi_fs_probe_and_gpt_sector_detect();
 	test_mod_normalize_and_uevent();
 	test_stage_initramfs_firmware();
 	printf("init unit tests: ALL PASSED\n");

@@ -7,20 +7,26 @@
  * journald/pstore/logind, diagnostics) to systemd on the real rootfs:
  *
  *   1. Base virtual mounts (/proc, /sys, /dev, /dev/pts, /run)
- *   2. /proc/cmdline parsing (root=, rootfstype=, rootflags=, rootdelay=,
- *      rootwait, ro/rw, init=, noswitch, rd.break=, rd.nomodules)
+ *   2. /proc/cmdline parsing (root= [PARTLABEL/PARTUUID/UUID/LABEL/block:/
+ *      /dev/disk/by-*], rootfstype=, rootflags= [VFS + FS split], rootdelay=,
+ *      rootwait, ro/rw, init=, noswitch, rd.break=, rd.nomodules,
+ *      rd.blacklist=/module_blacklist=, rd.shell=0, rd.emergency=, -- args)
  *   3. Stage initramfs /lib/firmware -> /run/firmware and set
  *      firmware_class.path (when unset) so firmware survives switch_root
  *      with zero /sysroot mutation
  *   4. Native kernel module loading via SYS_finit_module (/etc/modules with
- *      modules.dep resolution + out-of-tree .ko in /lib/modules/extra/)
- *   5. Root resolution:
- *        - Explicit root= (PARTLABEL=, PARTUUID=, UUID=, /dev/<node>)
+ *      modules.dep resolution + out-of-tree .ko in /lib/modules/extra/,
+ *      honoring module_blacklist=/rd.blacklist=)
+ *   5. Root resolution + multi-FS superblock probe (ext2/3/4, F2FS, Btrfs,
+ *      XFS, EROFS, SquashFS):
+ *        - Explicit root= (PARTLABEL=, PARTUUID=, UUID=, LABEL=, /dev/<node>,
+ *          /dev/disk/by-{uuid,partuuid,label,partlabel}/...)
  *        - Option A nested GPT on xnu_data via native kernel loop parser
  *          (BLKSSZGET + LOOP_CONFIGURE with LO_FLAGS_PARTSCAN -> /dev/loopNpM,
- *           zero hardcoded byte offsets)
- *   6. Mount rootfs on /sysroot (no mutation of /sysroot)
- *   7. Native C switch_root -> /sbin/init (systemd)
+ *           zero hardcoded byte offsets, interleaved with root= polling)
+ *   6. Mount rootfs on /sysroot with auto-detected fstype and split VFS/FS
+ *      mount flags (no mutation of /sysroot)
+ *   7. Native C switch_root -> /sbin/init (systemd), forwarding `--` args
  *   8. Emergency rescue shell on failure / rd.break / noswitch (lazily brings
  *      up USB ACM on /dev/ttyGS0 + /dev/tty0 only because systemd wasn't reached)
  */
@@ -44,6 +50,7 @@
 #include <strings.h>
 #include <sys/ioctl.h>
 #include <sys/mount.h>
+#include <sys/reboot.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/sysmacros.h>
@@ -51,12 +58,54 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#define NEWROOT           "/sysroot"
-#define EXT4_SUPER_OFFSET 1024
-#define EXT4_SUPER_SIZE   1024
-#define EXT4_MAGIC_OFF    0x38
-#define EXT4_UUID_OFF     0x68
-#define EXT4_SUPER_MAGIC  0xEF53U
+#ifndef MS_LAZYTIME
+#define MS_LAZYTIME (1UL << 25)
+#endif
+
+#define NEWROOT              "/sysroot"
+
+/* On-disk superblock constants verified against Linux kernel headers */
+#define EXT4_SUPER_OFFSET    1024
+#define EXT4_SUPER_SIZE      1024
+#define EXT4_MAGIC_OFF       0x38
+#define EXT4_UUID_OFF        0x68
+#define EXT4_LABEL_OFF       0x78
+#define EXT4_LABEL_LEN       16
+#define EXT4_SUPER_MAGIC     0xEF53U
+
+#define F2FS_SUPER_OFFSET    1024
+#define F2FS_SUPER_MAGIC     0xF2F52010U
+#define F2FS_UUID_OFF        0x6C
+#define F2FS_LABEL_OFF       0x7C
+#define F2FS_LABEL_MAX_UTF16 256
+
+#define EROFS_SUPER_OFFSET   1024
+#define EROFS_SUPER_MAGIC    0xE0F5E1E2U
+#define EROFS_UUID_OFF       0x30
+#define EROFS_LABEL_OFF      0x40
+#define EROFS_LABEL_LEN      16
+
+#define BTRFS_SUPER_OFFSET   0x10000
+#define BTRFS_SUPER_READ_SZ  560
+#define BTRFS_UUID_OFF       0x20
+#define BTRFS_MAGIC_OFF      0x40
+#define BTRFS_LABEL_OFF      0x12B
+#define BTRFS_LABEL_LEN      256
+
+#define XFS_UUID_OFF         0x20
+#define XFS_LABEL_OFF        0x6C
+#define XFS_LABEL_LEN        12
+
+#define SQUASHFS_MAGIC_LE    0x73717368U
+
+#define MAX_BLACKLIST        16
+#define MAX_INIT_ARGS        16
+
+struct fs_info {
+	char fstype[16];
+	char uuid[37];
+	char label[128];
+};
 
 struct boot_cfg {
 	char root[256];
@@ -64,11 +113,17 @@ struct boot_cfg {
 	char rootflags[256];
 	char real_init[256];
 	char rd_break[64];
+	char rd_emergency[32];
+	char blacklist[MAX_BLACKLIST][64];
+	int  n_blacklist;
+	char init_args[MAX_INIT_ARGS][128];
+	int  n_init_args;
 	int  rootdelay;
 	bool rootwait;
 	bool root_ro;
 	bool noswitch;
 	bool rd_nomodules;
+	bool rd_shell;
 };
 
 struct part_info {
@@ -243,17 +298,239 @@ static bool has_suffix(const char *str, const char *suffix)
 
 /* ----------------------------------------------------- Pure Testable API */
 
+static void normalize_mod_name(const char *src, char *dst, size_t dst_sz)
+{
+	size_t i = 0;
+
+	if (!src || dst_sz == 0) {
+		if (dst_sz)
+			dst[0] = '\0';
+		return;
+	}
+	const char *base = strrchr(src, '/');
+	src = base ? base + 1 : src;
+
+	while (src[i] && i + 1 < dst_sz) {
+		if (strcmp(src + i, ".ko") == 0 ||
+		    strcmp(src + i, ".ko.gz") == 0 ||
+		    strcmp(src + i, ".ko.xz") == 0 ||
+		    strcmp(src + i, ".ko.zst") == 0)
+			break;
+		dst[i] = (src[i] == '-') ? '_' : src[i];
+		i++;
+	}
+	dst[i] = '\0';
+}
+
+static void add_blacklist_csv(struct boot_cfg *cfg, const char *csv)
+{
+	char tmp[256];
+	char *saveptr = NULL;
+
+	copy_str(tmp, sizeof(tmp), csv);
+	for (char *tok = strtok_r(tmp, ",", &saveptr);
+	     tok && cfg->n_blacklist < MAX_BLACKLIST;
+	     tok = strtok_r(NULL, ",", &saveptr)) {
+		char norm[64];
+		normalize_mod_name(tok, norm, sizeof(norm));
+		if (!norm[0])
+			continue;
+		bool dup = false;
+		for (int i = 0; i < cfg->n_blacklist; i++) {
+			if (strcmp(cfg->blacklist[i], norm) == 0) {
+				dup = true;
+				break;
+			}
+		}
+		if (!dup)
+			copy_str(cfg->blacklist[cfg->n_blacklist++],
+				 sizeof(cfg->blacklist[0]), norm);
+	}
+}
+
+static bool is_mod_blacklisted(const struct boot_cfg *cfg, const char *mod_name)
+{
+	char norm[64];
+
+	if (!cfg || !mod_name || !mod_name[0])
+		return false;
+	normalize_mod_name(mod_name, norm, sizeof(norm));
+	for (int i = 0; i < cfg->n_blacklist; i++) {
+		if (strcmp(cfg->blacklist[i], norm) == 0)
+			return true;
+	}
+	return false;
+}
+
+static int hex_nibble(char c)
+{
+	if (c >= '0' && c <= '9')
+		return c - '0';
+	if (c >= 'a' && c <= 'f')
+		return 10 + (c - 'a');
+	if (c >= 'A' && c <= 'F')
+		return 10 + (c - 'A');
+	return -1;
+}
+
+/* Decode udev \xNN escapes (e.g. \x20 -> space) in /dev/disk/by-* paths. */
+static void decode_udev_escapes(const char *src, char *dst, size_t dst_sz)
+{
+	size_t o = 0;
+
+	if (!dst || dst_sz == 0)
+		return;
+	while (src && *src && o + 1 < dst_sz) {
+		if (src[0] == '\\' && src[1] == 'x' && src[2] && src[3]) {
+			int hi = hex_nibble(src[2]);
+			int lo = hex_nibble(src[3]);
+			if (hi >= 0 && lo >= 0) {
+				dst[o++] = (char)((hi << 4) | lo);
+				src += 4;
+				continue;
+			}
+		}
+		dst[o++] = *src++;
+	}
+	dst[o] = '\0';
+}
+
+/* Normalize dracut root= forms (block:, /dev/disk/by-{uuid,partuuid,label,partlabel}/). */
+static void normalize_root_spec(const char *raw, char *out, size_t out_sz)
+{
+	static const struct {
+		const char *prefix;
+		const char *tag;
+	} by_map[] = {
+		{ "/dev/disk/by-uuid/",      "UUID=" },
+		{ "/dev/disk/by-partuuid/",  "PARTUUID=" },
+		{ "/dev/disk/by-label/",     "LABEL=" },
+		{ "/dev/disk/by-partlabel/", "PARTLABEL=" },
+	};
+
+	if (!out || out_sz == 0)
+		return;
+	if (!raw) {
+		out[0] = '\0';
+		return;
+	}
+	if (strncmp(raw, "block:", 6) == 0)
+		raw += 6;
+
+	for (size_t i = 0; i < sizeof(by_map) / sizeof(by_map[0]); i++) {
+		size_t plen = strlen(by_map[i].prefix);
+		if (strncmp(raw, by_map[i].prefix, plen) == 0 && raw[plen] != '\0') {
+			char decoded[224];
+			decode_udev_escapes(raw + plen, decoded, sizeof(decoded));
+			snprintf(out, out_sz, "%s%s", by_map[i].tag, decoded);
+			return;
+		}
+	}
+	copy_str(out, out_sz, raw);
+}
+
+/*
+ * Split rootflags= into kernel mount(2) VFS bitmask flags and FS-specific
+ * data string. Passing VFS flags like "noatime" or "defaults" in mount(2)'s
+ * data string causes ext4/btrfs/f2fs to fail with -EINVAL.
+ */
+static void parse_mount_flags(const char *opt_str, bool default_ro,
+			      unsigned long *flags_out,
+			      char *fs_data_out, size_t fs_data_sz)
+{
+	unsigned long flags = default_ro ? MS_RDONLY : 0;
+	char tmp[256];
+	char *saveptr = NULL;
+	size_t dlen = 0;
+
+	if (fs_data_out && fs_data_sz > 0)
+		fs_data_out[0] = '\0';
+
+	if (opt_str && opt_str[0]) {
+		copy_str(tmp, sizeof(tmp), opt_str);
+		for (char *tok = strtok_r(tmp, ",", &saveptr);
+		     tok;
+		     tok = strtok_r(NULL, ",", &saveptr)) {
+			if (!tok[0] || strcmp(tok, "defaults") == 0) {
+				continue;
+			} else if (strcmp(tok, "ro") == 0) {
+				flags |= MS_RDONLY;
+			} else if (strcmp(tok, "rw") == 0) {
+				flags &= ~(unsigned long)MS_RDONLY;
+			} else if (strcmp(tok, "noatime") == 0) {
+				flags |= MS_NOATIME;
+			} else if (strcmp(tok, "atime") == 0) {
+				flags &= ~(unsigned long)MS_NOATIME;
+			} else if (strcmp(tok, "nodiratime") == 0) {
+				flags |= MS_NODIRATIME;
+			} else if (strcmp(tok, "diratime") == 0) {
+				flags &= ~(unsigned long)MS_NODIRATIME;
+			} else if (strcmp(tok, "relatime") == 0) {
+				flags |= MS_RELATIME;
+			} else if (strcmp(tok, "norelatime") == 0) {
+				flags &= ~(unsigned long)MS_RELATIME;
+			} else if (strcmp(tok, "strictatime") == 0) {
+				flags |= MS_STRICTATIME;
+			} else if (strcmp(tok, "nostrictatime") == 0) {
+				flags &= ~(unsigned long)MS_STRICTATIME;
+			} else if (strcmp(tok, "lazytime") == 0) {
+				flags |= MS_LAZYTIME;
+			} else if (strcmp(tok, "nolazytime") == 0) {
+				flags &= ~(unsigned long)MS_LAZYTIME;
+			} else if (strcmp(tok, "sync") == 0) {
+				flags |= MS_SYNCHRONOUS;
+			} else if (strcmp(tok, "async") == 0) {
+				flags &= ~(unsigned long)MS_SYNCHRONOUS;
+			} else if (strcmp(tok, "dirsync") == 0) {
+				flags |= MS_DIRSYNC;
+			} else if (strcmp(tok, "nosuid") == 0) {
+				flags |= MS_NOSUID;
+			} else if (strcmp(tok, "suid") == 0) {
+				flags &= ~(unsigned long)MS_NOSUID;
+			} else if (strcmp(tok, "nodev") == 0) {
+				flags |= MS_NODEV;
+			} else if (strcmp(tok, "dev") == 0) {
+				flags &= ~(unsigned long)MS_NODEV;
+			} else if (strcmp(tok, "noexec") == 0) {
+				flags |= MS_NOEXEC;
+			} else if (strcmp(tok, "exec") == 0) {
+				flags &= ~(unsigned long)MS_NOEXEC;
+			} else if (strcmp(tok, "mand") == 0) {
+				flags |= MS_MANDLOCK;
+			} else if (strcmp(tok, "nomand") == 0) {
+				flags &= ~(unsigned long)MS_MANDLOCK;
+			} else if (fs_data_out && fs_data_sz > 0) {
+				size_t tlen = strlen(tok);
+				size_t need = (dlen > 0 ? 1 : 0) + tlen + 1;
+				if (dlen + need <= fs_data_sz) {
+					if (dlen > 0)
+						fs_data_out[dlen++] = ',';
+					memcpy(fs_data_out + dlen, tok, tlen);
+					dlen += tlen;
+					fs_data_out[dlen] = '\0';
+				}
+			}
+		}
+	}
+
+	if (flags_out)
+		*flags_out = flags;
+}
+
 static void cfg_defaults(struct boot_cfg *cfg)
 {
 	memset(cfg, 0, sizeof(*cfg));
 	cfg->rootdelay = 5;
 	cfg->root_ro = true; /* dracut default: mount ro, systemd remounts rw per fstab */
+	cfg->rd_shell = true;
 }
 
 static void parse_cmdline_str(const char *cmdline, struct boot_cfg *cfg)
 {
 	const char *p = cmdline;
 	bool has_real_init = false;
+	bool after_dashdash = false;
+	bool has_rd_timeout = false;
 
 	cfg_defaults(cfg);
 	if (!cmdline)
@@ -281,8 +558,19 @@ static void parse_cmdline_str(const char *cmdline, struct boot_cfg *cfg)
 		}
 		tok[tlen] = '\0';
 
+		if (after_dashdash) {
+			if (cfg->n_init_args < MAX_INIT_ARGS && tok[0])
+				copy_str(cfg->init_args[cfg->n_init_args++],
+					 sizeof(cfg->init_args[0]), tok);
+			continue;
+		}
+		if (strcmp(tok, "--") == 0) {
+			after_dashdash = true;
+			continue;
+		}
+
 		if (strncmp(tok, "root=", 5) == 0) {
-			copy_str(cfg->root, sizeof(cfg->root), tok + 5);
+			normalize_root_spec(tok + 5, cfg->root, sizeof(cfg->root));
 		} else if (strncmp(tok, "rootfstype=", 11) == 0) {
 			copy_str(cfg->rootfstype, sizeof(cfg->rootfstype), tok + 11);
 		} else if (strncmp(tok, "rootflags=", 10) == 0) {
@@ -290,8 +578,15 @@ static void parse_cmdline_str(const char *cmdline, struct boot_cfg *cfg)
 		} else if (strncmp(tok, "rootdelay=", 10) == 0) {
 			char *end = NULL;
 			long v = strtol(tok + 10, &end, 10);
-			if (end && *end == '\0' && v >= 0 && v <= 120)
+			if (end && *end == '\0' && v >= 0 && v <= 600)
 				cfg->rootdelay = (int)v;
+		} else if (strncmp(tok, "rd.timeout=", 11) == 0) {
+			char *end = NULL;
+			long v = strtol(tok + 11, &end, 10);
+			if (end && *end == '\0' && v >= 0 && v <= 600) {
+				cfg->rootdelay = (int)v;
+				has_rd_timeout = true;
+			}
 		} else if (strcmp(tok, "rootwait") == 0) {
 			cfg->rootwait = true;
 		} else if (strcmp(tok, "ro") == 0) {
@@ -307,6 +602,16 @@ static void parse_cmdline_str(const char *cmdline, struct boot_cfg *cfg)
 			cfg->noswitch = true;
 		} else if (strcmp(tok, "rd.nomodules") == 0 || strcmp(tok, "rd.nomodules=1") == 0) {
 			cfg->rd_nomodules = true;
+		} else if (strncmp(tok, "rd.blacklist=", 13) == 0) {
+			add_blacklist_csv(cfg, tok + 13);
+		} else if (strncmp(tok, "module_blacklist=", 17) == 0) {
+			add_blacklist_csv(cfg, tok + 17);
+		} else if (strcmp(tok, "rd.shell=0") == 0) {
+			cfg->rd_shell = false;
+		} else if (strcmp(tok, "rd.shell") == 0 || strcmp(tok, "rd.shell=1") == 0) {
+			cfg->rd_shell = true;
+		} else if (strncmp(tok, "rd.emergency=", 13) == 0) {
+			copy_str(cfg->rd_emergency, sizeof(cfg->rd_emergency), tok + 13);
 		} else if (strcmp(tok, "rd.break") == 0) {
 			copy_str(cfg->rd_break, sizeof(cfg->rd_break), "pre-mount");
 		} else if (strncmp(tok, "rd.break=", 9) == 0) {
@@ -314,45 +619,163 @@ static void parse_cmdline_str(const char *cmdline, struct boot_cfg *cfg)
 		}
 	}
 
-	if (cfg->rootwait && cfg->rootdelay < 30)
+	if (cfg->rootwait && !has_rd_timeout && cfg->rootdelay < 30)
 		cfg->rootdelay = 30;
 }
 
-static bool read_ext4_uuid_fd(int fd, char uuid_out[37])
+static uint16_t read_le16(const uint8_t *p)
 {
-	uint8_t sb[EXT4_SUPER_SIZE];
-	ssize_t n;
-	uint16_t magic;
-	const uint8_t *u;
-
-	n = pread(fd, sb, sizeof(sb), EXT4_SUPER_OFFSET);
-	if (n != (ssize_t)sizeof(sb))
-		return false;
-
-	magic = (uint16_t)((uint16_t)sb[EXT4_MAGIC_OFF] |
-			   ((uint16_t)sb[EXT4_MAGIC_OFF + 1] << 8));
-	if (magic != EXT4_SUPER_MAGIC)
-		return false;
-
-	if (uuid_out) {
-		u = sb + EXT4_UUID_OFF;
-		snprintf(uuid_out, 37,
-			 "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-"
-			 "%02x%02x%02x%02x%02x%02x",
-			 u[0], u[1], u[2], u[3], u[4], u[5], u[6], u[7],
-			 u[8], u[9], u[10], u[11], u[12], u[13], u[14], u[15]);
-	}
-	return true;
+	return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
 }
 
-static bool read_ext4_uuid_path(const char *devpath, char uuid_out[37])
+static uint32_t read_le32(const uint8_t *p)
+{
+	return (uint32_t)p[0] |
+	       ((uint32_t)p[1] << 8) |
+	       ((uint32_t)p[2] << 16) |
+	       ((uint32_t)p[3] << 24);
+}
+
+static void format_uuid(const uint8_t u[16], char out[37])
+{
+	snprintf(out, 37,
+		 "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-"
+		 "%02x%02x%02x%02x%02x%02x",
+		 u[0], u[1], u[2], u[3], u[4], u[5], u[6], u[7],
+		 u[8], u[9], u[10], u[11], u[12], u[13], u[14], u[15]);
+}
+
+static void copy_fixed_label(const uint8_t *src, size_t max_len,
+			     char *dst, size_t dst_sz)
+{
+	size_t n = 0;
+
+	if (!dst || dst_sz == 0)
+		return;
+	while (n < max_len && n + 1 < dst_sz && src[n] != 0) {
+		dst[n] = (char)src[n];
+		n++;
+	}
+	dst[n] = '\0';
+}
+
+static void copy_utf16le_label(const uint8_t *src, size_t max_units,
+			       char *dst, size_t dst_sz)
+{
+	size_t o = 0;
+
+	if (!dst || dst_sz == 0)
+		return;
+	for (size_t i = 0; i < max_units; i++) {
+		uint16_t ch = read_le16(src + i * 2);
+		if (ch == 0)
+			break;
+		if (ch < 0x80) {
+			if (o + 1 >= dst_sz)
+				break;
+			dst[o++] = (char)ch;
+		} else if (ch < 0x800) {
+			if (o + 2 >= dst_sz)
+				break;
+			dst[o++] = (char)(0xC0 | (ch >> 6));
+			dst[o++] = (char)(0x80 | (ch & 0x3F));
+		} else {
+			if (o + 3 >= dst_sz)
+				break;
+			dst[o++] = (char)(0xE0 | (ch >> 12));
+			dst[o++] = (char)(0x80 | ((ch >> 6) & 0x3F));
+			dst[o++] = (char)(0x80 | (ch & 0x3F));
+		}
+	}
+	dst[o] = '\0';
+}
+
+/*
+ * Probe Linux rootfs superblock magic, UUID, and LABEL directly from fd.
+ * Supported: ext2/3/4, F2FS, EROFS, XFS, SquashFS, Btrfs.
+ * Btrfs (64 KiB offset) is checked last to avoid false positives from stale
+ * unwiped Btrfs superblocks under freshly formatted ext4/f2fs/xfs partitions.
+ */
+static bool probe_fs_fd(int fd, struct fs_info *out)
+{
+	struct fs_info info;
+	uint8_t sb1k[EXT4_SUPER_SIZE];
+	uint8_t sb0[256];
+	uint8_t sb_btrfs[BTRFS_SUPER_READ_SZ];
+
+	memset(&info, 0, sizeof(info));
+
+	if (pread(fd, sb1k, sizeof(sb1k), EXT4_SUPER_OFFSET) == (ssize_t)sizeof(sb1k)) {
+		if (read_le16(sb1k + EXT4_MAGIC_OFF) == EXT4_SUPER_MAGIC) {
+			copy_str(info.fstype, sizeof(info.fstype), "ext4");
+			format_uuid(sb1k + EXT4_UUID_OFF, info.uuid);
+			copy_fixed_label(sb1k + EXT4_LABEL_OFF, EXT4_LABEL_LEN,
+					 info.label, sizeof(info.label));
+			if (out)
+				*out = info;
+			return true;
+		}
+		if (read_le32(sb1k) == F2FS_SUPER_MAGIC) {
+			copy_str(info.fstype, sizeof(info.fstype), "f2fs");
+			format_uuid(sb1k + F2FS_UUID_OFF, info.uuid);
+			copy_utf16le_label(sb1k + F2FS_LABEL_OFF, F2FS_LABEL_MAX_UTF16,
+					   info.label, sizeof(info.label));
+			if (out)
+				*out = info;
+			return true;
+		}
+		if (read_le32(sb1k) == EROFS_SUPER_MAGIC) {
+			copy_str(info.fstype, sizeof(info.fstype), "erofs");
+			format_uuid(sb1k + EROFS_UUID_OFF, info.uuid);
+			copy_fixed_label(sb1k + EROFS_LABEL_OFF, EROFS_LABEL_LEN,
+					 info.label, sizeof(info.label));
+			if (out)
+				*out = info;
+			return true;
+		}
+	}
+
+	if (pread(fd, sb0, sizeof(sb0), 0) == (ssize_t)sizeof(sb0)) {
+		if (memcmp(sb0, "XFSB", 4) == 0) {
+			copy_str(info.fstype, sizeof(info.fstype), "xfs");
+			format_uuid(sb0 + XFS_UUID_OFF, info.uuid);
+			copy_fixed_label(sb0 + XFS_LABEL_OFF, XFS_LABEL_LEN,
+					 info.label, sizeof(info.label));
+			if (out)
+				*out = info;
+			return true;
+		}
+		if (read_le32(sb0) == SQUASHFS_MAGIC_LE) {
+			copy_str(info.fstype, sizeof(info.fstype), "squashfs");
+			if (out)
+				*out = info;
+			return true;
+		}
+	}
+
+	if (pread(fd, sb_btrfs, sizeof(sb_btrfs), BTRFS_SUPER_OFFSET) ==
+	    (ssize_t)sizeof(sb_btrfs) &&
+	    memcmp(sb_btrfs + BTRFS_MAGIC_OFF, "_BHRfS_M", 8) == 0) {
+		copy_str(info.fstype, sizeof(info.fstype), "btrfs");
+		format_uuid(sb_btrfs + BTRFS_UUID_OFF, info.uuid);
+		copy_fixed_label(sb_btrfs + BTRFS_LABEL_OFF, BTRFS_LABEL_LEN,
+				 info.label, sizeof(info.label));
+		if (out)
+			*out = info;
+		return true;
+	}
+
+	return false;
+}
+
+static bool probe_fs_path(const char *devpath, struct fs_info *out)
 {
 	int fd = open(devpath, O_RDONLY | O_CLOEXEC);
 	bool ok;
 
 	if (fd < 0)
 		return false;
-	ok = read_ext4_uuid_fd(fd, uuid_out);
+	ok = probe_fs_fd(fd, out);
 	close(fd);
 	return ok;
 }
@@ -374,30 +797,6 @@ static uint32_t detect_gpt_sector_size_fd(int fd, uint32_t hw_blksize)
 			return candidates[i];
 	}
 	return 0;
-}
-
-static void normalize_mod_name(const char *src, char *dst, size_t dst_sz)
-{
-	size_t i = 0;
-
-	if (!src || dst_sz == 0) {
-		if (dst_sz)
-			dst[0] = '\0';
-		return;
-	}
-	const char *base = strrchr(src, '/');
-	src = base ? base + 1 : src;
-
-	while (src[i] && i + 1 < dst_sz) {
-		if (strcmp(src + i, ".ko") == 0 ||
-		    strcmp(src + i, ".ko.gz") == 0 ||
-		    strcmp(src + i, ".ko.xz") == 0 ||
-		    strcmp(src + i, ".ko.zst") == 0)
-			break;
-		dst[i] = (src[i] == '-') ? '_' : src[i];
-		i++;
-	}
-	dst[i] = '\0';
 }
 
 static bool parse_uevent_buf(const char *buf, struct part_info *info)
@@ -650,8 +1049,8 @@ static int insmod_file(const char *path, const char *params, bool quiet_eexist)
 	return -1;
 }
 
-static int modprobe_dep(const char *kver, const char *mod_name,
-			const char *params, int depth)
+static int modprobe_dep(const struct boot_cfg *cfg, const char *kver,
+			const char *mod_name, const char *params, int depth)
 {
 	char dep_path[PATH_MAX];
 	char want[128];
@@ -663,6 +1062,10 @@ static int modprobe_dep(const char *kver, const char *mod_name,
 		return -1;
 
 	normalize_mod_name(mod_name, want, sizeof(want));
+	if (is_mod_blacklisted(cfg, want)) {
+		init_log("skip blacklisted module: %s", want);
+		return 0;
+	}
 	snprintf(dep_path, sizeof(dep_path), "/lib/modules/%s/modules.dep", kver);
 	fp = fopen(dep_path, "re");
 	if (!fp)
@@ -692,7 +1095,7 @@ static int modprobe_dep(const char *kver, const char *mod_name,
 		for (int i = ndep - 1; i >= 0; i--) {
 			char dnorm[128];
 			normalize_mod_name(dep_list[i], dnorm, sizeof(dnorm));
-			(void)modprobe_dep(kver, dnorm, "", depth + 1);
+			(void)modprobe_dep(cfg, kver, dnorm, "", depth + 1);
 		}
 
 		char ko_path[PATH_MAX];
@@ -709,7 +1112,7 @@ static int modprobe_dep(const char *kver, const char *mod_name,
 	return rc;
 }
 
-static void insmod_dir(const char *dir_path)
+static void insmod_dir(const struct boot_cfg *cfg, const char *dir_path)
 {
 	struct dirent **entries = NULL;
 	int n = scandir(dir_path, &entries, NULL, alphasort);
@@ -720,16 +1123,20 @@ static void insmod_dir(const char *dir_path)
 	for (int i = 0; i < n; i++) {
 		const char *name = entries[i]->d_name;
 		if (name[0] != '.' && has_suffix(name, ".ko")) {
-			char full[PATH_MAX];
-			if (join_path2(full, sizeof(full), dir_path, name))
-				(void)insmod_file(full, "", true);
+			if (is_mod_blacklisted(cfg, name)) {
+				init_log("skip blacklisted module: %s", name);
+			} else {
+				char full[PATH_MAX];
+				if (join_path2(full, sizeof(full), dir_path, name))
+					(void)insmod_file(full, "", true);
+			}
 		}
 		free(entries[i]);
 	}
 	free(entries);
 }
 
-static void load_modules(const char *kver)
+static void load_modules(const struct boot_cfg *cfg, const char *kver)
 {
 	FILE *fp = fopen("/etc/modules", "re");
 
@@ -754,10 +1161,15 @@ static void load_modules(const char *kver)
 				params = p;
 			}
 
+			if (is_mod_blacklisted(cfg, mod)) {
+				init_log("skip blacklisted module: %s", mod);
+				continue;
+			}
+
 			if (mod[0] == '/' || has_suffix(mod, ".ko")) {
 				if (access(mod, R_OK) == 0)
 					(void)insmod_file(mod, params, true);
-			} else if (modprobe_dep(kver, mod, params, 0) != 0) {
+			} else if (modprobe_dep(cfg, kver, mod, params, 0) != 0) {
 				char extra_ko[PATH_MAX];
 				snprintf(extra_ko, sizeof(extra_ko),
 					 "/lib/modules/extra/%s.ko", mod);
@@ -769,11 +1181,11 @@ static void load_modules(const char *kver)
 	}
 
 	/* Auto-load any remaining out-of-tree .ko modules (e.g. EXTRA_KMODS). */
-	insmod_dir("/lib/modules/extra");
+	insmod_dir(cfg, "/lib/modules/extra");
 	if (kver && kver[0]) {
 		char dir[PATH_MAX];
 		snprintf(dir, sizeof(dir), "/lib/modules/%s/updates", kver);
-		insmod_dir(dir);
+		insmod_dir(cfg, dir);
 	}
 }
 
@@ -797,9 +1209,10 @@ static bool ensure_block_node(const struct part_info *pi, char *dev_out, size_t 
 }
 
 static bool match_part_spec(const char *root_spec, const struct part_info *pi,
-			    char *dev_out, size_t out_sz)
+			    char *dev_out, size_t out_sz, struct fs_info *fs_out)
 {
 	char candidate[256];
+	struct fs_info fi;
 
 	if (!pi->has_dev)
 		return false;
@@ -807,29 +1220,54 @@ static bool match_part_spec(const char *root_spec, const struct part_info *pi,
 	if (strncmp(root_spec, "PARTLABEL=", 10) == 0) {
 		if (strcmp(pi->partname, root_spec + 10) != 0)
 			return false;
-		return ensure_block_node(pi, dev_out, out_sz);
+		if (!ensure_block_node(pi, dev_out, out_sz))
+			return false;
+		if (fs_out) {
+			memset(fs_out, 0, sizeof(*fs_out));
+			(void)probe_fs_path(dev_out, fs_out);
+		}
+		return true;
 	}
 	if (strncmp(root_spec, "PARTUUID=", 9) == 0) {
 		if (strcasecmp(pi->partuuid, root_spec + 9) != 0)
 			return false;
-		return ensure_block_node(pi, dev_out, out_sz);
+		if (!ensure_block_node(pi, dev_out, out_sz))
+			return false;
+		if (fs_out) {
+			memset(fs_out, 0, sizeof(*fs_out));
+			(void)probe_fs_path(dev_out, fs_out);
+		}
+		return true;
 	}
 	if (strncmp(root_spec, "UUID=", 5) == 0) {
-		char uuid[37];
 		if (!ensure_block_node(pi, candidate, sizeof(candidate)))
 			return false;
-		if (!read_ext4_uuid_path(candidate, uuid))
+		if (!probe_fs_path(candidate, &fi) || !fi.uuid[0])
 			return false;
-		if (strcasecmp(uuid, root_spec + 5) != 0)
+		if (strcasecmp(fi.uuid, root_spec + 5) != 0)
 			return false;
 		copy_str(dev_out, out_sz, candidate);
+		if (fs_out)
+			*fs_out = fi;
+		return true;
+	}
+	if (strncmp(root_spec, "LABEL=", 6) == 0) {
+		if (!ensure_block_node(pi, candidate, sizeof(candidate)))
+			return false;
+		if (!probe_fs_path(candidate, &fi) || !fi.label[0])
+			return false;
+		if (strcmp(fi.label, root_spec + 6) != 0)
+			return false;
+		copy_str(dev_out, out_sz, candidate);
+		if (fs_out)
+			*fs_out = fi;
 		return true;
 	}
 	return false;
 }
 
 static bool scan_disk_partitions(const char *disk_name, const char *root_spec,
-				 char *dev_out, size_t out_sz)
+				 char *dev_out, size_t out_sz, struct fs_info *fs_out)
 {
 	char disk_dir[PATH_MAX];
 	DIR *d;
@@ -854,7 +1292,7 @@ static bool scan_disk_partitions(const char *disk_name, const char *root_spec,
 			continue;
 		if (!parse_uevent_buf(buf, &pi))
 			continue;
-		if (match_part_spec(root_spec, &pi, dev_out, out_sz)) {
+		if (match_part_spec(root_spec, &pi, dev_out, out_sz, fs_out)) {
 			closedir(d);
 			return true;
 		}
@@ -867,14 +1305,14 @@ static bool scan_disk_partitions(const char *disk_name, const char *root_spec,
 	if (join_path2(whole_uev, sizeof(whole_uev), disk_dir, "uevent") &&
 	    read_file_str(whole_uev, buf, sizeof(buf)) > 0 &&
 	    parse_uevent_buf(buf, &pi) &&
-	    match_part_spec(root_spec, &pi, dev_out, out_sz))
+	    match_part_spec(root_spec, &pi, dev_out, out_sz, fs_out))
 		return true;
 
 	return false;
 }
 
 static bool resolve_root_spec(const char *root_spec, const char *only_disk,
-			      char *dev_out, size_t out_sz)
+			      char *dev_out, size_t out_sz, struct fs_info *fs_out)
 {
 	if (!root_spec || !root_spec[0])
 		return false;
@@ -883,13 +1321,17 @@ static bool resolve_root_spec(const char *root_spec, const char *only_disk,
 		struct stat st;
 		if (stat(root_spec, &st) == 0 && S_ISBLK(st.st_mode)) {
 			copy_str(dev_out, out_sz, root_spec);
+			if (fs_out) {
+				memset(fs_out, 0, sizeof(*fs_out));
+				(void)probe_fs_path(dev_out, fs_out);
+			}
 			return true;
 		}
 		return false;
 	}
 
 	if (only_disk)
-		return scan_disk_partitions(only_disk, root_spec, dev_out, out_sz);
+		return scan_disk_partitions(only_disk, root_spec, dev_out, out_sz, fs_out);
 
 	DIR *d = opendir("/sys/block");
 	struct dirent *de;
@@ -901,7 +1343,7 @@ static bool resolve_root_spec(const char *root_spec, const char *only_disk,
 		    strncmp(de->d_name, "ram", 3) == 0 ||
 		    strncmp(de->d_name, "zram", 4) == 0)
 			continue;
-		if (scan_disk_partitions(de->d_name, root_spec, dev_out, out_sz)) {
+		if (scan_disk_partitions(de->d_name, root_spec, dev_out, out_sz, fs_out)) {
 			closedir(d);
 			return true;
 		}
@@ -934,12 +1376,11 @@ static int part_cmp(const void *a, const void *b)
 }
 
 /*
- * Option A: Attach xnu_data to a loop device using the kernel's native
+ * Option A: Attach xnu_data to a loop device once using the kernel's native
  * GPT partition parser (BLKSSZGET + LOOP_CONFIGURE with LO_FLAGS_PARTSCAN).
  * Zero hardcoded byte offsets.
  */
-static bool attach_nested_gpt_xnu_data(const char *root_spec,
-				       char *dev_out, size_t out_sz)
+static bool attach_xnu_data_loop(char *loop_disk_out, size_t loop_disk_sz)
 {
 	char xnu_dev[256] = { 0 };
 	int backing_fd = -1, ctrl_fd = -1, loop_fd = -1;
@@ -949,7 +1390,7 @@ static bool attach_nested_gpt_xnu_data(const char *root_spec,
 	char loop_dev[64];
 	char loop_disk[32];
 
-	if (!resolve_root_spec("PARTLABEL=xnu_data", NULL, xnu_dev, sizeof(xnu_dev))) {
+	if (!resolve_root_spec("PARTLABEL=xnu_data", NULL, xnu_dev, sizeof(xnu_dev), NULL)) {
 		struct stat st;
 		if (stat("/dev/sdc72", &st) == 0 && S_ISBLK(st.st_mode))
 			copy_str(xnu_dev, sizeof(xnu_dev), "/dev/sdc72");
@@ -1025,89 +1466,147 @@ static bool attach_nested_gpt_xnu_data(const char *root_spec,
 	init_log("loop attached: %s -> %s (blksize=%u, LO_FLAGS_PARTSCAN)",
 		 xnu_dev, loop_dev, gpt_blksize);
 
-	struct part_info parts[32];
-	int nparts = 0;
 	char sys_loop[PATH_MAX];
 	snprintf(sys_loop, sizeof(sys_loop), "/sys/block/%s", loop_disk);
 	size_t ldlen = strlen(loop_disk);
+	bool saw_part = false;
 
-	for (int tries = 0; tries < 30 && nparts == 0; tries++) {
+	for (int tries = 0; tries < 30 && !saw_part; tries++) {
 		DIR *d = opendir(sys_loop);
 		if (d) {
 			struct dirent *de;
-			while ((de = readdir(d)) != NULL && nparts < 32) {
-				char uev[PATH_MAX], buf[1024];
-				struct part_info pi;
-				if (de->d_name[0] == '.' ||
-				    strncmp(de->d_name, loop_disk, ldlen) != 0)
-					continue;
-				if (!join_path3(uev, sizeof(uev), sys_loop,
-						de->d_name, "uevent"))
-					continue;
-				if (read_file_str(uev, buf, sizeof(buf)) > 0 &&
-				    parse_uevent_buf(buf, &pi))
-					parts[nparts++] = pi;
+			while ((de = readdir(d)) != NULL) {
+				if (de->d_name[0] != '.' &&
+				    strncmp(de->d_name, loop_disk, ldlen) == 0 &&
+				    de->d_name[ldlen] == 'p') {
+					saw_part = true;
+					break;
+				}
 			}
 			closedir(d);
 		}
-		if (nparts == 0)
+		if (!saw_part)
 			usleep(100000);
 	}
 
-	if (nparts == 0) {
+	if (!saw_part) {
 		init_log("WARN: kernel GPT parser found 0 partitions on %s", loop_dev);
 		(void)ioctl(loop_fd, LOOP_CLR_FD, 0);
 		close(loop_fd);
 		return false;
 	}
 	close(loop_fd);
+	copy_str(loop_disk_out, loop_disk_sz, loop_disk);
+	return true;
+}
+
+static bool select_nested_gpt_root(const char *loop_disk, const char *root_spec,
+				   char *dev_out, size_t out_sz, struct fs_info *fs_out)
+{
+	struct part_info parts[32];
+	int nparts = 0;
+	char sys_loop[PATH_MAX];
+	size_t ldlen = strlen(loop_disk);
+	DIR *d;
+
+	if (root_spec && root_spec[0])
+		return resolve_root_spec(root_spec, loop_disk, dev_out, out_sz, fs_out);
+
+	snprintf(sys_loop, sizeof(sys_loop), "/sys/block/%s", loop_disk);
+	d = opendir(sys_loop);
+	if (!d)
+		return false;
+
+	struct dirent *de;
+	while ((de = readdir(d)) != NULL && nparts < 32) {
+		char uev[PATH_MAX], buf[1024];
+		struct part_info pi;
+		if (de->d_name[0] == '.' || strncmp(de->d_name, loop_disk, ldlen) != 0)
+			continue;
+		if (!join_path3(uev, sizeof(uev), sys_loop, de->d_name, "uevent"))
+			continue;
+		if (read_file_str(uev, buf, sizeof(buf)) > 0 &&
+		    parse_uevent_buf(buf, &pi))
+			parts[nparts++] = pi;
+	}
+	closedir(d);
+	if (nparts == 0)
+		return false;
 
 	qsort(parts, (size_t)nparts, sizeof(parts[0]), part_cmp);
 
-	if (root_spec && root_spec[0] &&
-	    resolve_root_spec(root_spec, loop_disk, dev_out, out_sz))
-		return true;
-
 	char fallback_dev[256] = { 0 };
+	struct fs_info fallback_fs;
+	memset(&fallback_fs, 0, sizeof(fallback_fs));
+
 	for (int i = 0; i < nparts; i++) {
 		char cand[256];
+		struct fs_info fi;
 		if (!ensure_block_node(&parts[i], cand, sizeof(cand)))
 			continue;
-		if (!read_ext4_uuid_path(cand, NULL))
+		if (!probe_fs_path(cand, &fi))
 			continue;
-		if (is_preferred_root_name(parts[i].partname)) {
+		if (is_preferred_root_name(parts[i].partname) ||
+		    is_preferred_root_name(fi.label)) {
 			copy_str(dev_out, out_sz, cand);
+			if (fs_out)
+				*fs_out = fi;
 			return true;
 		}
-		if (!fallback_dev[0])
+		if (!fallback_dev[0]) {
 			copy_str(fallback_dev, sizeof(fallback_dev), cand);
+			fallback_fs = fi;
+		}
 	}
 
 	if (fallback_dev[0]) {
 		copy_str(dev_out, out_sz, fallback_dev);
+		if (fs_out)
+			*fs_out = fallback_fs;
 		return true;
 	}
 	return false;
 }
 
-static bool mount_real_root(const char *root_dev, const struct boot_cfg *cfg)
+static bool mount_real_root(const char *root_dev, const struct boot_cfg *cfg,
+			    const struct fs_info *probed_fs)
 {
-	unsigned long flags = cfg->root_ro ? MS_RDONLY : 0;
-	const char *data = cfg->rootflags[0] ? cfg->rootflags : NULL;
-	const char *fstypes[4];
+	static const char *const fallback_types[] = {
+		"ext4", "f2fs", "btrfs", "xfs", "erofs", "squashfs"
+	};
+	unsigned long flags = 0;
+	char fs_data[256] = { 0 };
+	const char *fstypes[8];
 	int n = 0;
+
+	parse_mount_flags(cfg->rootflags, cfg->root_ro, &flags, fs_data, sizeof(fs_data));
 
 	if (cfg->rootfstype[0])
 		fstypes[n++] = cfg->rootfstype;
-	fstypes[n++] = "ext4";
-	fstypes[n++] = "f2fs";
-	fstypes[n++] = "btrfs";
+	if (probed_fs && probed_fs->fstype[0]) {
+		bool dup = (n > 0 && strcmp(fstypes[0], probed_fs->fstype) == 0);
+		if (!dup)
+			fstypes[n++] = probed_fs->fstype;
+	}
+	for (size_t i = 0; i < sizeof(fallback_types) / sizeof(fallback_types[0]); i++) {
+		bool dup = false;
+		for (int j = 0; j < n; j++) {
+			if (strcmp(fstypes[j], fallback_types[i]) == 0) {
+				dup = true;
+				break;
+			}
+		}
+		if (!dup)
+			fstypes[n++] = fallback_types[i];
+	}
 
+	const char *data = fs_data[0] ? fs_data : NULL;
 	for (int i = 0; i < n; i++) {
 		if (mount(root_dev, NEWROOT, fstypes[i], flags, data) == 0) {
-			init_log("Mounted %s on %s (%s, %s)",
+			init_log("Mounted %s on %s (%s, %s%s%s)",
 				 root_dev, NEWROOT, fstypes[i],
-				 cfg->root_ro ? "ro" : "rw");
+				 (flags & MS_RDONLY) ? "ro" : "rw",
+				 data ? ", " : "", data ? data : "");
 			return true;
 		}
 	}
@@ -1211,9 +1710,24 @@ static pid_t spawn_getty(const char *tty, bool is_serial)
 	_exit(127);
 }
 
-static void emergency_shell(const char *reason)
+static void emergency_shell(const struct boot_cfg *cfg, const char *reason)
 {
 	init_log("EMERGENCY: %s", reason);
+
+	if (cfg && !cfg->rd_shell) {
+		init_log("rd.shell=0: skipping rescue shell (action=%s)",
+			 cfg->rd_emergency[0] ? cfg->rd_emergency : "reboot");
+		sync();
+		if (strcmp(cfg->rd_emergency, "poweroff") == 0)
+			reboot(RB_POWER_OFF);
+		else if (strcmp(cfg->rd_emergency, "halt") == 0)
+			reboot(RB_HALT_SYSTEM);
+		else
+			reboot(RB_AUTOBOOT);
+		for (;;)
+			pause();
+	}
+
 	rescue_usb_acm();
 
 	pid_t gs0_pid = spawn_getty("ttyGS0", true);
@@ -1304,7 +1818,7 @@ static void do_switch_root(const struct boot_cfg *cfg)
 		}
 	}
 	if (!target_init)
-		emergency_shell("no executable init found in " NEWROOT);
+		emergency_shell(cfg, "no executable init found in " NEWROOT);
 
 	init_log("switch_root -> %s", target_init);
 
@@ -1327,11 +1841,17 @@ static void do_switch_root(const struct boot_cfg *cfg)
 	    mount(".", "/", NULL, MS_MOVE, NULL) < 0 ||
 	    chroot(".") < 0 ||
 	    chdir("/") < 0)
-		emergency_shell("switch_root pivot failed");
+		emergency_shell(cfg, "switch_root pivot failed");
 
-	char *const argv[] = { (char *)target_init, NULL };
+	char *argv[MAX_INIT_ARGS + 2];
+	int argc = 0;
+	argv[argc++] = (char *)target_init;
+	for (int i = 0; i < cfg->n_init_args && i < MAX_INIT_ARGS; i++)
+		argv[argc++] = (char *)cfg->init_args[i];
+	argv[argc] = NULL;
+
 	execv(target_init, argv);
-	emergency_shell("exec real init failed");
+	emergency_shell(cfg, "exec real init failed");
 }
 
 /* ------------------------------------------------------------------- Main */
@@ -1340,14 +1860,18 @@ int main(void)
 {
 	struct boot_cfg cfg;
 	struct utsname uts;
+	struct fs_info probed_fs;
 	char cmdline[4096] = { 0 };
 	char root_dev[256] = { 0 };
+	char xnu_loop_disk[32] = { 0 };
+	bool xnu_attached = false;
 
+	memset(&probed_fs, 0, sizeof(probed_fs));
 	setenv("PATH", "/sbin:/bin:/usr/sbin:/usr/bin", 1);
 	umask(0022);
 
 	if (early_base_mounts() < 0)
-		emergency_shell("early base mounts failed");
+		emergency_shell(NULL, "early base mounts failed");
 
 	if (uname(&uts) < 0) {
 		memset(&uts, 0, sizeof(uts));
@@ -1361,55 +1885,55 @@ int main(void)
 	parse_cmdline_str(cmdline, &cfg);
 
 	if (strcmp(cfg.rd_break, "cmdline") == 0)
-		emergency_shell("rd.break=cmdline");
+		emergency_shell(&cfg, "rd.break=cmdline");
 
 	stage_initramfs_firmware_from("/lib/firmware", "/run/firmware",
 				      "/sys/module/firmware_class/parameters/path");
 
 	if (strcmp(cfg.rd_break, "pre-udev") == 0)
-		emergency_shell("rd.break=pre-udev");
+		emergency_shell(&cfg, "rd.break=pre-udev");
 	if (!cfg.rd_nomodules)
-		load_modules(uts.release);
+		load_modules(&cfg, uts.release);
 
 	if (strcmp(cfg.rd_break, "pre-mount") == 0)
-		emergency_shell("rd.break=pre-mount");
+		emergency_shell(&cfg, "rd.break=pre-mount");
 
-	if (cfg.root[0]) {
-		int max_polls = cfg.rootdelay * 5;
-		if (max_polls < 1)
-			max_polls = 1;
-		for (int i = 0; i < max_polls; i++) {
-			if (resolve_root_spec(cfg.root, NULL, root_dev, sizeof(root_dev)))
-				break;
+	/*
+	 * Interleave explicit root= scans with Option A nested-GPT attach on
+	 * xnu_data so root= targeting a partition inside xnu_data resolves
+	 * immediately instead of stalling for the full rootdelay first.
+	 */
+	int max_polls = cfg.rootdelay * 5;
+	if (max_polls < 1)
+		max_polls = 1;
+	for (int i = 0; i < max_polls && !root_dev[0]; i++) {
+		if (cfg.root[0] &&
+		    resolve_root_spec(cfg.root, NULL, root_dev, sizeof(root_dev), &probed_fs))
+			break;
+		if (!xnu_attached && attach_xnu_data_loop(xnu_loop_disk, sizeof(xnu_loop_disk)))
+			xnu_attached = true;
+		if (xnu_attached &&
+		    select_nested_gpt_root(xnu_loop_disk, cfg.root,
+					   root_dev, sizeof(root_dev), &probed_fs))
+			break;
+		if (i + 1 < max_polls)
 			usleep(200000);
-		}
-	}
-
-	if (!root_dev[0]) {
-		int max_polls = cfg.rootdelay * 2;
-		if (max_polls < 6)
-			max_polls = 6;
-		for (int i = 0; i < max_polls; i++) {
-			if (attach_nested_gpt_xnu_data(cfg.root, root_dev, sizeof(root_dev)))
-				break;
-			usleep(500000);
-		}
 	}
 
 	if (strcmp(cfg.rd_break, "mount") == 0)
-		emergency_shell("rd.break=mount");
+		emergency_shell(&cfg, "rd.break=mount");
 
 	if (!root_dev[0])
-		emergency_shell("no root device resolved");
+		emergency_shell(&cfg, "no root device resolved");
 
-	if (!mount_real_root(root_dev, &cfg))
-		emergency_shell("failed to mount root device");
+	if (!mount_real_root(root_dev, &cfg, &probed_fs))
+		emergency_shell(&cfg, "failed to mount root device");
 
 	if (strcmp(cfg.rd_break, "pre-pivot") == 0)
-		emergency_shell("rd.break=pre-pivot");
+		emergency_shell(&cfg, "rd.break=pre-pivot");
 
 	if (cfg.noswitch)
-		emergency_shell("noswitch");
+		emergency_shell(&cfg, "noswitch");
 
 	do_switch_root(&cfg);
 	return 1;
