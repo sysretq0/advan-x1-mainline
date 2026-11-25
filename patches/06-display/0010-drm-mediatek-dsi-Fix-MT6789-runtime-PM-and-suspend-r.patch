@@ -1,0 +1,239 @@
+From d7e072af8f10e02613cc26b0248233167d71883e Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Wed, 25 Nov 2026 08:51:58 +0000
+Subject: [PATCH] drm/mediatek: dsi: Fix MT6789 runtime PM and suspend/resume
+ sequence
+
+Fix four display suspend/resume bugs on MediaTek MT6789 that caused
+DSI command timeouts and SMI LARB0 sleep-ctrl failures after S3 resume:
+
+1. Enable runtime PM in mtk_dsi_probe() and hold pm_runtime across
+   mtk_dsi_poweron()/mtk_dsi_poweroff(). Without this,
+   MT6789_POWER_DOMAIN_DISP powered off during mtk_crtc_atomic_disable()
+   before panel_unprepare() and mtk_dsi_poweroff() ran.
+2. Restore phy_power_on() ahead of engine/digital clock enable and DSI
+   enable/reset in mtk_dsi_poweron() so the MIPI-TX PLL is locked before
+   DSI_CK_DOMAIN clocks and DSI_RESET run on cold-start resume (bootloader
+   handover stays undisturbed because MT6789 PLL prepare returns early
+   when RG_DSI_PLL_EN is already set).
+3. Sequence MT6789 ULPS enter/exit with MIPI-TX PRE_OE and SW_CTL_EN via
+   phy_set_mode_ext(), matching vendor mtk_dsi_enter_ulps()/exit_ulps().
+4. Poll !DSI_BUSY in mtk_dsi_switch_to_cmd_mode() when poll_for_idle is
+   set, skip switching when already in CMD mode during poweroff, and do
+   not restart video mode after mtk_dsi_host_transfer() when !dsi->enabled.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ drivers/gpu/drm/mediatek/mtk_dsi.c | 96 ++++++++++++++++++++++++------
+ 1 file changed, 79 insertions(+), 17 deletions(-)
+
+diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_dsi.c
+index 527092ed1..06f743a72 100644
+--- a/drivers/gpu/drm/mediatek/mtk_dsi.c
++++ b/drivers/gpu/drm/mediatek/mtk_dsi.c
+@@ -12,6 +12,7 @@
+ #include <linux/of_platform.h>
+ #include <linux/phy/phy.h>
+ #include <linux/platform_device.h>
++#include <linux/pm_runtime.h>
+ #include <linux/reset.h>
+ #include <linux/units.h>
+ 
+@@ -45,8 +46,13 @@
+ #define VM_DONE_INT_FLAG		BIT(3)
+ #define EXT_TE_RDY_INT_FLAG		BIT(4)
+ #define SLEEPOUT_DONE_INT_FLAG		BIT(6)
++#define SLEEPIN_ULPS_DONE_INT_FLAG	BIT(15)
+ #define DSI_BUSY			BIT(31)
+ 
++#define MT6789_DPHY_SUBMODE_PRE_OE_EN		1
++#define MT6789_DPHY_SUBMODE_SW_CTL_RELEASE	2
++#define MT6789_DPHY_SUBMODE_ULPS_ISOLATE	3
++
+ #define DSI_CON_CTRL		0x10
+ #define DSI_RESET			BIT(0)
+ #define DSI_EN				BIT(1)
+@@ -765,9 +771,27 @@ static irqreturn_t mtk_dsi_irq(int irq, void *dev_id)
+ 
+ static s32 mtk_dsi_switch_to_cmd_mode(struct mtk_dsi *dsi, u8 irq_flag, u32 t)
+ {
++	struct drm_device *drm = dsi->bridge.dev;
++
+ 	mtk_dsi_irq_data_clear(dsi, irq_flag);
+ 	mtk_dsi_set_cmd_mode(dsi);
+-	struct drm_device *drm = dsi->bridge.dev;
++
++	if (dsi->driver_data->poll_for_idle) {
++		u32 val;
++		int ret;
++
++		ret = readl_poll_timeout(dsi->regs + DSI_INTSTA, val,
++					 !(val & DSI_BUSY), 100, t * 1000);
++		if (ret) {
++			drm_warn(drm,
++				 "failed to switch cmd mode: intsta=0x%08x\n",
++				 val);
++			mtk_dsi_enable(dsi);
++			mtk_dsi_reset_engine(dsi);
++			return -ETIME;
++		}
++		return 0;
++	}
+ 
+ 	if (!mtk_dsi_wait_for_irq_done(dsi, irq_flag, t)) {
+ 		drm_err(drm, "failed to switch cmd mode\n");
+@@ -790,11 +814,15 @@ static void mtk_dsi_lane_ready(struct mtk_dsi *dsi)
+ 			u32 val;
+ 			int ret;
+ 
++			phy_set_mode_ext(dsi->phy, PHY_MODE_MIPI_DPHY,
++					 MT6789_DPHY_SUBMODE_PRE_OE_EN);
+ 			writel(~(u32)SLEEPOUT_DONE_INT_FLAG, dsi->regs + DSI_INTSTA);
+ 			mtk_dsi_mask(dsi, DSI_PHY_LD0CON, LDX_ULPM_AS_L0,
+ 				     LDX_ULPM_AS_L0);
+ 			mtk_dsi_mask(dsi, DSI_MODE_CTRL, SLEEP_MODE, SLEEP_MODE);
+ 			mtk_dsi_mask(dsi, DSI_TIME_CON0, 0xffff, wake_up_prd);
++			phy_set_mode_ext(dsi->phy, PHY_MODE_MIPI_DPHY,
++					 MT6789_DPHY_SUBMODE_SW_CTL_RELEASE);
+ 			mtk_dsi_mask(dsi, DSI_START, SLEEPOUT_START, 0);
+ 			mtk_dsi_mask(dsi, DSI_START, SLEEPOUT_START, SLEEPOUT_START);
+ 
+@@ -832,13 +860,19 @@ static int mtk_dsi_poweron(struct mtk_dsi *dsi)
+ 	if (++dsi->refcount != 1)
+ 		return 0;
+ 
++	ret = pm_runtime_resume_and_get(dev);
++	if (ret < 0) {
++		dev_err(dev, "Failed to enable power domain: %d\n", ret);
++		goto err_refcount;
++	}
++
+ 	if (dsi->dsc) {
+ 		bit_per_pixel = dsi->dsc->bits_per_pixel >> 4;
+ 	} else {
+ 		ret = mipi_dsi_pixel_format_to_bpp(dsi->format);
+ 		if (ret < 0) {
+ 			dev_err(dev, "Unknown MIPI DSI format %d\n", dsi->format);
+-			return ret;
++			goto err_pm_runtime_put;
+ 		}
+ 		bit_per_pixel = ret;
+ 	}
+@@ -851,13 +885,19 @@ static int mtk_dsi_poweron(struct mtk_dsi *dsi)
+ 	ret = clk_set_rate(dsi->hs_clk, dsi->data_rate);
+ 	if (ret < 0) {
+ 		dev_err(dev, "Failed to set data rate: %d\n", ret);
+-		goto err_refcount;
++		goto err_pm_runtime_put;
++	}
++
++	ret = phy_power_on(dsi->phy);
++	if (ret < 0) {
++		dev_err(dev, "Failed to power on MIPI-DPHY: %d\n", ret);
++		goto err_pm_runtime_put;
+ 	}
+ 
+ 	ret = clk_prepare_enable(dsi->engine_clk);
+ 	if (ret < 0) {
+ 		dev_err(dev, "Failed to enable engine clock: %d\n", ret);
+-		goto err_refcount;
++		goto err_phy_power_off;
+ 	}
+ 
+ 	ret = clk_prepare_enable(dsi->digital_clk);
+@@ -892,12 +932,6 @@ static int mtk_dsi_poweron(struct mtk_dsi *dsi)
+ 	writel(0, dsi->regs + DSI_INTEN);
+ 	writel(0, dsi->regs + DSI_INTSTA);
+ 
+-	ret = phy_power_on(dsi->phy);
+-	if (ret < 0) {
+-		dev_err(dev, "Failed to power on MIPI-DPHY: %d\n", ret);
+-		goto err_disable_digital_clk;
+-	}
+-
+ 	mtk_dsi_phy_timconfig(dsi);
+ 
+ 	mtk_dsi_ps_control(dsi, true);
+@@ -906,11 +940,12 @@ static int mtk_dsi_poweron(struct mtk_dsi *dsi)
+ 	mtk_dsi_set_interrupt_enable(dsi);
+ 
+ 	return 0;
+-err_disable_digital_clk:
+-	mtk_dsi_disable(dsi);
+-	clk_disable_unprepare(dsi->digital_clk);
+ err_disable_engine_clk:
+ 	clk_disable_unprepare(dsi->engine_clk);
++err_phy_power_off:
++	phy_power_off(dsi->phy);
++err_pm_runtime_put:
++	pm_runtime_put(dev);
+ err_refcount:
+ 	dsi->refcount--;
+ 	return ret;
+@@ -933,10 +968,30 @@ static void mtk_dsi_poweroff(struct mtk_dsi *dsi)
+ 	 */
+ 	mtk_dsi_stop(dsi);
+ 
+-	mtk_dsi_switch_to_cmd_mode(dsi, VM_DONE_INT_FLAG, 500);
++	if (readl(dsi->regs + DSI_MODE_CTRL) & MODE)
++		mtk_dsi_switch_to_cmd_mode(dsi, VM_DONE_INT_FLAG, 500);
+ 	mtk_dsi_reset_engine(dsi);
+-	mtk_dsi_lane0_ulp_mode_enter(dsi);
+-	mtk_dsi_clk_ulp_mode_enter(dsi);
++	if (dsi->driver_data->need_sleepout_ulps) {
++		u32 val;
++
++		writel(~(u32)SLEEPIN_ULPS_DONE_INT_FLAG,
++		       dsi->regs + DSI_INTSTA);
++		mtk_dsi_mask(dsi, DSI_PHY_LCCON, LC_HS_TX_EN, 0);
++		mtk_dsi_mask(dsi, DSI_PHY_LD0CON, LDX_ULPM_AS_L0,
++			     LDX_ULPM_AS_L0);
++		mtk_dsi_mask(dsi, DSI_PHY_LD0CON, LD0_ULPM_EN, LD0_ULPM_EN);
++		mtk_dsi_mask(dsi, DSI_PHY_LCCON, LC_ULPM_EN, LC_ULPM_EN);
++		readl_poll_timeout(dsi->regs + DSI_INTSTA, val,
++				   val & SLEEPIN_ULPS_DONE_INT_FLAG,
++				   100, 50000);
++		writel(~(u32)SLEEPIN_ULPS_DONE_INT_FLAG,
++		       dsi->regs + DSI_INTSTA);
++		phy_set_mode_ext(dsi->phy, PHY_MODE_MIPI_DPHY,
++				 MT6789_DPHY_SUBMODE_ULPS_ISOLATE);
++	} else {
++		mtk_dsi_lane0_ulp_mode_enter(dsi);
++		mtk_dsi_clk_ulp_mode_enter(dsi);
++	}
+ 	/* set the lane number as 0 to pull down mipi */
+ 	writel(0, dsi->regs + DSI_TXRX_CTRL);
+ 
+@@ -946,6 +1001,7 @@ static void mtk_dsi_poweroff(struct mtk_dsi *dsi)
+ 	clk_disable_unprepare(dsi->digital_clk);
+ 
+ 	phy_power_off(dsi->phy);
++	pm_runtime_put_sync(dsi->host.dev);
+ 
+ 	dsi->lanes_ready = false;
+ }
+@@ -1435,7 +1491,7 @@ static ssize_t mtk_dsi_host_transfer(struct mipi_dsi_host *host,
+ 		 recv_cnt, *((u8 *)(msg->tx_buf)));
+ 
+ restore_dsi_mode:
+-	if (dsi_mode & MODE) {
++	if ((dsi_mode & MODE) && dsi->enabled) {
+ 		mtk_dsi_set_mode(dsi);
+ 		mtk_dsi_start(dsi);
+ 	}
+@@ -1508,6 +1564,12 @@ static int mtk_dsi_probe(struct platform_device *pdev)
+ 		return dev_err_probe(&pdev->dev, ret, "Failed to request DSI irq\n");
+ 	}
+ 
++	ret = devm_pm_runtime_enable(dev);
++	if (ret) {
++		mipi_dsi_host_unregister(&dsi->host);
++		return dev_err_probe(dev, ret, "Failed to enable runtime PM\n");
++	}
++
+ 	dsi->bridge.of_node = dev->of_node;
+ 	dsi->bridge.type = DRM_MODE_CONNECTOR_DSI;
+ 
+-- 
+2.55.0
+
