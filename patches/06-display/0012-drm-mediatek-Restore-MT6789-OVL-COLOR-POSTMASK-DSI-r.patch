@@ -1,0 +1,221 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Wed, 25 Nov 2026 19:06:00 +0000
+Subject: [PATCH] drm/mediatek: Restore MT6789 OVL, COLOR, POSTMASK, and DSI
+ cold-start registers
+
+When MT6789_POWER_DOMAIN_DISP powers off during s2idle system suspend,
+bootloader-initialized DDP registers reset to 0x0. Restore the remaining
+cold-start register configuration required by downstream MT6789
+mediatek_v2 drivers:
+
+- mtk_disp_ovl: in mtk_ovl_start(), set DISP_OVL_FORCE_RELAY_MODE
+  (BIT(8) in DISP_REG_OVL_SRC_CON), OVL_GCLAST_EN | OVL_OUTPUT_CLAMP
+  in DISP_REG_OVL_DATAPATH_CON, OVL_RDMA_BURST16_EN (BIT(28)) in
+  DISP_REG_OVL_RDMA_BURST_CON1 (0x1f4), and 0xffffffff in
+  DISP_REG_OVL_GDRDY_PRD (0x208). Without DISP_OVL_FORCE_RELAY_MODE,
+  OVL0 starts with all 4 layers disabled on the CPU (non-CMDQ) enable
+  path and never completes its first frame / OVL_FME_CPL_INT vblank.
+- mtk_disp_color: in mtk_color_start(), clear CM1_EN/CM2_EN and write
+  COLOR_START | COLOR_OUT_SEL (0x3) to DISP_COLOR_START in bypass mode.
+- mtk_ddp_comp (postmask): in mtk_postmask_config(), restore
+  DISP_POSTMASK_BLEND_CFG (A_EN), ROI_BGCLR/MASK_CLR (0xff000000), and
+  DISP_POSTMASK_CFG (RELAY_MODE | DRAM_MODE | BGCLR_IN_SEL | GCLAST_EN
+  | STALL_CG_ON = 0x147) for mediatek,mt6789-disp-postmask.
+- mtk_dsi: set DSI_CM_WAIT_FIFO_FULL_EN (BIT(27)) in DSI_CON_CTRL when
+  enabling MT6789 DSI0, matching downstream need_wait_fifo = true.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ drivers/gpu/drm/mediatek/mtk_ddp_comp.c   | 29 +++++++++++++++++++++++++++++
+ drivers/gpu/drm/mediatek/mtk_disp_color.c | 13 ++++++++++++-
+ drivers/gpu/drm/mediatek/mtk_disp_ovl.c   | 23 +++++++++++++++++++++++
+ drivers/gpu/drm/mediatek/mtk_dsi.c        |  4 ++++
+ 4 files changed, 68 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/mediatek/mtk_ddp_comp.c b/drivers/gpu/drm/mediatek/mtk_ddp_comp.c
+index e87c344dc..8aef9994c 100644
+--- a/drivers/gpu/drm/mediatek/mtk_ddp_comp.c
++++ b/drivers/gpu/drm/mediatek/mtk_ddp_comp.c
+@@ -88,7 +88,15 @@
+ #define POSTMASK_EN					BIT(0)
+ #define DISP_REG_POSTMASK_CFG			0x0020
+ #define POSTMASK_RELAY_MODE				BIT(0)
++#define POSTMASK_DRAM_MODE				BIT(1)
++#define POSTMASK_BGCLR_IN_SEL				BIT(2)
++#define POSTMASK_GCLAST_EN				BIT(6)
++#define POSTMASK_STALL_CG_ON				BIT(8)
+ #define DISP_REG_POSTMASK_SIZE			0x0030
++#define DISP_REG_POSTMASK_BLEND_CFG		0x0050
++#define POSTMASK_BLEND_A_EN				BIT(0)
++#define DISP_REG_POSTMASK_ROI_BGCLR		0x0054
++#define DISP_REG_POSTMASK_MASK_CLR		0x0058
+ 
+ #define DISP_REG_UFO_START			0x0000
+ #define UFO_BYPASS				BIT(2)
+@@ -100,6 +108,7 @@ struct mtk_ddp_comp_dev {
+ 	const struct drm_dsc_config *dsc;
+ 	bool need_obuf_sw;
+ 	bool bypass_shadow;
++	bool postmask_ext_cfg;
+ };
+ 
+ void mtk_ddp_write(struct cmdq_pkt *cmdq_pkt, unsigned int value,
+@@ -438,6 +447,25 @@ static void mtk_postmask_config(struct device *dev, unsigned int w,
+ {
+ 	struct mtk_ddp_comp_dev *priv = dev_get_drvdata(dev);
+ 
++	if (priv->postmask_ext_cfg) {
++		mtk_ddp_write_relaxed(cmdq_pkt, POSTMASK_BLEND_A_EN,
++				      &priv->cmdq_reg, priv->regs,
++				      DISP_REG_POSTMASK_BLEND_CFG);
++		mtk_ddp_write_relaxed(cmdq_pkt, 0xff000000, &priv->cmdq_reg,
++				      priv->regs, DISP_REG_POSTMASK_ROI_BGCLR);
++		mtk_ddp_write_relaxed(cmdq_pkt, 0xff000000, &priv->cmdq_reg,
++				      priv->regs, DISP_REG_POSTMASK_MASK_CLR);
++		mtk_ddp_write(cmdq_pkt, w << 16 | h, &priv->cmdq_reg,
++			      priv->regs, DISP_REG_POSTMASK_SIZE);
++		mtk_ddp_write(cmdq_pkt,
++			      POSTMASK_RELAY_MODE | POSTMASK_DRAM_MODE |
++			      POSTMASK_BGCLR_IN_SEL | POSTMASK_GCLAST_EN |
++			      POSTMASK_STALL_CG_ON,
++			      &priv->cmdq_reg, priv->regs,
++			      DISP_REG_POSTMASK_CFG);
++		return;
++	}
++
+ 	mtk_ddp_write(cmdq_pkt, w << 16 | h, &priv->cmdq_reg, priv->regs,
+ 		      DISP_REG_POSTMASK_SIZE);
+ 	mtk_ddp_write(cmdq_pkt, POSTMASK_RELAY_MODE, &priv->cmdq_reg,
+@@ -905,6 +933,7 @@ int mtk_ddp_comp_init(struct device *dev, struct device_node *node, struct mtk_d
+ 
+ 	priv->need_obuf_sw = of_device_is_compatible(node, "mediatek,mt6789-disp-dsc");
+ 	priv->bypass_shadow = of_device_is_compatible(node, "mediatek,mt6789-disp-dither");
++	priv->postmask_ext_cfg = of_device_is_compatible(node, "mediatek,mt6789-disp-postmask");
+ 
+ 	platform_set_drvdata(comp_pdev, priv);
+ 
+diff --git a/drivers/gpu/drm/mediatek/mtk_disp_color.c b/drivers/gpu/drm/mediatek/mtk_disp_color.c
+index 872855531..a13e49b39 100644
+--- a/drivers/gpu/drm/mediatek/mtk_disp_color.c
++++ b/drivers/gpu/drm/mediatek/mtk_disp_color.c
+@@ -22,9 +22,13 @@
+ #define DISP_COLOR_START(comp)			((comp)->data->color_offset)
+ #define DISP_COLOR_WIDTH(comp)			(DISP_COLOR_START(comp) + 0x50)
+ #define DISP_COLOR_HEIGHT(comp)			(DISP_COLOR_START(comp) + 0x54)
++#define DISP_COLOR_CM1_EN(comp)			(DISP_COLOR_START(comp) + 0x60)
++#define DISP_COLOR_CM2_EN(comp)			(DISP_COLOR_START(comp) + 0xa0)
+ #define DISP_COLOR_SHADOW_CTRL			0x0cb0
+ #define COLOR_BYPASS_SHADOW			BIT(0)
+ 
++#define COLOR_START				BIT(0)
++#define COLOR_OUT_SEL				BIT(1)
+ #define COLOR_BYPASS_ALL			BIT(7)
+ #define COLOR_SEQ_SEL				BIT(13)
+ 
+@@ -81,7 +85,14 @@ void mtk_color_start(struct device *dev)
+ 
+ 	writel(COLOR_BYPASS_ALL | COLOR_SEQ_SEL,
+ 	       color->regs + DISP_COLOR_CFG_MAIN);
+-	writel(0x1, color->regs + DISP_COLOR_START(color));
++	if (color->data->bypass_shadow) {
++		writel(0x0, color->regs + DISP_COLOR_CM1_EN(color));
++		writel(0x0, color->regs + DISP_COLOR_CM2_EN(color));
++		writel(COLOR_START | COLOR_OUT_SEL,
++		       color->regs + DISP_COLOR_START(color));
++	} else {
++		writel(COLOR_START, color->regs + DISP_COLOR_START(color));
++	}
+ }
+ 
+ static int mtk_disp_color_bind(struct device *dev, struct device *master,
+diff --git a/drivers/gpu/drm/mediatek/mtk_disp_ovl.c b/drivers/gpu/drm/mediatek/mtk_disp_ovl.c
+index b3eb67dbc..ff0ce7f0a 100644
+--- a/drivers/gpu/drm/mediatek/mtk_disp_ovl.c
++++ b/drivers/gpu/drm/mediatek/mtk_disp_ovl.c
+@@ -31,8 +31,11 @@
+ #define OVL_LAYER_SMI_ID_EN				BIT(0)
+ #define OVL_BGCLR_SEL_IN				BIT(2)
+ #define OVL_LAYER_AFBC_EN(n)				BIT(4+n)
++#define OVL_GCLAST_EN					BIT(24)
++#define OVL_OUTPUT_CLAMP				BIT(26)
+ #define DISP_REG_OVL_ROI_BGCLR			0x0028
+ #define DISP_REG_OVL_SRC_CON			0x002c
++#define DISP_OVL_FORCE_RELAY_MODE			BIT(8)
+ #define DISP_REG_OVL_CON(n)			(0x0030 + 0x20 * (n))
+ #define DISP_REG_OVL_SRC_SIZE(n)		(0x0038 + 0x20 * (n))
+ #define DISP_REG_OVL_OFFSET(n)			(0x003c + 0x20 * (n))
+@@ -42,6 +45,9 @@
+ #define OVL_CONST_BLEND					BIT(28)
+ #define DISP_REG_OVL_RDMA_CTRL(n)		(0x00c0 + 0x20 * (n))
+ #define DISP_REG_OVL_RDMA_GMC(n)		(0x00c8 + 0x20 * (n))
++#define DISP_REG_OVL_RDMA_BURST_CON1		0x01f4
++#define OVL_RDMA_BURST16_EN				BIT(28)
++#define DISP_REG_OVL_GDRDY_PRD			0x0208
+ #define DISP_REG_OVL_ADDR_MT2701		0x0040
+ #define DISP_REG_OVL_CLRFMT_EXT			0x02d0
+ #define OVL_CON_CLRFMT_BIT_DEPTH_MASK(n)		(GENMASK(1, 0) << (4 * (n)))
+@@ -148,6 +154,7 @@ struct mtk_disp_ovl_data {
+ 	bool smi_id_en;
+ 	bool supports_afbc;
+ 	bool bypass_shadow;
++	bool force_relay_mode;
+ 	const u32 blend_modes;
+ 	const u32 *formats;
+ 	size_t num_formats;
+@@ -269,8 +276,23 @@ void mtk_ovl_start(struct device *dev)
+ 
+ 		reg = readl(ovl->regs + DISP_REG_OVL_DATAPATH_CON);
+ 		reg = reg | OVL_LAYER_SMI_ID_EN;
++		if (ovl->data->force_relay_mode)
++			reg |= OVL_GCLAST_EN | OVL_OUTPUT_CLAMP;
+ 		writel_relaxed(reg, ovl->regs + DISP_REG_OVL_DATAPATH_CON);
+ 	}
++	if (ovl->data->force_relay_mode) {
++		unsigned int reg;
++
++		reg = readl(ovl->regs + DISP_REG_OVL_SRC_CON);
++		reg |= DISP_OVL_FORCE_RELAY_MODE;
++		writel_relaxed(reg, ovl->regs + DISP_REG_OVL_SRC_CON);
++
++		reg = readl(ovl->regs + DISP_REG_OVL_RDMA_BURST_CON1);
++		reg |= OVL_RDMA_BURST16_EN;
++		writel_relaxed(reg, ovl->regs + DISP_REG_OVL_RDMA_BURST_CON1);
++
++		writel_relaxed(0xffffffff, ovl->regs + DISP_REG_OVL_GDRDY_PRD);
++	}
+ 	if (ovl->data->bypass_shadow)
+ 		en |= DISP_OVL_BYPASS_SHADOW;
+ 	writel_relaxed(en, ovl->regs + DISP_REG_OVL_EN);
+@@ -783,6 +805,7 @@ static const struct mtk_disp_ovl_data mt6789_ovl_driver_data = {
+ 	.fmt_rgb565_is_0 = true,
+ 	.smi_id_en = true,
+ 	.bypass_shadow = true,
++	.force_relay_mode = true,
+ 	.blend_modes = BIT(DRM_MODE_BLEND_PREMULTI) |
+ 		       BIT(DRM_MODE_BLEND_COVERAGE) |
+ 		       BIT(DRM_MODE_BLEND_PIXEL_NONE),
+diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_dsi.c
+index 83e17c82d..ebd863709 100644
+--- a/drivers/gpu/drm/mediatek/mtk_dsi.c
++++ b/drivers/gpu/drm/mediatek/mtk_dsi.c
+@@ -57,6 +57,7 @@
+ #define DSI_RESET			BIT(0)
+ #define DSI_EN				BIT(1)
+ #define DPHY_RESET			BIT(2)
++#define DSI_CM_WAIT_FIFO_FULL_EN	BIT(27)
+ 
+ #define DSI_MODE_CTRL		0x14
+ #define MODE				(3)
+@@ -360,6 +361,9 @@ static void mtk_dsi_phy_timconfig(struct mtk_dsi *dsi)
+ static void mtk_dsi_enable(struct mtk_dsi *dsi)
+ {
+ 	mtk_dsi_mask(dsi, DSI_CON_CTRL, DSI_EN, DSI_EN);
++	if (dsi->driver_data->mt6789_dphy_timing)
++		mtk_dsi_mask(dsi, DSI_CON_CTRL, DSI_CM_WAIT_FIFO_FULL_EN,
++			     DSI_CM_WAIT_FIFO_FULL_EN);
+ }
+ 
+ static void mtk_dsi_disable(struct mtk_dsi *dsi)
+-- 
+2.47.2
