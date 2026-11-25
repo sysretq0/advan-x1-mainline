@@ -65,7 +65,7 @@ new file mode 100644
 index 000000000..410be1052
 --- /dev/null
 +++ b/sound/soc/codecs/fs1599.c
-@@ -0,0 +1,313 @@
+@@ -0,0 +1,326 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * FourSemi FS1599 I2C-controlled analog speaker amplifier driver
@@ -300,6 +300,19 @@ index 000000000..410be1052
 +	{ "OUT", NULL, "DRV" },
 +};
 +
++/*
++ * Hardware protection note (Advan X1 / FS1599):
++ *
++ * Stock snd-soc-fs1599.ko performs per-unit Re25 (voice-coil DC resistance)
++ * and F0 (bass resonance) calibration with the MediaTek SCP DSP via Audio
++ * IPI (fsm_cal_spkr_zmimp / fsm_set_re25_data / fsm_stub_pre/post_f0) and a
++ * closed-source FourSemi fs1599.fsm preset. Neither the SCP audio task nor
++ * the measurement path exists upstream, so this driver can only apply the
++ * static 8-ohm Class-K profile. To avoid overdriving a lower-Re or
++ * resonance-shifted voice coil, MT6366 LINEOUT drive is capped at -200 mB
++ * ("Lineout Volume" 8 instead of 10) in tools/ucm2/.../HiFi.conf. See
++ * docs/audio-speaker-protection.md. Revisit when SCP audio is ported.
++ */
 +static const struct snd_soc_component_driver fs1599_component_driver = {
 +	.dapm_widgets = fs1599_dapm_widgets,
 +	.num_dapm_widgets = ARRAY_SIZE(fs1599_dapm_widgets),
