@@ -349,7 +349,7 @@
 	sd-uhs-ddr50;
 	no-mmc;
 	no-sdio;
-	cd-gpios = <&pio 7 GPIO_ACTIVE_LOW>;
+	cd-gpios = <&pio 7 GPIO_ACTIVE_HIGH>;
 	vmmc-supply = <&mt6366_vmch_reg>;
 	vqmmc-supply = <&mt6366_vmc_reg>;
 	status = "okay";
@@ -807,14 +807,6 @@
 				regulator-min-microvolt = <1800000>;
 				regulator-max-microvolt = <3300000>;
 				regulator-enable-ramp-delay = <60>;
-			};
-
-			mt6366_vmddr_reg: vmddr {
-				regulator-name = "vmddr";
-				regulator-min-microvolt = <700000>;
-				regulator-max-microvolt = <750000>;
-				regulator-enable-ramp-delay = <325>;
-				regulator-always-on;
 			};
 
 			mt6366_vmch_reg: vmch {

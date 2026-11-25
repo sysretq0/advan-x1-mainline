@@ -18,7 +18,7 @@ new file mode 100644
 index 0000000..eb12987
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
-@@ -0,0 +1,1206 @@
+@@ -0,0 +1,1198 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Device Tree Source for the Advan X1 smartphone (MediaTek MT6789).
@@ -370,7 +370,7 @@ index 0000000..eb12987
 +	sd-uhs-ddr50;
 +	no-mmc;
 +	no-sdio;
-+	cd-gpios = <&pio 7 GPIO_ACTIVE_LOW>;
++	cd-gpios = <&pio 7 GPIO_ACTIVE_HIGH>;
 +	vmmc-supply = <&mt6366_vmch_reg>;
 +	vqmmc-supply = <&mt6366_vmc_reg>;
 +	status = "okay";
@@ -828,14 +828,6 @@ index 0000000..eb12987
 +				regulator-min-microvolt = <1800000>;
 +				regulator-max-microvolt = <3300000>;
 +				regulator-enable-ramp-delay = <60>;
-+			};
-+
-+			mt6366_vmddr_reg: vmddr {
-+				regulator-name = "vmddr";
-+				regulator-min-microvolt = <700000>;
-+				regulator-max-microvolt = <750000>;
-+				regulator-enable-ramp-delay = <325>;
-+				regulator-always-on;
 +			};
 +
 +			mt6366_vmch_reg: vmch {
