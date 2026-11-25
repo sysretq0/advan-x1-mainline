@@ -1,0 +1,52 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Wed, 25 Nov 2026 18:20:00 +0000
+Subject: [PATCH] memory: mtk-smi: Initialize MT6789 SMI common arbiter and
+ FIFO registers
+
+On MediaTek MT6789, SMI_COMMON (14002000.smi) resides inside
+MT6789_POWER_DOMAIN_DISP. During runtime DPMS the power domain remains
+powered on so bootloader values persist, but across s2idle suspend the
+domain powers off and SMI_COMMON resets to power-on defaults.
+
+Previously mtk_smi_common_mt6789 omitted .init, so mtk_smi_common_resume()
+only restored SMI_BUS_SEL and left SMI_L1LEN, SMI_M4U_TH, SMI_FIFO_TH1,
+SMI_FIFO_TH2, SMI_DCM, and SMI_DUMMY uninitialized on cold DISP power-on,
+stalling OVL0/larb0 display reads after s2idle resume.
+
+Add mtk_smi_common_mt6789_init matching downstream MT6789 SMI common
+configuration (mtk_smi_common_mt6789_misc[0]).
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ drivers/memory/mtk-smi.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/drivers/memory/mtk-smi.c b/drivers/memory/mtk-smi.c
+index 98aba4d0d..e03332596 100644
+--- a/drivers/memory/mtk-smi.c
++++ b/drivers/memory/mtk-smi.c
+@@ -808,6 +808,15 @@ static struct platform_driver mtk_smi_larb_driver = {
+ 	}
+ };
+ 
++static const struct mtk_smi_reg_pair mtk_smi_common_mt6789_init[SMI_COMMON_INIT_REGS_NR] = {
++	{SMI_L1LEN, 0xb},
++	{SMI_M4U_TH, 0xe100e10},
++	{SMI_FIFO_TH1, 0x90a090a},
++	{SMI_FIFO_TH2, 0x506090a},
++	{SMI_DCM, 0x4f1},
++	{SMI_DUMMY, 0x1},
++};
++
+ static const struct mtk_smi_reg_pair mtk_smi_common_mt6795_init[SMI_COMMON_INIT_REGS_NR] = {
+ 	{SMI_L1_ARB, 0x1b},
+ 	{SMI_M4U_TH, 0xce810c85},
+@@ -850,6 +859,7 @@ static const struct mtk_smi_common_plat mtk_smi_common_mt6789 = {
+ 	.has_gals = true,
+ 	.bus_sel  = F_MMU1_LARB(1) | F_MMU1_LARB(2) | F_MMU1_LARB(4) |
+ 		    F_MMU1_LARB(5) | F_MMU1_LARB(7),
++	.init     = mtk_smi_common_mt6789_init,
+ };
+ 
+ static const struct mtk_smi_common_plat mtk_smi_common_mt6893 = {
