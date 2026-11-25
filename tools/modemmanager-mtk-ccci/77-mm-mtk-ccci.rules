@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+ACTION!="add|change|move|bind", GOTO="mm_mtk_ccci_end"
+
+# Mainline mtk_ccci platform modem (d0cf000.modem): match WWAN AT port & netdev
+SUBSYSTEM=="wwan", ENV{DEVTYPE}=="wwan_port", DRIVERS=="mtk-ccci", GOTO="mm_mtk_ccci_process"
+SUBSYSTEM=="net",  KERNEL=="wwan[0-9]*",      DRIVERS=="mtk-ccci", GOTO="mm_mtk_ccci_process"
+GOTO="mm_mtk_ccci_end"
+
+LABEL="mm_mtk_ccci_process"
+ENV{ID_MM_CANDIDATE}="1"
+ENV{ID_MM_DEVICE_PROCESS}="1"
+ENV{ID_MM_MTK_CCCI}="1"
+ENV{ID_MM_PHYSDEV_UID}="mtk-ccci-md1"
+SUBSYSTEM=="wwan", ATTR{type}=="AT", ENV{ID_MM_PORT_TYPE_AT_PRIMARY}="1"
+LABEL="mm_mtk_ccci_end"

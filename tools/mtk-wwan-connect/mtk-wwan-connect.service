@@ -1,0 +1,13 @@
+[Unit]
+Description=MediaTek MT6789 Mainline WWAN 4G LTE Standalone Connect Helper
+After=ccci-fsd.service systemd-resolved.service
+Conflicts=ModemManager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/mtk-wwan-connect
+ExecStop=/usr/local/sbin/mtk-wwan-connect --disconnect
+
+[Install]
+WantedBy=multi-user.target
