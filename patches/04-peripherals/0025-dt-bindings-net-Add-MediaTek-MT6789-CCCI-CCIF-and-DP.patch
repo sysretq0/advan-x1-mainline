@@ -171,7 +171,7 @@ new file mode 100644
 index 0000000..5d0ca71
 --- /dev/null
 +++ b/Documentation/devicetree/bindings/net/mediatek,mt6789-dpmaif.yaml
-@@ -0,0 +1,86 @@
+@@ -0,0 +1,90 @@
 +# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 +%YAML 1.2
 +---
@@ -217,11 +217,14 @@ index 0000000..5d0ca71
 +    maxItems: 1
 +
 +  clocks:
-+    maxItems: 1
++    items:
++      - description: DPMAIF main engine clock
++      - description: DPMAIF/CLDMA INFRA AXI bus clock
 +
 +  clock-names:
 +    items:
 +      - const: dpmaif
++      - const: bclk
 +
 +required:
 +  - compatible
@@ -254,8 +257,9 @@ index 0000000..5d0ca71
 +            reg-names = "ao-ul", "ao-dl", "pd-ul", "pd-dl",
 +                        "pd-misc", "pd-md-misc", "pd-sram";
 +            interrupts = <GIC_SPI 241 IRQ_TYPE_LEVEL_HIGH>;
-+            clocks = <&infracfg_ao CLK_IFRAO_DPMAIF_MAIN>;
-+            clock-names = "dpmaif";
++            clocks = <&infracfg_ao CLK_IFRAO_DPMAIF_MAIN>,
++                     <&infracfg_ao CLK_IFRAO_CLDMA_BCLK>;
++            clock-names = "dpmaif", "bclk";
 +        };
 +    };
 diff --git a/Documentation/devicetree/bindings/soc/mediatek/mediatek,mt6789-ccif.yaml b/Documentation/devicetree/bindings/soc/mediatek/mediatek,mt6789-ccif.yaml

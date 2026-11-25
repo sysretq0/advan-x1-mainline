@@ -1,4 +1,4 @@
-From 6644cf9ca9f505de85414af9432ae32008f02262 Mon Sep 17 00:00:00 2001
+From 4220505d4b249e674a97b0b24b0d46105ea1080d Mon Sep 17 00:00:00 2001
 From: sysretq0 <sysretq0@proton.me>
 Date: Tue, 24 Nov 2026 20:35:40 +0000
 Subject: [PATCH] net: wwan: mtk_ccci: Add DPMAIF v1 and SMEM UL WWAN data
@@ -21,13 +21,14 @@ attach under the same WWAN device. Expose dpmaif_rx_pkts, dpmaif_tx_pkts,
 and dpmaif_rx_irqs sysfs counters.
 
 Signed-off-by: sysretq0 <sysretq0@proton.me>
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  drivers/net/wwan/Kconfig                    |    4 +-
  drivers/net/wwan/mtk_ccci/Makefile          |    3 +-
  drivers/net/wwan/mtk_ccci/mtk_ccci.h        |   13 +
  drivers/net/wwan/mtk_ccci/mtk_ccci_core.c   |   61 +-
- drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c | 1455 +++++++++++++++++++
- 5 files changed, 1528 insertions(+), 8 deletions(-)
+ drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c | 1493 +++++++++++++++++++
+ 5 files changed, 1566 insertions(+), 8 deletions(-)
  create mode 100644 drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c
 
 diff --git a/drivers/net/wwan/Kconfig b/drivers/net/wwan/Kconfig
@@ -216,10 +217,10 @@ index 34c9d42d6..6b34aa641 100644
  	mtk_ccci_fs_unregister(ccci);
 diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c
 new file mode 100644
-index 000000000..7aef2e630
+index 000000000..c566dc676
 --- /dev/null
 +++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c
-@@ -0,0 +1,1455 @@
+@@ -0,0 +1,1493 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * MediaTek MT6789 CCCI DPMAIF v1 + SMEM UL WWAN network data plane.
@@ -301,6 +302,7 @@ index 000000000..7aef2e630
 +#define DPMAIF_PD_AP_DL_L2TIMSR0	0x005c
 +#define DPMAIF_PD_AP_IP_BUSY		0x0060
 +#define DPMAIF_PD_AP_DLUL_IP_BUSY_MASK	0x0064
++#define DPMAIF_PD_AP_CG_EN		0x0068
 +#define DPMAIF_PD_AP_CODA_VER		0x006c
 +
 +/* DPMAIF v1 PD_MD_MISC doorbell (0x1022c000) */
@@ -357,8 +359,8 @@ index 000000000..7aef2e630
 +#define MTK_DPMAIF_HW_DRB_CNT		2048U
 +#define MTK_DPMAIF_BAT_CNT		1024U
 +#define MTK_DPMAIF_PIT_CNT		(MTK_DPMAIF_BAT_CNT * 2U)
-+#define MTK_DPMAIF_PKT_SZ		(128U * 28U) /* 3584 B */
-+#define MTK_DPMAIF_FRG_SZ		128U
++#define MTK_DPMAIF_PKT_SZ		(128U * 13U) /* 1664 B */
++#define MTK_DPMAIF_FRG_SZ		(128U * 15U) /* 1920 B */
 +#define MTK_DPMAIF_HW_MTU		(3U * 1024U + 8U)
 +#define MTK_DPMAIF_BAT_REMAIN		64U
 +#define MTK_DPMAIF_CHK_PIT_NUM		6U
@@ -446,6 +448,7 @@ index 000000000..7aef2e630
 +	void __iomem *pd_sram_base;
 +
 +	struct clk *clk;
++	struct clk *bclk;
 +	int irq;
 +	bool irq_enabled;
 +	bool started;
@@ -1242,19 +1245,30 @@ index 000000000..7aef2e630
 +
 +static void dpmaif_dump_init_regs(struct mtk_ccci_dpmaif *dp, const char *step)
 +{
-+	u32 cg3 = 0;
++	u32 cg2 = 0, cg3 = 0, prot1 = 0, vdnr = 0, rst_ao = 0, rst_pd = 0, ctrl = 0;
 +
-+	if (dp->ccci->infracfg)
++	if (dp->ccci->infracfg) {
++		regmap_read(dp->ccci->infracfg, 0x00ac, &cg2);
 +		regmap_read(dp->ccci->infracfg, 0x00c8, &cg3);
++		regmap_read(dp->ccci->infracfg, 0x0250, &prot1);
++		regmap_read(dp->ccci->infracfg, 0x0b80, &vdnr);
++		regmap_read(dp->ccci->infracfg, 0x0140, &rst_ao);
++		regmap_read(dp->ccci->infracfg, 0x0150, &rst_pd);
++		regmap_read(dp->ccci->infracfg, INFRA_DPMAIF_CTRL_REG, &ctrl);
++	}
 +
 +	dev_err(dp->dev,
-+		"DPMAIF %s timeout: coda=0x%08x bat_init=0x%08x pit_init=0x%08x dbg1=0x%08x cg3=0x%08x clk=%lu\n",
++		"DPMAIF %s timeout: coda=0x%08x bat_init=0x%08x pit_init=0x%08x dbg1=0x%08x cg_en=0x%08x\n",
 +		step,
 +		readl(dp->pd_misc_base + DPMAIF_PD_AP_CODA_VER),
 +		readl(dp->pd_dl_base + DPMAIF_PD_DL_BAT_INIT),
 +		readl(dp->pd_dl_base + DPMAIF_PD_DL_PIT_INIT),
 +		readl(dp->pd_dl_base + DPMAIF_PD_DL_DBG_STA1),
-+		cg3, clk_get_rate(dp->clk));
++		readl(dp->pd_misc_base + DPMAIF_PD_AP_CG_EN));
++	dev_err(dp->dev,
++		"DPMAIF %s infra: cg2=0x%08x cg3=0x%08x prot1=0x%08x vdnr=0x%08x rst=0x%08x/0x%08x ctrl=0x%08x clk=%lu bclk=%lu\n",
++		step, cg2, cg3, prot1, vdnr, rst_ao, rst_pd, ctrl,
++		clk_get_rate(dp->clk), clk_get_rate(dp->bclk));
 +}
 +
 +static int dpmaif_rx_hw_init(struct mtk_ccci_dpmaif *dp)
@@ -1282,8 +1296,7 @@ index 000000000..7aef2e630
 +	val = readl(dp->ao_dl_base + DPMAIF_AO_DL_RDY_CHK_THRES);
 +	val &= ~(DPMAIF_PKT_ALIGN_MSK | DPMAIF_BAT_CHK_THRES_MSK);
 +	val |= DPMAIF_PKT_ALIGN_EN_BIT |
-+	       FIELD_PREP(DPMAIF_BAT_CHK_THRES_MSK, MTK_DPMAIF_CHK_BAT_NUM) |
-+	       DPMAIF_CHKSUM_ON_BIT;
++	       FIELD_PREP(DPMAIF_BAT_CHK_THRES_MSK, MTK_DPMAIF_CHK_BAT_NUM);
 +	writel(val, dp->ao_dl_base + DPMAIF_AO_DL_RDY_CHK_THRES);
 +
 +	/* Main BAT base/size (disabled until initial buffers are submitted) */
@@ -1338,9 +1351,16 @@ index 000000000..7aef2e630
 +
 +	ret = dpmaif_dl_bat_init_cmd(dp, DPMAIF_DL_BAT_INIT_ALLSET |
 +					 DPMAIF_DL_BAT_FRG_INIT);
-+	if (ret)
++	if (ret) {
 +		dpmaif_dump_init_regs(dp, "frg_bat_init");
-+	return ret;
++		return ret;
++	}
++
++	val = readl(dp->ao_dl_base + DPMAIF_AO_DL_RDY_CHK_THRES);
++	val |= DPMAIF_CHKSUM_ON_BIT;
++	writel(val, dp->ao_dl_base + DPMAIF_AO_DL_RDY_CHK_THRES);
++
++	return 0;
 +}
 +
 +static void dpmaif_tx_hw_init(struct mtk_ccci_dpmaif *dp)
@@ -1416,10 +1436,16 @@ index 000000000..7aef2e630
 +				   INFRA_DPMAIF_MD2AP_WAKE_BIT, 0);
 +	}
 +
++	ret = clk_prepare_enable(dp->bclk);
++	if (ret) {
++		dev_err(dp->dev, "failed to enable dpmaif bclk: %d\n", ret);
++		return ret;
++	}
++
 +	ret = clk_prepare_enable(dp->clk);
 +	if (ret) {
 +		dev_err(dp->dev, "failed to enable dpmaif clk: %d\n", ret);
-+		return ret;
++		goto err_bclk;
 +	}
 +
 +	ret = dpmaif_intr_hw_init(dp);
@@ -1477,6 +1503,8 @@ index 000000000..7aef2e630
 +	dpmaif_free_dl_buffers(dp);
 +err_clk:
 +	clk_disable_unprepare(dp->clk);
++err_bclk:
++	clk_disable_unprepare(dp->bclk);
 +	return ret;
 +}
 +
@@ -1584,6 +1612,13 @@ index 000000000..7aef2e630
 +		goto err_put;
 +	}
 +
++	dp->bclk = of_clk_get_by_name(np, "bclk");
++	if (IS_ERR(dp->bclk)) {
++		ret = PTR_ERR(dp->bclk);
++		dev_err(dev, "failed to get DPMAIF bclk: %d\n", ret);
++		goto err_clk;
++	}
++
 +	dp->pit_base = dmam_alloc_coherent(dev,
 +					   MTK_DPMAIF_PIT_CNT * sizeof(*dp->pit_base),
 +					   &dp->pit_dma, GFP_KERNEL);
@@ -1600,7 +1635,7 @@ index 000000000..7aef2e630
 +	if (!dp->pit_base || !dp->bat_base || !dp->frg_base ||
 +	    !dp->bat_skbs || !dp->frg_pages) {
 +		ret = -ENOMEM;
-+		goto err_clk;
++		goto err_bclk;
 +	}
 +
 +	for (q = 0; q < MTK_DPMAIF_HW_TXQ_NUM; q++) {
@@ -1611,14 +1646,14 @@ index 000000000..7aef2e630
 +							 GFP_KERNEL);
 +		if (!dp->hw_drb_base[q]) {
 +			ret = -ENOMEM;
-+			goto err_clk;
++			goto err_bclk;
 +		}
 +	}
 +
 +	dp->dummy_dev = alloc_netdev_dummy(0);
 +	if (!dp->dummy_dev) {
 +		ret = -ENOMEM;
-+		goto err_clk;
++		goto err_bclk;
 +	}
 +	netif_napi_add_weight(dp->dummy_dev, &dp->napi, mtk_dpmaif_napi_poll,
 +			      MTK_DPMAIF_NAPI_BUDGET);
@@ -1638,6 +1673,8 @@ index 000000000..7aef2e630
 +err_napi:
 +	netif_napi_del(&dp->napi);
 +	free_netdev(dp->dummy_dev);
++err_bclk:
++	clk_put(dp->bclk);
 +err_clk:
 +	clk_put(dp->clk);
 +err_put:
@@ -1667,11 +1704,13 @@ index 000000000..7aef2e630
 +		dp->started = false;
 +		dpmaif_free_dl_buffers(dp);
 +		clk_disable_unprepare(dp->clk);
++		clk_disable_unprepare(dp->bclk);
 +	}
 +
 +	cancel_work_sync(&dp->smem_tx_work);
 +	netif_napi_del(&dp->napi);
 +	free_netdev(dp->dummy_dev);
++	clk_put(dp->bclk);
 +	clk_put(dp->clk);
 +	ccci->dpmaif = NULL;
 +}

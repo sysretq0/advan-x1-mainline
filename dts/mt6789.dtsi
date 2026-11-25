@@ -602,8 +602,9 @@
 			reg-names = "ao-ul", "ao-dl", "pd-ul", "pd-dl",
 				    "pd-misc", "pd-md-misc", "pd-sram";
 			interrupts = <GIC_SPI 241 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&infracfg_ao CLK_IFRAO_DPMAIF_MAIN>;
-			clock-names = "dpmaif";
+			clocks = <&infracfg_ao CLK_IFRAO_DPMAIF_MAIN>,
+				 <&infracfg_ao CLK_IFRAO_CLDMA_BCLK>;
+			clock-names = "dpmaif", "bclk";
 			status = "disabled";
 		};
 
