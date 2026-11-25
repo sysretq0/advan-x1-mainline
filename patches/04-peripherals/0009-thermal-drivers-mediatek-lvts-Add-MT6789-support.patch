@@ -9,13 +9,12 @@ mode).
 
 Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
- drivers/thermal/mediatek/lvts_thermal.c      |  201 +-
- drivers/thermal/mediatek/lvts_thermal.c.orig | 2238 ++++++++++++++++++
- 2 files changed, 2438 insertions(+), 1 deletion(-)
- create mode 100644 drivers/thermal/mediatek/lvts_thermal.c.orig
+ drivers/thermal/mediatek/lvts_thermal.c      |  255 ++-
+ drivers/thermal/mediatek/lvts_thermal.c.orig | 2238 ++++++++++++++++++++++++++
+ 2 files changed, 2490 insertions(+), 3 deletions(-)
 
 diff --git a/drivers/thermal/mediatek/lvts_thermal.c b/drivers/thermal/mediatek/lvts_thermal.c
-index 81df792..2871d87 100644
+index 81df7920f..376f0f082 100644
 --- a/drivers/thermal/mediatek/lvts_thermal.c
 +++ b/drivers/thermal/mediatek/lvts_thermal.c
 @@ -57,6 +57,7 @@
@@ -26,7 +25,19 @@ index 81df792..2871d87 100644
  #define LVTS_PROTCTL(__base)	(__base + 0x00C0)
  #define LVTS_PROTTA(__base)		(__base + 0x00C4)
  #define LVTS_PROTTB(__base)		(__base + 0x00C8)
-@@ -108,6 +109,20 @@
+@@ -85,6 +86,11 @@
+ #define LVTS_INT_SENSOR2			0x00247C00
+ #define LVTS_INT_SENSOR3			0x1FC00000
+ 
++/* MT6789 hardware thermal reset (STAGE3), mirrored from stock soc_temp_lvts.c */
++#define LVTS_MONINT_STAGE3_INT_EN		BIT(31)
++#define LVTS_PROTCTL_PROTOFFSET			GENMASK(15, 0)
++#define LVTS_PROTCTL_STRATEGY_MAX		(0x1 << 16)
++
+ #define LVTS_SENSOR_MAX				4
+ #define LVTS_GOLDEN_TEMP_MAX		62
+ #define LVTS_GOLDEN_TEMP_DEFAULT	50
+@@ -108,6 +114,20 @@
  #define LVTS_NUM_CAL_OFFSETS_MT7988	3
  #define LVTS_NUM_CAL_OFFSETS_MT8196	2
  
@@ -47,7 +58,7 @@ index 81df792..2871d87 100644
  static int golden_temp = LVTS_GOLDEN_TEMP_DEFAULT;
  static int golden_temp_offset;
  
-@@ -125,6 +140,7 @@ struct lvts_sensor_data {
+@@ -125,6 +145,7 @@ struct lvts_sensor_data {
  struct lvts_ctrl_data {
  	struct lvts_sensor_data lvts_sensor[LVTS_SENSOR_MAX];
  	u8 valid_sensor_mask;
@@ -55,7 +66,16 @@ index 81df792..2871d87 100644
  	int offset;
  	enum lvts_msr_mode mode;
  };
-@@ -179,6 +195,7 @@ struct lvts_ctrl {
+@@ -162,6 +183,8 @@ struct lvts_data {
+ 	u16 msr_offset;
+ 	u16 start_settle_us;
+ 	bool skip_zero_msr;
++	/* Program LVTS STAGE3 hardware reboot (Advan X1 / MT6789) */
++	bool hw_reboot;
+ };
+ 
+ struct lvts_sensor {
+@@ -179,6 +202,7 @@ struct lvts_ctrl {
  	struct lvts_sensor sensors[LVTS_SENSOR_MAX];
  	const struct lvts_data *lvts_data;
  	u32 calibration[LVTS_SENSOR_MAX];
@@ -63,7 +83,21 @@ index 81df792..2871d87 100644
  	u8 valid_sensor_mask;
  	int mode;
  	void __iomem *base;
-@@ -878,6 +895,21 @@ static int lvts_calibration_init(struct device *dev, struct lvts_ctrl *lvts_ctrl
+@@ -409,10 +433,11 @@ static void lvts_update_irq_mask(struct lvts_ctrl *lvts_ctrl)
+ 		LVTS_MONINT_OFFSET_LOW_INTEN_SENSOR2,
+ 		LVTS_MONINT_OFFSET_LOW_INTEN_SENSOR3,
+ 	};
+-	u32 value = 0;
++	u32 value;
+ 	int i;
+ 
+-	value = readl(LVTS_MONINT(lvts_ctrl->base));
++	/* Preserve the armed STAGE3 hardware-reboot interrupt (MT6789). */
++	value = readl(LVTS_MONINT(lvts_ctrl->base)) & LVTS_MONINT_STAGE3_INT_EN;
+ 
+ 	lvts_for_each_valid_sensor(i, lvts_ctrl) {
+ 		if (lvts_ctrl->sensors[i].high_thresh == lvts_ctrl->high_thresh
+@@ -878,6 +903,21 @@ static int lvts_calibration_init(struct device *dev, struct lvts_ctrl *lvts_ctrl
  		}
  	}
  
@@ -85,7 +119,7 @@ index 81df792..2871d87 100644
  	return 0;
  }
  
-@@ -1157,6 +1189,86 @@ static int lvts_ctrl_initialize(struct device *dev, struct lvts_ctrl *lvts_ctrl)
+@@ -1157,6 +1197,86 @@ static int lvts_ctrl_initialize(struct device *dev, struct lvts_ctrl *lvts_ctrl)
  	return 0;
  }
  
@@ -172,7 +206,7 @@ index 81df792..2871d87 100644
  static int lvts_ctrl_calibrate(struct device *dev, struct lvts_ctrl *lvts_ctrl)
  {
  	int i;
-@@ -1167,6 +1279,9 @@ static int lvts_ctrl_calibrate(struct device *dev, struct lvts_ctrl *lvts_ctrl)
+@@ -1167,6 +1287,9 @@ static int lvts_ctrl_calibrate(struct device *dev, struct lvts_ctrl *lvts_ctrl)
  		LVTS_EDATA03(lvts_ctrl->base)
  	};
  
@@ -182,7 +216,7 @@ index 81df792..2871d87 100644
  	/*
  	 * LVTS_EDATA0X : Efuse calibration reference value for sensor X
  	 *
-@@ -1211,8 +1326,8 @@ static int lvts_ctrl_configure(struct device *dev, struct lvts_ctrl *lvts_ctrl)
+@@ -1211,8 +1334,8 @@ static int lvts_ctrl_configure(struct device *dev, struct lvts_ctrl *lvts_ctrl)
  	/*
  	 * LVTS_CALSCALE : ADC voltage round
  	 */
@@ -192,7 +226,74 @@ index 81df792..2871d87 100644
  
  	/*
  	 * LVTS_MSRCTL0 : Sensor filtering strategy
-@@ -1662,6 +1777,72 @@ static const u32 mt7988_init_cmds[] = {
+@@ -1296,11 +1419,44 @@ static int lvts_ctrl_configure(struct device *dev, struct lvts_ctrl *lvts_ctrl)
+ 	return lvts_irq_init(lvts_ctrl);
+ }
+ 
++/*
++ * Program the MT6789 LVTS STAGE3 hardware reboot threshold. Mirrors stock
++ * soc_temp_lvts.c:set_tc_hw_reboot_threshold(): force the controller to
++ * report a very low temperature (PROTOFFSET) and mask STAGE3 while latching
++ * the critical-trip raw threshold into PROTTC with the max-of-4 strategy,
++ * then re-arm STAGE3 and clear the offset. The RGU reset is hardware-only,
++ * so this protects the SoC even if the kernel hangs.
++ */
++static void lvts_ctrl_set_hw_reboot(struct lvts_ctrl *lvts_ctrl, int temp)
++{
++	void __iomem *base = lvts_ctrl->base;
++	u32 value, raw;
++
++	value = readl(LVTS_PROTCTL(base));
++	writel(value | LVTS_PROTCTL_PROTOFFSET, LVTS_PROTCTL(base));
++	value = readl(LVTS_MONINT(base));
++	writel(value & ~LVTS_MONINT_STAGE3_INT_EN, LVTS_MONINT(base));
++
++	raw = lvts_temp_to_raw(temp, lvts_ctrl->lvts_data) & GENMASK(14, 0);
++
++	value = readl(LVTS_PROTCTL(base));
++	value &= ~GENMASK(17, 16);
++	value |= LVTS_PROTCTL_STRATEGY_MAX;
++	writel(value, LVTS_PROTCTL(base));
++	writel(raw, LVTS_PROTTC(base));
++
++	value = readl(LVTS_PROTCTL(base));
++	writel(value & ~LVTS_PROTCTL_PROTOFFSET, LVTS_PROTCTL(base));
++	value = readl(LVTS_MONINT(base));
++	writel(value | LVTS_MONINT_STAGE3_INT_EN, LVTS_MONINT(base));
++}
++
+ static int lvts_ctrl_start(struct device *dev, struct lvts_ctrl *lvts_ctrl)
+ {
+ 	struct lvts_sensor *lvts_sensors = lvts_ctrl->sensors;
+ 	struct thermal_zone_device *tz;
+ 	u32 sensor_map = 0;
++	int crit_temp, hw_reboot_temp = 0;
+ 	int i;
+ 	/*
+ 	 * Bitmaps to enable each sensor on immediate and filtered modes, as
+@@ -1342,6 +1498,11 @@ static int lvts_ctrl_start(struct device *dev, struct lvts_ctrl *lvts_ctrl)
+ 		 */
+ 		lvts_sensors[i].tz = tz;
+ 
++		/* Use the DTS critical trip (113500 mC on Advan X1). */
++		crit_temp = 0;
++		if (!thermal_zone_get_crit_temp(tz, &crit_temp) && crit_temp > 0)
++			hw_reboot_temp = crit_temp;
++
+ 		/*
+ 		 * This sensor was correctly associated with a thermal
+ 		 * zone, let's set the corresponding bit in the sensor
+@@ -1351,6 +1512,9 @@ static int lvts_ctrl_start(struct device *dev, struct lvts_ctrl *lvts_ctrl)
+ 		sensor_map |= sensor_bitmap[i];
+ 	}
+ 
++	if (lvts_ctrl->lvts_data->hw_reboot && hw_reboot_temp > 0)
++		lvts_ctrl_set_hw_reboot(lvts_ctrl, hw_reboot_temp);
++
+ 	/*
+ 	 * The initialization of the thermal zones give us
+ 	 * which sensor point to enable. If any thermal zone
+@@ -1662,6 +1826,72 @@ static const u32 mt7988_init_cmds[] = {
   *
   * Hence the rather confusing offsets provided below.
   */
@@ -265,7 +366,7 @@ index 81df792..2871d87 100644
  static const struct lvts_ctrl_data mt8186_lvts_data_ctrl[] = {
  	{
  		.lvts_sensor = {
-@@ -2073,6 +2254,23 @@ static const struct lvts_data mt7988_lvts_ap_data = {
+@@ -2073,6 +2303,24 @@ static const struct lvts_data mt7988_lvts_ap_data = {
  	.ops = &lvts_platform_ops_mt7988,
  };
  
@@ -283,13 +384,14 @@ index 81df792..2871d87 100644
 +	.num_cal_offsets = LVTS_NUM_CAL_OFFSETS_MT8196,
 +	.start_settle_us = 2000,
 +	.skip_zero_msr = true,
++	.hw_reboot = true,
 +	.ops = &lvts_platform_ops_mt7988,
 +};
 +
  static const struct lvts_data mt8186_lvts_data = {
  	.lvts_ctrl	= mt8186_lvts_data_ctrl,
  	.conn_cmd	= default_conn_cmds,
-@@ -2203,6 +2401,7 @@ static const struct lvts_data mt8196_lvts_ap_data = {
+@@ -2203,6 +2451,7 @@ static const struct lvts_data mt8196_lvts_ap_data = {
  };
  
  static const struct of_device_id lvts_of_match[] = {
@@ -299,7 +401,7 @@ index 81df792..2871d87 100644
  	{ .compatible = "mediatek,mt8186-lvts", .data = &mt8186_lvts_data },
 diff --git a/drivers/thermal/mediatek/lvts_thermal.c.orig b/drivers/thermal/mediatek/lvts_thermal.c.orig
 new file mode 100644
-index 0000000..81df792
+index 000000000..81df7920f
 --- /dev/null
 +++ b/drivers/thermal/mediatek/lvts_thermal.c.orig
 @@ -0,0 +1,2238 @@
@@ -2543,4 +2645,3 @@ index 0000000..81df792
 +MODULE_LICENSE("GPL");
 -- 
 2.55.0
-
