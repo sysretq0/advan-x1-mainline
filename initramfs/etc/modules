@@ -32,4 +32,5 @@ uinput
 uhid
 spidev
 i2c-dev
+ff-memless
 regulator-haptic

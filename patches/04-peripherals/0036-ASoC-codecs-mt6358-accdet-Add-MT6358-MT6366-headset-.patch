@@ -94,7 +94,7 @@ new file mode 100644
 index 000000000..bf8f756f4
 --- /dev/null
 +++ b/sound/soc/codecs/mt6358-accdet.c
-@@ -0,0 +1,702 @@
+@@ -0,0 +1,703 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * MediaTek MT6358/MT6366 ALSA SoC accessory detection (ACCDET) driver
@@ -796,6 +796,7 @@ index 000000000..bf8f756f4
 +
 +MODULE_AUTHOR("sysretq0 <sysretq0@proton.me>");
 +MODULE_DESCRIPTION("MediaTek MT6358/MT6366 ALSA SoC jack detection driver");
++MODULE_IMPORT_NS("IIO_CONSUMER");
 +MODULE_LICENSE("GPL");
 diff --git a/sound/soc/codecs/mt6358-accdet.h b/sound/soc/codecs/mt6358-accdet.h
 new file mode 100644
