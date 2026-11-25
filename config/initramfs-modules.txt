@@ -34,3 +34,7 @@ drivers/spi/spidev.ko                                  CONFIG_SPI_SPIDEV
 drivers/i2c/i2c-dev.ko                                 CONFIG_I2C_CHARDEV
 drivers/input/ff-memless.ko                            CONFIG_INPUT_FF_MEMLESS
 drivers/input/misc/regulator-haptic.ko                 CONFIG_INPUT_REGULATOR_HAPTIC
+
+# Runtime filesystems (CCCI RO NVRAM overlay drives, xdg-document-portal FUSE)
+fs/overlayfs/overlay.ko                                CONFIG_OVERLAY_FS
+fs/fuse/fuse.ko                                        CONFIG_FUSE_FS

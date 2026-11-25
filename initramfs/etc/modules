@@ -34,3 +34,7 @@ spidev
 i2c-dev
 ff-memless
 regulator-haptic
+
+# Runtime filesystems (CCCI RO NVRAM overlay drives, xdg-document-portal FUSE)
+overlay
+fuse

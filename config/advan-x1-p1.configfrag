@@ -12,24 +12,11 @@
 CONFIG_MODULES=y
 CONFIG_MODULE_UNLOAD=y
 
-# Core rootfs / Option A nested-GPT loop / ConfigFS / OverlayFS / FUSE support (explicitly pinned)
-# arm64 defconfig sets these to =m; pin them =y because only curated peripheral
-# kmods in config/initramfs-modules.txt are built/installed. OVERLAY_FS=y is
-# required by ccci-fsd.service to mount read-only NVRAM overlay drives before
-# triggering CCCI modem boot.
+# Core rootfs / Option A nested-GPT loop / ConfigFS support (explicitly pinned)
 CONFIG_BLK_DEV_LOOP=y
 CONFIG_EFI_PARTITION=y
 CONFIG_EXT4_FS=y
 CONFIG_CONFIGFS_FS=y
-CONFIG_OVERLAY_FS=y
-CONFIG_FUSE_FS=y
-CONFIG_NF_CONNTRACK=y
-CONFIG_IP_NF_IPTABLES=y
-CONFIG_IP6_NF_IPTABLES=y
-CONFIG_BRIDGE=y
-CONFIG_VETH=y
-CONFIG_USB_ACM=y
-CONFIG_USB_USBNET=y
 
 # Trim build: no debug info
 CONFIG_DEBUG_INFO_NONE=y
