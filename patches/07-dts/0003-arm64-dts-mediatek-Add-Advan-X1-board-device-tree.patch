@@ -18,7 +18,7 @@ new file mode 100644
 index 0000000..eb12987
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
-@@ -0,0 +1,1212 @@
+@@ -0,0 +1,1213 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Device Tree Source for the Advan X1 smartphone (MediaTek MT6789).
@@ -615,6 +615,7 @@ index 0000000..eb12987
 +						    0x00 0x00 0x0e 0x00
 +						    0x00 0x00 0x00>;
 +			mediatek,three-key-threshold = <0 80 220 400>;
++			mediatek,three-key-threshold-CDD = <0 121 192 600>;
 +			mediatek,four-key-threshold = <0 58 121 192 400>;
 +		};
 +

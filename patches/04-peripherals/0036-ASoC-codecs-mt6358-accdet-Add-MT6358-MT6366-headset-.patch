@@ -94,7 +94,7 @@ new file mode 100644
 index 000000000..bf8f756f4
 --- /dev/null
 +++ b/sound/soc/codecs/mt6358-accdet.c
-@@ -0,0 +1,691 @@
+@@ -0,0 +1,702 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * MediaTek MT6358/MT6366 ALSA SoC accessory detection (ACCDET) driver
@@ -255,6 +255,8 @@ index 000000000..bf8f756f4
 +	struct mt6358_accdet_pwm_deb pwm_deb;
 +	u32 four_key[5];
 +	u32 three_key[4];
++	/* Tier A: headset-three-key-threshold-CDD = <0 121 192 600> */
++	u32 cdd_key[4];
 +	bool has_four_key;
 +
 +	bool plugged_in;
@@ -637,6 +639,15 @@ index 000000000..bf8f756f4
 +		of_property_read_u32_array(np, "mediatek,three-key-threshold",
 +					   priv->three_key,
 +					   ARRAY_SIZE(priv->three_key));
++		/*
++		 * Stock accdet selects this alternate key map for CDD-type
++		 * accessories. Keep it available to the driver; accessory
++		 * identification / selection lands with the jack-type work.
++		 */
++		of_property_read_u32_array(np,
++					   "mediatek,three-key-threshold-CDD",
++					   priv->cdd_key,
++					   ARRAY_SIZE(priv->cdd_key));
 +		if (!of_property_read_u32_array(np,
 +						"mediatek,four-key-threshold",
 +						priv->four_key,

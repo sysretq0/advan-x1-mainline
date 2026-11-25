@@ -594,6 +594,7 @@
 						    0x00 0x00 0x0e 0x00
 						    0x00 0x00 0x00>;
 			mediatek,three-key-threshold = <0 80 220 400>;
+			mediatek,three-key-threshold-CDD = <0 121 192 600>;
 			mediatek,four-key-threshold = <0 58 121 192 400>;
 		};
 
