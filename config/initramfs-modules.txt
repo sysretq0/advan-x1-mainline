@@ -19,10 +19,10 @@ net/nfc/nci/nci.ko                                     CONFIG_NFC_NCI
 drivers/nfc/st-nci/st-nci.ko                           CONFIG_NFC_ST_NCI
 drivers/nfc/st-nci/st-nci_i2c.ko                       CONFIG_NFC_ST_NCI_I2C
 
-# Audio (MTK ASoC common -> MT8186/MT6789 AFE -> codecs -> machine)
+# Audio (MTK ASoC common -> MT6358 codec -> MT8186/MT6789 AFE -> ACCDET/amp -> machine)
 sound/soc/mediatek/common/snd-soc-mtk-common.ko        CONFIG_SND_SOC_MEDIATEK
-sound/soc/mediatek/mt8186/snd-soc-mt8186-afe.ko        CONFIG_SND_SOC_MT8186
 sound/soc/codecs/snd-soc-mt6358.ko                     CONFIG_SND_SOC_MT6358
+sound/soc/mediatek/mt8186/snd-soc-mt8186-afe.ko        CONFIG_SND_SOC_MT8186
 sound/soc/codecs/snd-soc-mt6358-accdet.ko              CONFIG_SND_SOC_MT6358_ACCDET
 sound/soc/codecs/snd-soc-fs1599.ko                     CONFIG_SND_SOC_FS1599
 sound/soc/mediatek/mt8186/mt6789-mt6366.ko             CONFIG_SND_SOC_MT6789_MT6366
@@ -38,3 +38,72 @@ drivers/input/misc/regulator-haptic.ko                 CONFIG_INPUT_REGULATOR_HA
 # Runtime filesystems (CCCI RO NVRAM overlay drives, xdg-document-portal FUSE)
 fs/overlayfs/overlay.ko                                CONFIG_OVERLAY_FS
 fs/fuse/fuse.ko                                        CONFIG_FUSE_FS
+
+# Tier 1: DMA-BUF heaps and optional CPUFreq governors
+drivers/dma-buf/heaps/system_heap.ko                   CONFIG_DMABUF_HEAPS_SYSTEM
+drivers/dma-buf/heaps/cma_heap.ko                      CONFIG_DMABUF_HEAPS_CMA
+drivers/cpufreq/cpufreq_powersave.ko                   CONFIG_CPU_FREQ_GOV_POWERSAVE
+drivers/cpufreq/cpufreq_conservative.ko                CONFIG_CPU_FREQ_GOV_CONSERVATIVE
+
+# Tier 2: Bridge, VLAN, container networking, netfilter/xtables, device-mapper
+net/llc/llc.ko                                         CONFIG_LLC
+net/802/stp.ko                                         CONFIG_STP
+net/802/garp.ko                                        CONFIG_GARP
+net/802/mrp.ko                                         CONFIG_MRP
+net/8021q/8021q.ko                                     CONFIG_VLAN_8021Q
+net/bridge/bridge.ko                                   CONFIG_BRIDGE
+drivers/net/veth.ko                                    CONFIG_VETH
+drivers/net/macvlan.ko                                 CONFIG_MACVLAN
+drivers/net/tap.ko                                     CONFIG_TAP
+net/ipv4/netfilter/nf_defrag_ipv4.ko                   CONFIG_NF_DEFRAG_IPV4
+net/ipv6/netfilter/nf_defrag_ipv6.ko                   CONFIG_NF_DEFRAG_IPV6
+net/netfilter/nf_conntrack.ko                          CONFIG_NF_CONNTRACK
+net/netfilter/x_tables.ko                              CONFIG_NETFILTER_XTABLES
+net/netfilter/xt_tcpudp.ko                             CONFIG_NETFILTER_XTABLES
+net/netfilter/xt_conntrack.ko                          CONFIG_NETFILTER_XT_MATCH_CONNTRACK
+net/netfilter/xt_addrtype.ko                           CONFIG_NETFILTER_XT_MATCH_ADDRTYPE
+net/netfilter/xt_mark.ko                               CONFIG_NETFILTER_XT_MARK
+net/netfilter/nf_log_syslog.ko                         CONFIG_NF_LOG_SYSLOG
+net/netfilter/xt_LOG.ko                                CONFIG_NETFILTER_XT_TARGET_LOG
+net/bridge/br_netfilter.ko                             CONFIG_BRIDGE_NETFILTER
+drivers/md/dm-mod.ko                                   CONFIG_BLK_DEV_DM
+drivers/md/dm-log.ko                                   CONFIG_DM_MIRROR
+drivers/md/dm-region-hash.ko                           CONFIG_DM_MIRROR
+drivers/md/dm-mirror.ko                                CONFIG_DM_MIRROR
+drivers/md/dm-zero.ko                                  CONFIG_DM_ZERO
+
+# Tier 3: USB-C OTG peripherals (media/UVC, audio, Ethernet, serial) & Wi-Fi/BT core
+drivers/media/mc/mc.ko                                 CONFIG_MEDIA_SUPPORT
+drivers/media/v4l2-core/videodev.ko                    CONFIG_VIDEO_DEV
+drivers/media/common/videobuf2/videobuf2-common.ko     CONFIG_VIDEOBUF2_CORE
+drivers/media/common/videobuf2/videobuf2-memops.ko     CONFIG_VIDEOBUF2_MEMOPS
+drivers/media/common/videobuf2/videobuf2-vmalloc.ko    CONFIG_VIDEOBUF2_VMALLOC
+drivers/media/common/videobuf2/videobuf2-v4l2.ko       CONFIG_VIDEOBUF2_V4L2
+drivers/media/common/uvc.ko                            CONFIG_UVC_COMMON
+drivers/media/usb/uvc/uvcvideo.ko                      CONFIG_USB_VIDEO_CLASS
+sound/core/snd-hwdep.ko                                CONFIG_SND_HWDEP
+sound/core/snd-rawmidi.ko                              CONFIG_SND_RAWMIDI
+sound/usb/snd-usbmidi-lib.ko                           CONFIG_SND_USB_AUDIO
+sound/usb/snd-usb-audio.ko                             CONFIG_SND_USB_AUDIO
+drivers/net/mii.ko                                     CONFIG_MII
+drivers/net/usb/usbnet.ko                              CONFIG_USB_USBNET
+drivers/net/usb/cdc_ether.ko                           CONFIG_USB_NET_CDCETHER
+drivers/net/usb/cdc_ncm.ko                             CONFIG_USB_NET_CDC_NCM
+drivers/net/usb/ax88179_178a.ko                        CONFIG_USB_NET_AX88179_178A
+drivers/net/usb/r8152.ko                               CONFIG_USB_RTL8152
+drivers/usb/class/cdc-acm.ko                           CONFIG_USB_ACM
+drivers/usb/serial/usbserial.ko                        CONFIG_USB_SERIAL
+drivers/usb/serial/cp210x.ko                           CONFIG_USB_SERIAL_CP210X
+drivers/usb/serial/ftdi_sio.ko                         CONFIG_USB_SERIAL_FTDI_SIO
+net/wireless/cfg80211.ko                               CONFIG_CFG80211
+lib/crypto/libarc4.ko                                  CONFIG_CRYPTO_LIB_ARC4
+net/mac80211/mac80211.ko                               CONFIG_MAC80211
+net/bluetooth/bluetooth.ko                             CONFIG_BT
+net/bluetooth/hidp/hidp.ko                             CONFIG_BT_HIDP
+drivers/bluetooth/btintel.ko                           CONFIG_BT_INTEL
+drivers/bluetooth/btbcm.ko                             CONFIG_BT_BCM
+drivers/bluetooth/btrtl.ko                             CONFIG_BT_RTL
+drivers/bluetooth/btqca.ko                             CONFIG_BT_QCA
+drivers/bluetooth/btmtk.ko                             CONFIG_BT_MTK
+drivers/bluetooth/btusb.ko                             CONFIG_BT_HCIBTUSB
+drivers/bluetooth/hci_uart.ko                          CONFIG_BT_HCIUART

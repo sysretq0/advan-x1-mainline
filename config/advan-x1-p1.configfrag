@@ -4,11 +4,13 @@
 # UART0 baud clock resolved from topckgen uart mux, gate from infra_ao.
 # Loadable module policy: boot-critical drivers (clocks, pinctrl, serial, UFS/SD,
 # display/panel/backlight, loop, ext4, configfs, USB gadget, PMIC/regulators,
-# thermal safety, charger/Type-C, modem) stay built-in (=y). Non-essential
-# peripheral drivers (GPU, touch, audio, NFC, uinput/uhid, spidev, i2c-dev,
-# haptic) are built as curated =m modules (see config/initramfs-modules.txt)
-# and loaded by static C /init via SYS_finit_module without pulling 850+
-# unrelated defconfig modules.
+# thermal safety, charger/Type-C, modem, core crypto/zstd) stay built-in (=y).
+# Non-essential peripheral and runtime drivers (GPU, touch, audio, NFC,
+# uinput/uhid, spidev, i2c-dev, haptic, overlay/fuse, DMA-BUF heaps, optional
+# CPUFreq governors, bridge/VLAN/netfilter/dm, USB-C OTG peripherals, Wi-Fi/BT
+# core) are built as curated =m modules (see config/initramfs-modules.txt) and
+# loaded by static C /init via SYS_finit_module without pulling 750+ unrelated
+# defconfig modules.
 CONFIG_MODULES=y
 CONFIG_MODULE_UNLOAD=y
 
@@ -17,6 +19,21 @@ CONFIG_BLK_DEV_LOOP=y
 CONFIG_EFI_PARTITION=y
 CONFIG_EXT4_FS=y
 CONFIG_CONFIGFS_FS=y
+
+# Core crypto algorithms and zstd compression (arm64 defconfig leaves these =m;
+# keep built-in so Wi-Fi/BT/dm-crypt/TLS/zstd never hit missing crypto-* modules)
+CONFIG_CRYPTO_AES_ARM64_NEON_BLK=y
+CONFIG_CRYPTO_CCM=y
+CONFIG_CRYPTO_GCM=y
+CONFIG_CRYPTO_CTR=y
+CONFIG_CRYPTO_XTS=y
+CONFIG_CRYPTO_CHACHA20=y
+CONFIG_CRYPTO_MD5=y
+CONFIG_CRYPTO_ECDH=y
+CONFIG_CRYPTO_USER_API=y
+CONFIG_CRYPTO_USER_API_RNG=y
+CONFIG_CRYPTO_ZSTD=y
+CONFIG_ZSTD_COMPRESS=y
 
 # Trim build: no debug info
 CONFIG_DEBUG_INFO_NONE=y

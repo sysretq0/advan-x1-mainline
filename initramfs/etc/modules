@@ -19,10 +19,10 @@ nci
 st-nci
 st-nci_i2c
 
-# Audio (common -> AFE -> codecs -> machine)
+# Audio (common -> MT6358 codec -> AFE -> ACCDET/amp -> machine)
 snd-soc-mtk-common
-snd-soc-mt8186-afe
 snd-soc-mt6358
+snd-soc-mt8186-afe
 snd-soc-mt6358-accdet
 snd-soc-fs1599
 mt6789-mt6366
@@ -38,3 +38,72 @@ regulator-haptic
 # Runtime filesystems (CCCI RO NVRAM overlay drives, xdg-document-portal FUSE)
 overlay
 fuse
+
+# Tier 1: DMA-BUF heaps and optional CPUFreq governors
+system_heap
+cma_heap
+cpufreq_powersave
+cpufreq_conservative
+
+# Tier 2: Bridge, VLAN, container networking, netfilter/xtables, device-mapper
+llc
+stp
+garp
+mrp
+8021q
+bridge
+veth
+macvlan
+tap
+nf_defrag_ipv4
+nf_defrag_ipv6
+nf_conntrack
+x_tables
+xt_tcpudp
+xt_conntrack
+xt_addrtype
+xt_mark
+nf_log_syslog
+xt_LOG
+br_netfilter
+dm-mod
+dm-log
+dm-region-hash
+dm-mirror
+dm-zero
+
+# Tier 3: USB-C OTG peripherals (media/UVC, audio, Ethernet, serial) & Wi-Fi/BT core
+mc
+videodev
+videobuf2-common
+videobuf2-memops
+videobuf2-vmalloc
+videobuf2-v4l2
+uvc
+uvcvideo
+snd-hwdep
+snd-rawmidi
+snd-usbmidi-lib
+snd-usb-audio
+mii
+usbnet
+cdc_ether
+cdc_ncm
+ax88179_178a
+r8152
+cdc-acm
+usbserial
+cp210x
+ftdi_sio
+cfg80211
+libarc4
+mac80211
+bluetooth
+hidp
+btintel
+btbcm
+btrtl
+btqca
+btmtk
+btusb
+hci_uart
