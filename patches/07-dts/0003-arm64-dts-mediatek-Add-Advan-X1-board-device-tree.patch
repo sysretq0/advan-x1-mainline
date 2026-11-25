@@ -18,7 +18,7 @@ new file mode 100644
 index 0000000..eb12987
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
-@@ -0,0 +1,1198 @@
+@@ -0,0 +1,1212 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Device Tree Source for the Advan X1 smartphone (MediaTek MT6789).
@@ -1216,6 +1216,20 @@ index 0000000..eb12987
 +
 +&dsi0_out {
 +	remote-endpoint = <&panel_in>;
++};
++
++&thermal_zones {
++	ap_ntc {
++		polling-delay = <0>;
++		polling-delay-passive = <0>;
++		thermal-sensors = <&tboard_thermistor1>;
++	};
++
++	ltepa_ntc {
++		polling-delay = <0>;
++		polling-delay-passive = <0>;
++		thermal-sensors = <&tboard_thermistor2>;
++	};
 +};
 --
 2.55.0
