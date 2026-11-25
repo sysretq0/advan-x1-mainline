@@ -25,6 +25,10 @@ on:
         type: boolean
         default: true
 
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -81,17 +85,68 @@ jobs:
           sudo find /etc/apt/sources.list.d/ -type f ! -name "*ubuntu*" -delete 2>/dev/null || true
 
           # 5. Update index and install ONLY genuinely missing packages
-          # (bc, bison, flex, libssl-dev, xz-utils, python3, cpio, curl, bzip2 are already pre-installed)
+          # (bc, bison, flex, libssl-dev, xz-utils, python3, cpio, curl, bzip2 are already pre-installed;
+          #  AOSP Clang supplies clang/lld/llvm-* so skip Ubuntu's clang/lld/llvm packages)
           sudo apt-get -o Acquire::Retries="3" update -qq
           sudo apt-get -o Acquire::Retries="3" install -y --no-install-recommends \
-            clang lld llvm device-tree-compiler libelf-dev \
+            device-tree-compiler libelf-dev \
             gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu libc6-dev-arm64-cross \
             u-boot-tools dosfstools mtools lz4 kmod \
             ccache
 
+      # ---- Fail-fast early initramfs/BusyBox phase (<30s cold, <5s warm) ----
+      - name: Restore static BusyBox cache
+        id: busybox-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: build/busybox-install
+          key: busybox-1.38.0-arm64-static-${{ runner.os }}
+
+      - name: Test static C /init & prepare static BusyBox
+        timeout-minutes: 10
+        env:
+          OUT: ${{ github.workspace }}/build
+        run: |
+          make -C initramfs/src OUT="$GITHUB_WORKSPACE/build/init-check" test
+          make -C initramfs/src CROSS=aarch64-linux-gnu- OUT="$GITHUB_WORKSPACE/build/init-check" all
+          rm -rf "$GITHUB_WORKSPACE/build/init-check"
+          BUSYBOX_ONLY=1 JOBS="$(nproc)" ./scripts/build-initramfs.sh
+
+      - name: Save static BusyBox cache
+        if: ${{ steps.busybox-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v6
+        with:
+          path: build/busybox-install
+          key: busybox-1.38.0-arm64-static-${{ runner.os }}
+
+      # ---- Slim AOSP Clang (pruned to kernel-only tools, saved immediately) ----
+      - name: Restore slim Google Clang cache
+        id: clang-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: toolchain/clang-${{ env.CLANG_VERSION }}
+          key: aosp-clang-${{ env.CLANG_VERSION }}-kernel-slim-${{ runner.os }}
+
+      - name: Setup Google Clang (kernel-slim)
+        timeout-minutes: 10
+        run: |
+          CLANG_DIR="$(PRUNE_FOR_KERNEL=1 ./scripts/setup-google-clang.sh)"
+          echo "$CLANG_DIR/bin" >> "$GITHUB_PATH"
+          echo "CLANG_DIR=$CLANG_DIR" >> "$GITHUB_ENV"
+          "$CLANG_DIR/bin/clang" --version | head -n 2
+
+      - name: Save slim Google Clang cache
+        if: ${{ steps.clang-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v6
+        with:
+          path: toolchain/clang-${{ env.CLANG_VERSION }}
+          key: aosp-clang-${{ env.CLANG_VERSION }}-kernel-slim-${{ runner.os }}
+
+      # ---- ccache restore & setup ----
       - name: Restore ccache cache
+        id: ccache-restore
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.use_ccache == true }}
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: ~/.cache/ccache
           key: ccache-linux-arm64-${{ runner.os }}-${{ github.ref_name }}-${{ github.sha }}
@@ -111,35 +166,6 @@ jobs:
           ccache --set-config=sloppiness=time_macros,include_file_mtime,file_macro
           ccache -z
           ccache -s
-
-      - name: Prune stale ccache caches (stay under 10 GiB repo limit)
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.use_ccache == true }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Keep only the 2 newest ccache entries for this branch so rolling
-          # ccache-<sha> keys never fill the 10 GiB cap and evict aosp-clang.
-          PREFIX="ccache-linux-arm64-${{ runner.os }}-${{ github.ref_name }}-"
-          IDS=$(gh api "repos/${{ github.repository }}/actions/caches?per_page=100&key=${PREFIX}&sort=last_accessed_at&direction=desc" \
-            --jq '.actions_caches[2:][].id' 2>/dev/null || true)
-          for id in $IDS; do
-            echo "Pruning stale cache id=$id"
-            gh api -X DELETE "repos/${{ github.repository }}/actions/caches/$id" 2>/dev/null || true
-          done
-
-      - name: Cache Google Clang (AOSP pinned)
-        uses: actions/cache@v6
-        with:
-          path: toolchain/clang-${{ env.CLANG_VERSION }}
-          key: aosp-clang-${{ env.CLANG_VERSION }}-${{ runner.os }}
-
-      - name: Setup Google Clang
-        timeout-minutes: 10
-        run: |
-          CLANG_DIR="$(./scripts/setup-google-clang.sh)"
-          echo "$CLANG_DIR/bin" >> "$GITHUB_PATH"
-          echo "CLANG_DIR=$CLANG_DIR" >> "$GITHUB_ENV"
-          clang --version | head -n 2
 
       - name: Checkout upstream Linux kernel
         timeout-minutes: 10
@@ -168,6 +194,7 @@ jobs:
           make ARCH=arm64 olddefconfig LLVM=1 CC="${CC_LAUNCHER}clang" HOSTCC="${CC_LAUNCHER}clang"
 
       - name: Compile kernel Image
+        id: compile-kernel
         timeout-minutes: 75
         env:
           KBUILD_BUILD_TIMESTAMP: ""
@@ -179,12 +206,6 @@ jobs:
           cd "$GITHUB_WORKSPACE/linux"
           make -j$(nproc) ARCH=arm64 LLVM=1 CC="${CC_LAUNCHER}clang" HOSTCC="${CC_LAUNCHER}clang" Image
 
-      - name: Cache static BusyBox (aarch64 rescue toolbox)
-        uses: actions/cache@v6
-        with:
-          path: build/busybox-install
-          key: busybox-1.38.0-arm64-static-${{ runner.os }}
-
       - name: Build initramfs (static C /init + BusyBox rescue + curated kmods)
         timeout-minutes: 15
         env:
@@ -192,10 +213,36 @@ jobs:
           WORK: ${{ github.workspace }}/linux
           OUT: ${{ github.workspace }}/build
           NO_O: "1"
-          JOBS: ${{ env.JOBS || '2' }}
+          KBUILD_BUILD_TIMESTAMP: ""
+          KBUILD_BUILD_USER: "builder"
+          KBUILD_BUILD_HOST: "github-actions"
+          CCACHE_BASEDIR: ${{ github.workspace }}
+          CCACHE_NOHASHDIR: "true"
         run: |
-          make -C initramfs/src OUT="$GITHUB_WORKSPACE/build" test
+          JOBS="$(nproc)" \
+          KMAKE_CC="${CC_LAUNCHER}clang" \
+          KMAKE_HOSTCC="${CC_LAUNCHER}clang" \
           ./scripts/build-initramfs.sh
+
+      - name: Save ccache cache
+        if: ${{ (success() || failure()) && (github.event_name != 'workflow_dispatch' || inputs.use_ccache == true) && steps.compile-kernel.outcome == 'success' && steps.ccache-restore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.cache/ccache
+          key: ccache-linux-arm64-${{ runner.os }}-${{ github.ref_name }}-${{ github.sha }}
+
+      - name: Prune stale ccache caches (keep 2 newest for branch)
+        if: ${{ (success() || failure()) && (github.event_name != 'workflow_dispatch' || inputs.use_ccache == true) && steps.compile-kernel.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PREFIX="ccache-linux-arm64-${{ runner.os }}-${{ github.ref_name }}-"
+          IDS=$(gh api "repos/${{ github.repository }}/actions/caches?per_page=100&key=${PREFIX}&sort=last_accessed_at&direction=desc" \
+            --jq '.actions_caches[2:][].id' 2>/dev/null || true)
+          for id in $IDS; do
+            echo "Pruning stale cache id=$id"
+            gh api -X DELETE "repos/${{ github.repository }}/actions/caches/$id" 2>/dev/null || true
+          done
 
       - name: Ccache statistics
         if: ${{ always() && (github.event_name != 'workflow_dispatch' || inputs.use_ccache == true) }}

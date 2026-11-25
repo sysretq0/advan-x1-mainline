@@ -20,7 +20,9 @@
 #                            as targeted =m modules (never builds all defconfig =m)
 #   KVER                     override kernel release (auto from kernelrelease)
 #   NO_O=1                   kernel builds in-tree (CI layout, no O= argument)
+#   KMAKE_CC, KMAKE_HOSTCC   optional CC / HOSTCC values (e.g. "ccache clang")
 #   KMAKE_EXTRA              extra make vars for the kernel
+#   BUSYBOX_ONLY=1           build/populate $BUSYBOX_ROOT only and exit (CI fail-fast)
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 K=${K:-/work/mainline/linux}
@@ -32,7 +34,9 @@ CROSS=${CROSS:-aarch64-linux-gnu-}
 BUSYBOX_VER=${BUSYBOX_VER:-1.38.0}
 
 export PATH="$REPO/scripts/bin:$PATH"
-. "$REPO/scripts/toolchain-env.sh"
+if [ "${BUSYBOX_ONLY:-0}" != "1" ]; then
+    . "$REPO/scripts/toolchain-env.sh"
+fi
 mkdir -p "$OUT"
 
 OARG=(O="$OUT")
@@ -41,7 +45,12 @@ if [ "${NO_O:-0}" = "1" ]; then
     OARG=()
     KCFG="$WORK/.config"
 fi
-kmake() { make -C "$WORK" "${OARG[@]}" ARCH=arm64 LLVM=1 ${KMAKE_EXTRA:-} "$@"; }
+kmake() {
+    local extra=()
+    [ -n "${KMAKE_CC:-}" ] && extra+=(CC="$KMAKE_CC")
+    [ -n "${KMAKE_HOSTCC:-}" ] && extra+=(HOSTCC="$KMAKE_HOSTCC")
+    make -C "$WORK" "${OARG[@]}" ARCH=arm64 LLVM=1 "${extra[@]}" ${KMAKE_EXTRA:-} "$@"
+}
 
 strip_ko() {
     local ko="$1"
@@ -74,7 +83,8 @@ if [ ! -x "$BUSYBOX_ROOT/bin/busybox" ]; then
     BB_BUILD="$OUT/busybox-$BUSYBOX_VER"
     mkdir -p "$BB_BUILD"
     if [ ! -d "$BB_BUILD/busybox-$BUSYBOX_VER" ]; then
-        curl -fsSL --retry 3 "https://busybox.net/downloads/busybox-$BUSYBOX_VER.tar.bz2" \
+        curl -fsSL --connect-timeout 20 --max-time 180 --retry 3 \
+            "https://busybox.net/downloads/busybox-$BUSYBOX_VER.tar.bz2" \
             | tar -xj -C "$BB_BUILD"
     fi
     (
@@ -82,9 +92,18 @@ if [ ! -x "$BUSYBOX_ROOT/bin/busybox" ]; then
         make defconfig >/dev/null
         sed -i 's/^# CONFIG_STATIC is not set/CONFIG_STATIC=y/' .config
         sed -i 's/^CONFIG_TC=y$/# CONFIG_TC is not set/' .config
-        make olddefconfig >/dev/null
+        # BusyBox kconfig has no olddefconfig target; disable pipefail only in
+        # this subshell so yes's SIGPIPE (141) is ignored while real oldconfig
+        # errors still fail the build.
+        (set +o pipefail; yes "" | make oldconfig >/dev/null)
         make -j"$JOBS" CROSS_COMPILE="$CROSS" install CONFIG_PREFIX="$BUSYBOX_ROOT" >/dev/null
     )
+    ls -lh "$BUSYBOX_ROOT/bin/busybox"
+fi
+
+if [ "${BUSYBOX_ONLY:-0}" = "1" ]; then
+    echo "== BusyBox ready ($BUSYBOX_ROOT/bin/busybox) =="
+    exit 0
 fi
 
 # ------------------------------------------------------------- assemble ----
