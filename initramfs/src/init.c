@@ -973,6 +973,13 @@ static int stage_initramfs_firmware_from(const char *src_dir, const char *dst_di
 
 /* ----------------------------------------------------- Stage 1: Base Mounts */
 
+static void try_symlink(const char *target, const char *linkpath)
+{
+	if (symlink(target, linkpath) < 0) {
+		/* Best-effort symlink (EEXIST / optional configfs node). */
+	}
+}
+
 static int early_base_mounts(void)
 {
 	static const char *const dirs[] = {
@@ -1013,10 +1020,10 @@ static int early_base_mounts(void)
 			(void)mknod(lp, S_IFBLK | 0660, makedev(7, i));
 	}
 
-	(void)symlink("/proc/self/fd", "/dev/fd");
-	(void)symlink("/proc/self/fd/0", "/dev/stdin");
-	(void)symlink("/proc/self/fd/1", "/dev/stdout");
-	(void)symlink("/proc/self/fd/2", "/dev/stderr");
+	try_symlink("/proc/self/fd", "/dev/fd");
+	try_symlink("/proc/self/fd/0", "/dev/stdin");
+	try_symlink("/proc/self/fd/1", "/dev/stdout");
+	try_symlink("/proc/self/fd/2", "/dev/stderr");
 	return 0;
 }
 
@@ -1638,8 +1645,8 @@ static void rescue_usb_acm(void)
 	(void)write_sysfs("/sys/kernel/config/usb_gadget/g1/strings/0x409/product", "Advan X1 Rescue");
 	(void)write_sysfs("/sys/kernel/config/usb_gadget/g1/configs/c.1/strings/0x409/configuration", "ACM");
 	if (mkdir_p("/sys/kernel/config/usb_gadget/g1/functions/acm.usb0", 0755) == 0)
-		(void)symlink("/sys/kernel/config/usb_gadget/g1/functions/acm.usb0",
-			      "/sys/kernel/config/usb_gadget/g1/configs/c.1/acm.usb0");
+		try_symlink("/sys/kernel/config/usb_gadget/g1/functions/acm.usb0",
+			    "/sys/kernel/config/usb_gadget/g1/configs/c.1/acm.usb0");
 
 	char udc[128] = { 0 };
 	for (int tries = 0; tries < 20 && !udc[0]; tries++) {
