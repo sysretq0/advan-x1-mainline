@@ -10,7 +10,7 @@ from stock LK via Loki Stage-1) using a SHA-256-verified **U-Boot FIT image**
 (`advan-x1.itb`) and **`boot.scr`** (`bootflow scan -lb`).
 
 - **Pinned upstream baseline:** [`666539eecdf4`](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=666539eecdf4db623f5e3c3e55cf9f2dfad24aa4) (Linux v7.4-rc3/rc4)
-- **Patch queue:** 60 upstream-ready patches across `patches/01-clk`..`07-dts` (+ 2 optional fallback patches in `patches-extra/`)
+- **Patch queue:** 75 upstream-ready patches across `patches/01-clk`..`07-dts` (+ 2 optional fallback patches in `patches-extra/`)
 - **Verification gates:** clean `git apply`, zero DTS drift, 0 `dtc` warnings, 0 `dt-validate` schema errors
 
 ## Current Status at a Glance
@@ -43,13 +43,13 @@ subsystem matrix, driver/DT mapping, and hardware verification evidence.
 | Document | Purpose |
 |---|---|
 | [`docs/hardware-status.md`](docs/hardware-status.md) | Authoritative matrix of what works, what is WIP, what is not yet started, and next milestones. |
-| [`docs/upstream-status.md`](docs/upstream-status.md) | 60-patch series layout, completed upstream-deviation remediation summary, and remaining pre-LKML items. |
+| [`docs/upstream-status.md`](docs/upstream-status.md) | 75-patch series layout, completed upstream-deviation remediation summary, and remaining pre-LKML items. |
 | [`docs/ccci-bringup-plan.md`](docs/ccci-bringup-plan.md) | Phase 5 Gen95 cellular modem ground-truth spec (memory map, CCIF0, SCP CCISM, RO NVRAM FS RPC, DPMAIF v1) and progress. |
 | [`docs/ccci-sip-abi.md`](docs/ccci-sip-abi.md) | EL3 BL31 `MTK_SIP_KERNEL_CCCI_CONTROL` SMC ABI and Loki/LK modem handover contract. |
 
 ## Repository Layout
 
-- `patches/` — 60 email-ready patches organized by upstream subsystem
+- `patches/` — 75 email-ready patches organized by upstream subsystem
   (`01-clk`, `02-pinctrl`, `03-soc-power`, `04-peripherals`, `05-gpu`,
   `06-display`, `07-dts`), applied onto pristine upstream Linux at build time.
 - `patches-extra/` — optional out-of-tree Chipone vendor TDDI fallback driver

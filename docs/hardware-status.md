@@ -1,6 +1,6 @@
 # Advan X1 (MT6789 / Helio G99) — Hardware Support & Bring-Up Status
 
-**Last hardware-verified commit:** `e959721` (kernel `e2fcb28` + ModemManager `mtk-ccci` plugin; full 7.69 GiB RAM, live 4G LTE auto-connect + NTP sync, clean shutdown)  
+**Last full hardware-verified commit:** `e959721` (kernel `e2fcb28` + ModemManager `mtk-ccci` plugin; full 7.69 GiB RAM, live 4G LTE auto-connect + NTP sync, clean shutdown). Phase A remediation commits `074d43d..` are statically verified and pending operator boot test.  
 **Upstream kernel baseline:** Linux v7.4-rc3/rc4 (`666539eecdf4db623f5e3c3e55cf9f2dfad24aa4`)  
 **Boot chain:** Stock LK → Loki Stage-1 (EL1) → [`advan-x1-uboot`](https://github.com/sysretq0/advan-x1-uboot) (EL2) → U-Boot FIT (`advan-x1.itb`)
 
@@ -45,7 +45,7 @@ Status legend:
 | **Video Codec (HW)** | `vdecsys` / `vencsys` / `mdpsys` | — | **Not started** | Needs multimedia clock controllers & `M8` power domains |
 | **Sensors (IMU/ALS/Prox)** | SCP RV55 sensor hub (`scp`) | — | **Not started** | Needs `mtk-scp` remoteproc + IIO sensor bridge |
 | **Fingerprint** | Goodix (`goodix-fp` SPI5) / FocalTech | — | **Not started** | Not wired in DTS or driver stack |
-| **Suspend-to-RAM (S3)** | SPM deep sleep | — | **Not started** | Runtime PM & DPMS work; full S3 suspend/resume unvalidated |
+| **Suspend-to-RAM (S3)** | SPM deep sleep | 9 PSCI states, s2idle `0x01011f01` | **WIP** | DT/SPM implemented; full S3 suspend/resume awaits operator test |
 
 ---
 

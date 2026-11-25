@@ -92,4 +92,4 @@ On MT6789 retail devices booting mainline via Loki chainload after Stock LK:
    `NC_SZ_MDSS_DBG` (matching stock `ccci_md_hif_start(1) ->
    ccci_reset_ccif_hw`, binary-derived from `ccci_md_all.ko` and verified on
    hardware through MD BootROM pass (`boot_status=0x5443000c / 0x53320000`;
-   HS1 handshake WIP)).
+   HS1/HS2 handshake COMPLETE: 30 s timeout + FS in-flight extension (c17995c)).

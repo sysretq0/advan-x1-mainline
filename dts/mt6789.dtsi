@@ -770,7 +770,7 @@
 			compatible = "mediatek,mt6789-spi", "mediatek,mt6765-spi";
 			#address-cells = <1>;
 			#size-cells = <0>;
-			reg = <0x00 0x1100a000 0x00 0x1000>;
+			reg = <0x00 0x1100a000 0x00 0x100>;
 			interrupts = <GIC_SPI 191 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&topckgen CLK_TOP_MSDCPLL_D2>,
 				 <&topckgen CLK_TOP_SPI_SEL>,
@@ -970,7 +970,7 @@
 			compatible = "mediatek,mt6789-spi", "mediatek,mt6765-spi";
 			#address-cells = <1>;
 			#size-cells = <0>;
-			reg = <0x00 0x11010000 0x00 0x1000>;
+			reg = <0x00 0x11010000 0x00 0x100>;
 			interrupts = <GIC_SPI 192 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&topckgen CLK_TOP_MSDCPLL_D2>,
 				 <&topckgen CLK_TOP_SPI_SEL>,
@@ -984,7 +984,7 @@
 			compatible = "mediatek,mt6789-spi", "mediatek,mt6765-spi";
 			#address-cells = <1>;
 			#size-cells = <0>;
-			reg = <0x00 0x11012000 0x00 0x1000>;
+			reg = <0x00 0x11012000 0x00 0x100>;
 			interrupts = <GIC_SPI 193 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&topckgen CLK_TOP_MSDCPLL_D2>,
 				 <&topckgen CLK_TOP_SPI_SEL>,
@@ -998,7 +998,7 @@
 			compatible = "mediatek,mt6789-spi", "mediatek,mt6765-spi";
 			#address-cells = <1>;
 			#size-cells = <0>;
-			reg = <0x00 0x11013000 0x00 0x1000>;
+			reg = <0x00 0x11013000 0x00 0x100>;
 			interrupts = <GIC_SPI 194 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&topckgen CLK_TOP_MSDCPLL_D2>,
 				 <&topckgen CLK_TOP_SPI_SEL>,
@@ -1012,7 +1012,7 @@
 			compatible = "mediatek,mt6789-spi", "mediatek,mt6765-spi";
 			#address-cells = <1>;
 			#size-cells = <0>;
-			reg = <0x00 0x11018000 0x00 0x1000>;
+			reg = <0x00 0x11018000 0x00 0x100>;
 			interrupts = <GIC_SPI 195 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&topckgen CLK_TOP_MSDCPLL_D2>,
 				 <&topckgen CLK_TOP_SPI_SEL>,
@@ -1026,7 +1026,7 @@
 			compatible = "mediatek,mt6789-spi", "mediatek,mt6765-spi";
 			#address-cells = <1>;
 			#size-cells = <0>;
-			reg = <0x00 0x11019000 0x00 0x1000>;
+			reg = <0x00 0x11019000 0x00 0x100>;
 			interrupts = <GIC_SPI 196 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&topckgen CLK_TOP_MSDCPLL_D2>,
 				 <&topckgen CLK_TOP_SPI_SEL>,
