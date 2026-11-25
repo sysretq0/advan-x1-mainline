@@ -9,16 +9,19 @@
  *   1. Base virtual mounts (/proc, /sys, /dev, /dev/pts, /run)
  *   2. /proc/cmdline parsing (root=, rootfstype=, rootflags=, rootdelay=,
  *      rootwait, ro/rw, init=, noswitch, rd.break=, rd.nomodules)
- *   3. Native kernel module loading via SYS_finit_module (/etc/modules with
+ *   3. Stage initramfs /lib/firmware -> /run/firmware and set
+ *      firmware_class.path (when unset) so firmware survives switch_root
+ *      with zero /sysroot mutation
+ *   4. Native kernel module loading via SYS_finit_module (/etc/modules with
  *      modules.dep resolution + out-of-tree .ko in /lib/modules/extra/)
- *   4. Root resolution:
+ *   5. Root resolution:
  *        - Explicit root= (PARTLABEL=, PARTUUID=, UUID=, /dev/<node>)
  *        - Option A nested GPT on xnu_data via native kernel loop parser
  *          (BLKSSZGET + LOOP_CONFIGURE with LO_FLAGS_PARTSCAN -> /dev/loopNpM,
  *           zero hardcoded byte offsets)
- *   5. Mount rootfs on /sysroot (no mutation of /sysroot)
- *   6. Native C switch_root -> /sbin/init (systemd)
- *   7. Emergency rescue shell on failure / rd.break / noswitch (lazily brings
+ *   6. Mount rootfs on /sysroot (no mutation of /sysroot)
+ *   7. Native C switch_root -> /sbin/init (systemd)
+ *   8. Emergency rescue shell on failure / rd.break / noswitch (lazily brings
  *      up USB ACM on /dev/ttyGS0 + /dev/tty0 only because systemd wasn't reached)
  */
 
@@ -432,6 +435,139 @@ static bool parse_uevent_buf(const char *buf, struct part_info *info)
 		p = nl + 1;
 	}
 	return info->has_dev;
+}
+
+static int copy_file_data(const char *src, const char *dst, mode_t mode)
+{
+	int sfd = open(src, O_RDONLY | O_CLOEXEC);
+	int dfd;
+	unsigned char buf[16384];
+	int rc = 0;
+
+	if (sfd < 0)
+		return -1;
+	dfd = open(dst, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC,
+		   (mode & 0777) ? (mode & 0777) : 0644);
+	if (dfd < 0) {
+		close(sfd);
+		return -1;
+	}
+
+	for (;;) {
+		ssize_t r = read(sfd, buf, sizeof(buf));
+		if (r < 0) {
+			if (errno == EINTR)
+				continue;
+			rc = -1;
+			break;
+		}
+		if (r == 0)
+			break;
+		ssize_t off = 0;
+		while (off < r) {
+			ssize_t w = write(dfd, buf + off, (size_t)(r - off));
+			if (w < 0) {
+				if (errno == EINTR)
+					continue;
+				rc = -1;
+				break;
+			}
+			off += w;
+		}
+		if (rc < 0)
+			break;
+	}
+
+	close(sfd);
+	if (close(dfd) < 0)
+		rc = -1;
+	if (rc < 0)
+		unlink(dst);
+	return rc;
+}
+
+static int copy_tree_rec(const char *src_dir, const char *dst_dir, int depth)
+{
+	DIR *d;
+	struct dirent *de;
+	int count = 0;
+
+	if (depth > 8)
+		return 0;
+	d = opendir(src_dir);
+	if (!d)
+		return 0;
+
+	while ((de = readdir(d)) != NULL) {
+		char src_path[PATH_MAX];
+		char dst_path[PATH_MAX];
+		struct stat st;
+
+		if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0)
+			continue;
+		if (!join_path2(src_path, sizeof(src_path), src_dir, de->d_name) ||
+		    !join_path2(dst_path, sizeof(dst_path), dst_dir, de->d_name))
+			continue;
+		if (lstat(src_path, &st) < 0)
+			continue;
+
+		if (S_ISDIR(st.st_mode)) {
+			count += copy_tree_rec(src_path, dst_path, depth + 1);
+		} else if (S_ISREG(st.st_mode)) {
+			if (mkdir_p(dst_dir, 0755) == 0 &&
+			    copy_file_data(src_path, dst_path, st.st_mode) == 0)
+				count++;
+		} else if (S_ISLNK(st.st_mode)) {
+			char target[PATH_MAX];
+			ssize_t len = readlink(src_path, target, sizeof(target) - 1);
+			if (len > 0) {
+				target[len] = '\0';
+				if (mkdir_p(dst_dir, 0755) == 0) {
+					unlink(dst_path);
+					if (symlink(target, dst_path) == 0)
+						count++;
+				}
+			}
+		}
+	}
+	closedir(d);
+	return count;
+}
+
+/*
+ * Stage initramfs /lib/firmware into /run/firmware (which do_switch_root()
+ * MS_MOVEs into /sysroot/run) and point firmware_class.path at it when unset.
+ *
+ * Linux's fw_get_filesystem_firmware() checks fw_path_para BEFORE the rootfs
+ * /lib/firmware paths, so both async driver fw_work and PM_SUSPEND_PREPARE
+ * firmware caching work on any rootfs with zero mutation of /sysroot.
+ */
+static int stage_initramfs_firmware_from(const char *src_dir, const char *dst_dir,
+					 const char *param_path)
+{
+	int count = copy_tree_rec(src_dir, dst_dir, 0);
+	char cur[256] = { 0 };
+
+	if (count <= 0)
+		return 0;
+
+	if (read_file_str(param_path, cur, sizeof(cur)) >= 0) {
+		strip_newline(cur);
+		if (cur[0] != '\0') {
+			init_log("staged %d firmware file(s) -> %s (keeping firmware_class.path=%s)",
+				 count, dst_dir, cur);
+			return count;
+		}
+	}
+
+	if (write_sysfs(param_path, dst_dir) == 0)
+		init_log("staged %d firmware file(s) -> %s (firmware_class.path set)",
+			 count, dst_dir);
+	else
+		init_log("staged %d firmware file(s) -> %s (warn: %s unwritable)",
+			 count, dst_dir, param_path);
+
+	return count;
 }
 
 #ifndef INIT_UNIT_TEST
@@ -1226,6 +1362,9 @@ int main(void)
 
 	if (strcmp(cfg.rd_break, "cmdline") == 0)
 		emergency_shell("rd.break=cmdline");
+
+	stage_initramfs_firmware_from("/lib/firmware", "/run/firmware",
+				      "/sys/module/firmware_class/parameters/path");
 
 	if (strcmp(cfg.rd_break, "pre-udev") == 0)
 		emergency_shell("rd.break=pre-udev");

@@ -85,8 +85,8 @@ static void test_mod_normalize_and_uevent(void)
 			   norm, sizeof(norm));
 	assert(strcmp(norm, "snd_soc_mt8186_afe") == 0);
 
-	normalize_mod_name("chipone-tddi.ko.gz", norm, sizeof(norm));
-	assert(strcmp(norm, "chipone_tddi") == 0);
+	normalize_mod_name("chipone-icnl9922c.ko.gz", norm, sizeof(norm));
+	assert(strcmp(norm, "chipone_icnl9922c") == 0);
 
 	struct part_info pi;
 	const char *uev =
@@ -104,11 +104,118 @@ static void test_mod_normalize_and_uevent(void)
 	assert(strcmp(pi.partuuid, "1cd1f6a4-689e-4ce4-922c-749d9691cd48") == 0);
 }
 
+static void rm_rf_tmp(const char *path)
+{
+	struct stat st;
+	if (lstat(path, &st) < 0)
+		return;
+	if (S_ISDIR(st.st_mode)) {
+		DIR *d = opendir(path);
+		if (d) {
+			struct dirent *de;
+			while ((de = readdir(d)) != NULL) {
+				char child[PATH_MAX];
+				if (strcmp(de->d_name, ".") == 0 ||
+				    strcmp(de->d_name, "..") == 0)
+					continue;
+				if (join_path2(child, sizeof(child), path, de->d_name))
+					rm_rf_tmp(child);
+			}
+			closedir(d);
+		}
+		rmdir(path);
+	} else {
+		unlink(path);
+	}
+}
+
+static void test_stage_initramfs_firmware(void)
+{
+	char root[] = "/tmp/advan-fw-test-XXXXXX";
+	char src[PATH_MAX], src_sub[PATH_MAX], src_bin[PATH_MAX], src_lnk[PATH_MAX];
+	char dst1[PATH_MAX], dst2[PATH_MAX], dst3[PATH_MAX], missing[PATH_MAX];
+	char param1[PATH_MAX], param2[PATH_MAX], param3[PATH_MAX];
+	char out_bin[PATH_MAX], out_lnk[PATH_MAX], link_buf[64], buf[256];
+	const unsigned char payload[] = { 0x00, 0x99, 0x22, 0xc0, 0xff, 0x0a, 0x42 };
+	unsigned char readback[sizeof(payload)];
+	int fd;
+
+	assert(mkdtemp(root) != NULL);
+	assert(join_path2(src, sizeof(src), root, "src"));
+	assert(join_path2(src_sub, sizeof(src_sub), src, "chipone"));
+	assert(join_path2(src_bin, sizeof(src_bin), src_sub, "icnl9922c.bin"));
+	assert(join_path2(src_lnk, sizeof(src_lnk), src_sub, "latest.bin"));
+	assert(mkdir_p(src_sub, 0755) == 0);
+
+	fd = open(src_bin, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	assert(fd >= 0);
+	assert(write(fd, payload, sizeof(payload)) == (ssize_t)sizeof(payload));
+	close(fd);
+	assert(symlink("icnl9922c.bin", src_lnk) == 0);
+
+	/* Case 1: empty sysfs param ("\n") -> stages tree and sets param to dst1 */
+	assert(join_path2(dst1, sizeof(dst1), root, "run-fw-1"));
+	assert(join_path2(param1, sizeof(param1), root, "param1"));
+	fd = open(param1, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	assert(fd >= 0);
+	assert(write(fd, "\n", 1) == 1);
+	close(fd);
+
+	assert(stage_initramfs_firmware_from(src, dst1, param1) == 2);
+	assert(join_path3(out_bin, sizeof(out_bin), dst1, "chipone", "icnl9922c.bin"));
+	assert(join_path3(out_lnk, sizeof(out_lnk), dst1, "chipone", "latest.bin"));
+	fd = open(out_bin, O_RDONLY);
+	assert(fd >= 0);
+	assert(read(fd, readback, sizeof(readback)) == (ssize_t)sizeof(readback));
+	close(fd);
+	assert(memcmp(readback, payload, sizeof(payload)) == 0);
+
+	ssize_t llen = readlink(out_lnk, link_buf, sizeof(link_buf) - 1);
+	assert(llen > 0);
+	link_buf[llen] = '\0';
+	assert(strcmp(link_buf, "icnl9922c.bin") == 0);
+
+	assert(read_file_str(param1, buf, sizeof(buf)) > 0);
+	strip_newline(buf);
+	assert(strcmp(buf, dst1) == 0);
+
+	/* Case 2: pre-populated param (cmdline override) -> stages tree, keeps param */
+	assert(join_path2(dst2, sizeof(dst2), root, "run-fw-2"));
+	assert(join_path2(param2, sizeof(param2), root, "param2"));
+	fd = open(param2, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	assert(fd >= 0);
+	assert(write(fd, "/custom/fw\n", 11) == 11);
+	close(fd);
+
+	assert(stage_initramfs_firmware_from(src, dst2, param2) == 2);
+	assert(read_file_str(param2, buf, sizeof(buf)) > 0);
+	strip_newline(buf);
+	assert(strcmp(buf, "/custom/fw") == 0);
+
+	/* Case 3: missing source dir -> returns 0, does not create dst or touch param */
+	assert(join_path2(missing, sizeof(missing), root, "does-not-exist"));
+	assert(join_path2(dst3, sizeof(dst3), root, "run-fw-3"));
+	assert(join_path2(param3, sizeof(param3), root, "param3"));
+	fd = open(param3, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	assert(fd >= 0);
+	assert(write(fd, "\n", 1) == 1);
+	close(fd);
+
+	assert(stage_initramfs_firmware_from(missing, dst3, param3) == 0);
+	assert(access(dst3, F_OK) < 0);
+	assert(read_file_str(param3, buf, sizeof(buf)) >= 0);
+	strip_newline(buf);
+	assert(buf[0] == '\0');
+
+	rm_rf_tmp(root);
+}
+
 int main(void)
 {
 	test_cmdline_parser();
 	test_ext4_uuid_and_gpt_sector_detect();
 	test_mod_normalize_and_uevent();
+	test_stage_initramfs_firmware();
 	printf("init unit tests: ALL PASSED\n");
 	return 0;
 }

@@ -82,7 +82,7 @@ if [ ! -x "$BUSYBOX_ROOT/bin/busybox" ]; then
         make defconfig >/dev/null
         sed -i 's/^# CONFIG_STATIC is not set/CONFIG_STATIC=y/' .config
         sed -i 's/^CONFIG_TC=y$/# CONFIG_TC is not set/' .config
-        yes "" | make oldconfig >/dev/null
+        make olddefconfig >/dev/null
         make -j"$JOBS" CROSS_COMPILE="$CROSS" install CONFIG_PREFIX="$BUSYBOX_ROOT" >/dev/null
     )
 fi
