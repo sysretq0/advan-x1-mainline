@@ -10,10 +10,10 @@ from stock LK via Loki Stage-1) using a SHA-256-verified **U-Boot FIT image**
 (`advan-x1.itb`) and **`boot.scr`** (`bootflow scan -lb`).
 
 - **Pinned upstream baseline:** [`666539eecdf4`](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=666539eecdf4db623f5e3c3e55cf9f2dfad24aa4) (Linux v7.4-rc3/rc4)
-- **Patch queue:** 82 upstream-ready patches across `patches/01-clk`..`07-dts` (+ 2 optional fallback patches in `patches-extra/`)
+- **Patch queue:** 83 upstream-ready patches across `patches/01-clk`..`07-dts`
 - **Verification gates:** clean `git apply`, zero DTS drift, 0 `dtc` warnings, 0 `dt-validate` schema errors
 - **Toolchain:** Google's pinned AOSP Clang (`clang-r614150`, matching `android-mainline`'s `bazel/constants.scl`) with `LLVM=1` on `x86_64` hosts/CI (`scripts/setup-google-clang.sh`, cached under `toolchain/clang-r614150/`). Non-`x86_64` hosts (such as `aarch64`) automatically default to host LLVM (`GOOGLE_CLANG=0`).
-- **Initramfs PID 1:** Minimal dracut-shaped static `aarch64` C binary ([`initramfs/src/init.c`](initramfs/src/init.c)) with native `SYS_finit_module` (`insmod` + `modules.dep`) for curated non-essential `.ko` modules ([`config/initramfs-modules.txt`](config/initramfs-modules.txt)) and out-of-tree kmods (`/lib/modules/extra/`), Option A native kernel nested-GPT loop probing (`BLKSSZGET` + `LOOP_CONFIGURE` + `LO_FLAGS_PARTSCAN`, zero hardcoded offsets), and clean `switch_root` to `systemd` (leaving `fstab`, `configfs`/`debugfs`, USB gadget, runtime PM, and diagnostics to `systemd`).
+- **Initramfs PID 1:** Minimal dracut-shaped static `aarch64` C binary ([`initramfs/src/init.c`](initramfs/src/init.c)) with zero-mutation `/run/firmware` + `firmware_class.path` handoff, native `SYS_finit_module` (`insmod` + `modules.dep`) for curated non-essential `.ko` modules ([`config/initramfs-modules.txt`](config/initramfs-modules.txt)) and extra kmods (`/lib/modules/extra/`), Option A native kernel nested-GPT loop probing (`BLKSSZGET` + `LOOP_CONFIGURE` + `LO_FLAGS_PARTSCAN`, zero hardcoded offsets), and clean `switch_root` to `systemd` (leaving `fstab`, `configfs`/`debugfs`, USB gadget, runtime PM, and diagnostics to `systemd`).
 
 ## Current Status at a Glance
 
@@ -64,12 +64,9 @@ subsystem matrix, driver/DT mapping, and hardware verification evidence.
 
 ## Repository Layout
 
-- `patches/` — 82 email-ready patches organized by upstream subsystem
+- `patches/` — 83 email-ready patches organized by upstream subsystem
   (`01-clk`, `02-pinctrl`, `03-soc-power`, `04-peripherals`, `05-gpu`,
   `06-display`, `07-dts`), applied onto pristine upstream Linux at build time.
-- `patches-extra/` — optional out-of-tree Chipone vendor TDDI fallback driver
-  (excluded from the upstream series; mainline `04-peripherals/0019` is active
-  by default).
 - `dts/` — `mt6789.dtsi` and `mt6789-advan-x1.dts` (kept byte-identical to
   `patches/07-dts/0002` and `0003` via `scripts/verify_patches.sh`).
 - `config/` — kernel config fragments (`advan-x1-p1.configfrag` + opt-in

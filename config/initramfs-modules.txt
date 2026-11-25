@@ -11,9 +11,8 @@ drivers/gpu/drm/scheduler/gpu-sched.ko                 CONFIG_DRM_SCHED
 drivers/gpu/drm/drm_shmem_helper.ko                    CONFIG_DRM_GEM_SHMEM_HELPER
 drivers/gpu/drm/panfrost/panfrost.ko                   CONFIG_DRM_PANFROST
 
-# Touchscreen (mainline OR out-of-tree patches-extra chipone_tddi)
+# Touchscreen (mainline ICNL9922C SPI driver)
 drivers/input/touchscreen/chipone_icnl9922c.ko         CONFIG_TOUCHSCREEN_CHIPONE_ICNL9922C
-drivers/input/touchscreen/chipone_tddi/chipone_tddi.ko CONFIG_TOUCHSCREEN_CHIPONE_TDDI
 
 # NFC (NCI -> ST-NCI core -> I2C transport)
 net/nfc/nci/nci.ko                                     CONFIG_NFC_NCI

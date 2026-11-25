@@ -24,11 +24,6 @@ on:
         required: true
         type: boolean
         default: true
-      include_extra:
-        description: 'Build optional patches-extra out-of-tree kmods (e.g. chipone_tddi.ko)'
-        required: false
-        type: boolean
-        default: false
 
 jobs:
   build:
@@ -163,24 +158,13 @@ jobs:
             echo "Applying ${p#"$GITHUB_WORKSPACE"/}..."
             git apply --whitespace=nowarn "$p"
           done
-          if [ "${{ inputs.include_extra == true }}" = "true" ]; then
-            for p in "$GITHUB_WORKSPACE"/patches-extra/*.patch; do
-              [ -e "$p" ] || continue
-              echo "Applying ${p#"$GITHUB_WORKSPACE"/}..."
-              git apply --whitespace=nowarn "$p"
-            done
-          fi
 
       - name: Configure kernel
         timeout-minutes: 5
         run: |
           cd "$GITHUB_WORKSPACE/linux"
           make ARCH=arm64 defconfig
-          EXTRA_FRAGS=()
-          if [ "${{ inputs.include_extra == true }}" = "true" ]; then
-            EXTRA_FRAGS=("$GITHUB_WORKSPACE"/config/extra/chipone-tddi.configfrag)
-          fi
-          scripts/kconfig/merge_config.sh -m -O . .config "$GITHUB_WORKSPACE"/config/*.configfrag "${EXTRA_FRAGS[@]}"
+          scripts/kconfig/merge_config.sh -m -O . .config "$GITHUB_WORKSPACE"/config/*.configfrag
           make ARCH=arm64 olddefconfig LLVM=1 CC="${CC_LAUNCHER}clang" HOSTCC="${CC_LAUNCHER}clang"
 
       - name: Compile kernel Image

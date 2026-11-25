@@ -6,9 +6,9 @@
 # display/panel/backlight, loop, ext4, configfs, USB gadget, PMIC/regulators,
 # thermal safety, charger/Type-C, modem) stay built-in (=y). Non-essential
 # peripheral drivers (GPU, touch, audio, NFC, uinput/uhid, spidev, i2c-dev,
-# haptic) and out-of-tree drivers (chipone_tddi via INCLUDE_EXTRA=1) are built
-# as curated =m modules (see config/initramfs-modules.txt) and loaded by static
-# C /init via SYS_finit_module without pulling 850+ unrelated defconfig modules.
+# haptic) are built as curated =m modules (see config/initramfs-modules.txt)
+# and loaded by static C /init via SYS_finit_module without pulling 850+
+# unrelated defconfig modules.
 CONFIG_MODULES=y
 CONFIG_MODULE_UNLOAD=y
 
@@ -176,7 +176,7 @@ CONFIG_USB_G_HID=n
 CONFIG_USB_G_DBGP=n
 CONFIG_USB_RAW_GADGET=n
 
-# Keep /dev/mem hardened by default (override via INCLUDE_EXTRA=1 + config/extra/devmem-debug.configfrag)
+# Keep /dev/mem hardened by default (override via EXTRA_CONFIGFRAGS=config/extra/devmem-debug.configfrag)
 CONFIG_STRICT_DEVMEM=y
 CONFIG_IO_STRICT_DEVMEM=y
 
@@ -195,7 +195,7 @@ CONFIG_INPUT_REGULATOR_HAPTIC=m
 # CPU frequency scaling (hardware DVFS)
 CONFIG_ARM_MEDIATEK_CPUFREQ_HW=y
 
-# Touchscreen and userspace input (non-essential =m; overridable by patches-extra)
+# Touchscreen and userspace input (non-essential =m)
 CONFIG_INPUT_TOUCHSCREEN=y
 CONFIG_TOUCHSCREEN_CHIPONE_ICNL9922C=m
 CONFIG_INPUT_UINPUT=m

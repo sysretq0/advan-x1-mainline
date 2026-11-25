@@ -3,18 +3,16 @@
 # available (automatic dependency order), and falls back to /lib/modules/extra/<name>.ko
 # in this exact dependency order when depmod was not run at build time.
 #
-# Modules not staged in the current build (e.g. chipone_tddi when INCLUDE_EXTRA=0)
-# are skipped silently. Any extra out-of-tree .ko in /lib/modules/extra/ is also
-# auto-loaded.
+# Modules not staged in the current build are skipped silently. Any extra
+# out-of-tree .ko in /lib/modules/extra/ is also auto-loaded.
 
 # GPU (helpers -> Panfrost)
 gpu-sched
 drm_shmem_helper
 panfrost
 
-# Touch (whichever is staged: mainline or out-of-tree chipone_tddi)
+# Touch (mainline ICNL9922C SPI)
 chipone_icnl9922c
-chipone_tddi
 
 # NFC (core -> transport)
 nci

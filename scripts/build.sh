@@ -65,19 +65,11 @@ for p in "$REPO"/patches/*/*.patch "$REPO"/patches/*.patch; do
     git apply --whitespace=nowarn "$p"
 done
 
-if [ "${INCLUDE_EXTRA:-0}" = "1" ]; then
-    for p in "$REPO"/patches-extra/*.patch; do
-        [ -e "$p" ] || continue
-        echo "  apply ${p#"$REPO"/}"
-        git apply --whitespace=nowarn "$p"
-    done
-fi
-
 echo "== config: defconfig + frags =="
 make defconfig O="$OUT" LLVM=1 >/dev/null
 EXTRA_FRAGS=()
-if [ "${INCLUDE_EXTRA:-0}" = "1" ] && compgen -G "$REPO/config/extra/*.configfrag" >/dev/null; then
-    EXTRA_FRAGS=("$REPO"/config/extra/*.configfrag)
+if [ -n "${EXTRA_CONFIGFRAGS:-}" ]; then
+    read -r -a EXTRA_FRAGS <<< "$EXTRA_CONFIGFRAGS"
 fi
 scripts/kconfig/merge_config.sh -m -O "$OUT" "$OUT/.config" "$REPO"/config/*.configfrag "${EXTRA_FRAGS[@]}" >/dev/null
 make -j"$JOBS" O="$OUT" olddefconfig LLVM=1 >/dev/null
@@ -128,7 +120,7 @@ dtc -I dtb -O dts -o /dev/null "$OUT/mt6789-advan-x1.dtb" && echo "dtb roundtrip
 echo "== initramfs (static C /init + BusyBox rescue + kmods) =="
 INITRD=${INITRD:-}
 if [ -z "$INITRD" ] && [ "${USE_DIST_INITRD:-0}" != "1" ]; then
-    INCLUDE_EXTRA="${INCLUDE_EXTRA:-0}" "$REPO/scripts/build-initramfs.sh"
+    "$REPO/scripts/build-initramfs.sh"
     INITRD="$OUT/initramfs.cpio.gz"
 elif [ -z "$INITRD" ] && [ -f "$REPO/dist/initramfs.cpio.gz" ]; then
     echo "WARNING: using stale dist/initramfs.cpio.gz (no static C /init)"
