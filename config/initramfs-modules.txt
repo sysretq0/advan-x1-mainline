@@ -1,0 +1,36 @@
+# Curated initramfs kmod manifest (space-separated columns, # comments allowed):
+#   <kernel-relative path/to/module.ko>  <CONFIG symbol that must be =m>
+#
+# Built via Linux Kbuild native single-module targets (all targets in one
+# `make` pass so modpost resolves cross-module symbols against vmlinux.o
+# without building the 850+ unrelated =m modules in arm64 defconfig).
+# Listed in dependency order (helpers before consumers).
+
+# GPU (Panfrost + its hidden tristate helpers)
+drivers/gpu/drm/scheduler/gpu-sched.ko                 CONFIG_DRM_SCHED
+drivers/gpu/drm/drm_shmem_helper.ko                    CONFIG_DRM_GEM_SHMEM_HELPER
+drivers/gpu/drm/panfrost/panfrost.ko                   CONFIG_DRM_PANFROST
+
+# Touchscreen (mainline OR out-of-tree patches-extra chipone_tddi)
+drivers/input/touchscreen/chipone_icnl9922c.ko         CONFIG_TOUCHSCREEN_CHIPONE_ICNL9922C
+drivers/input/touchscreen/chipone_tddi/chipone_tddi.ko CONFIG_TOUCHSCREEN_CHIPONE_TDDI
+
+# NFC (NCI -> ST-NCI core -> I2C transport)
+net/nfc/nci/nci.ko                                     CONFIG_NFC_NCI
+drivers/nfc/st-nci/st-nci.ko                           CONFIG_NFC_ST_NCI
+drivers/nfc/st-nci/st-nci_i2c.ko                       CONFIG_NFC_ST_NCI_I2C
+
+# Audio (MTK ASoC common -> MT8186/MT6789 AFE -> codecs -> machine)
+sound/soc/mediatek/common/snd-soc-mtk-common.ko        CONFIG_SND_SOC_MEDIATEK
+sound/soc/mediatek/mt8186/snd-soc-mt8186-afe.ko        CONFIG_SND_SOC_MT8186
+sound/soc/codecs/snd-soc-mt6358.ko                     CONFIG_SND_SOC_MT6358
+sound/soc/codecs/snd-soc-mt6358-accdet.ko              CONFIG_SND_SOC_MT6358_ACCDET
+sound/soc/codecs/snd-soc-fs1599.ko                     CONFIG_SND_SOC_FS1599
+sound/soc/mediatek/mt8186/mt6789-mt6366.ko             CONFIG_SND_SOC_MT6789_MT6366
+
+# Userspace input / chardev / haptic
+drivers/input/misc/uinput.ko                           CONFIG_INPUT_UINPUT
+drivers/hid/uhid.ko                                    CONFIG_UHID
+drivers/spi/spidev.ko                                  CONFIG_SPI_SPIDEV
+drivers/i2c/i2c-dev.ko                                 CONFIG_I2C_CHARDEV
+drivers/input/misc/regulator-haptic.ko                 CONFIG_INPUT_REGULATOR_HAPTIC

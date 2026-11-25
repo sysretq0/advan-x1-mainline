@@ -1,2 +1,5 @@
-# Optional out-of-tree Chipone TDDI touchscreen driver (use with INCLUDE_EXTRA=1)
-CONFIG_TOUCHSCREEN_CHIPONE_TDDI=y
+# Optional out-of-tree Chipone TDDI touchscreen kmod (use with INCLUDE_EXTRA=1).
+# Built as a loadable .ko (chipone_tddi.ko) and insmod-ed by static C /init;
+# disables the built-in mainline driver to avoid spi0.0 conflict.
+CONFIG_TOUCHSCREEN_CHIPONE_TDDI=m
+CONFIG_TOUCHSCREEN_CHIPONE_ICNL9922C=n

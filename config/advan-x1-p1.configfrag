@@ -2,11 +2,29 @@
 # Base: arm64 defconfig. Merged via scripts/kconfig/merge_config.sh.
 # Goal: boot with the MT6789 clock drivers active (no clk_ignore_unused),
 # UART0 baud clock resolved from topckgen uart mux, gate from infra_ao.
-# No modules.
+# Loadable module policy: boot-critical drivers (clocks, pinctrl, serial, UFS/SD,
+# display/panel/backlight, loop, ext4, configfs, USB gadget, PMIC/regulators,
+# thermal safety, charger/Type-C, modem) stay built-in (=y). Non-essential
+# peripheral drivers (GPU, touch, audio, NFC, uinput/uhid, spidev, i2c-dev,
+# haptic) and out-of-tree drivers (chipone_tddi via INCLUDE_EXTRA=1) are built
+# as curated =m modules (see config/initramfs-modules.txt) and loaded by static
+# C /init via SYS_finit_module without pulling 850+ unrelated defconfig modules.
+CONFIG_MODULES=y
+CONFIG_MODULE_UNLOAD=y
 
-# Trim build: no modules, no debug info
-CONFIG_MODULES=n
+# Core rootfs / Option A nested-GPT loop / ConfigFS support (explicitly pinned)
+CONFIG_BLK_DEV_LOOP=y
+CONFIG_EFI_PARTITION=y
+CONFIG_EXT4_FS=y
+CONFIG_CONFIGFS_FS=y
+
+# Trim build: no debug info
 CONFIG_DEBUG_INFO_NONE=y
+
+# Work around upstream Linux blk_holder_ops __releases(&bdev->bd_holder_lock)
+# compile error under Clang >= 23 (e.g. AOSP clang-r614150), where
+# WARN_CONTEXT_ANALYSIS defaults to y and rejects __releases() on fn pointers.
+CONFIG_WARN_CONTEXT_ANALYSIS=n
 
 # Restrict to MediaTek architecture to trim build footprint and prevent OOM
 CONFIG_ARCH_MEDIATEK=y
@@ -73,23 +91,25 @@ CONFIG_COMMON_CLK_MT6789=y
 # MT6789 pinctrl and GPIO driver, built-in
 CONFIG_PINCTRL_MT6789=y
 
-# MediaTek SPI host controller and spidev
+# MediaTek SPI host controller and spidev (non-essential chardev =m)
 CONFIG_SPI=y
 CONFIG_SPI_MASTER=y
 CONFIG_SPI_MT65XX=y
-CONFIG_SPI_SPIDEV=y
+CONFIG_SPI_SPIDEV=m
 
-# MediaTek I2C bus controller and chardev
+# MediaTek I2C bus controller and chardev (non-essential chardev =m)
 CONFIG_I2C=y
-CONFIG_I2C_CHARDEV=y
+CONFIG_I2C_CHARDEV=m
 CONFIG_I2C_MT65XX=y
 
 # Console on mtk-drm
 CONFIG_DRM=y
 CONFIG_DRM_SIMPLEDRM=n
+CONFIG_MTK_CMDQ=y
 CONFIG_DRM_MEDIATEK=y
 CONFIG_PHY_MTK_MIPI_DSI=y
 CONFIG_PWM_MTK_DISP=y
+CONFIG_BACKLIGHT_CLASS_DEVICE=y
 CONFIG_BACKLIGHT_PWM=y
 CONFIG_REGULATOR_TPS65132=y
 CONFIG_DRM_PANEL_CHIPONE_ICNL9922C=y
@@ -134,6 +154,7 @@ CONFIG_USB_GADGET=y
 CONFIG_USB_CONFIGFS=y
 CONFIG_USB_CONFIGFS_SERIAL=y
 CONFIG_USB_CONFIGFS_ACM=y
+CONFIG_USB_CONFIGFS_NCM=y
 CONFIG_U_SERIAL_CONSOLE=y
 CONFIG_USB_CONFIGFS_MASS_STORAGE=y
 CONFIG_USB_CONFIGFS_F_FS=y
@@ -169,32 +190,39 @@ CONFIG_MTK_MT6366_CLKBUF=y
 CONFIG_NVMEM_MT6358_EFUSE=y
 CONFIG_KEYBOARD_MTK_PMIC=y
 CONFIG_KEYBOARD_MT6779=y
-CONFIG_INPUT_REGULATOR_HAPTIC=y
+CONFIG_INPUT_REGULATOR_HAPTIC=m
 
 # CPU frequency scaling (hardware DVFS)
 CONFIG_ARM_MEDIATEK_CPUFREQ_HW=y
 
-# Touchscreen and userspace input (Chipone ICNL9922C SPI TDDI, Wayland OSK/HID)
+# Touchscreen and userspace input (non-essential =m; overridable by patches-extra)
 CONFIG_INPUT_TOUCHSCREEN=y
-CONFIG_TOUCHSCREEN_CHIPONE_ICNL9922C=y
-CONFIG_INPUT_UINPUT=y
-CONFIG_UHID=y
+CONFIG_TOUCHSCREEN_CHIPONE_ICNL9922C=m
+CONFIG_INPUT_UINPUT=m
+CONFIG_UHID=m
 
-# NFC (STMicroelectronics ST21NFC / ST-NCI on i2c3)
+# NFC (STMicroelectronics ST21NFC / ST-NCI on i2c3; core built-in, transport =m)
+CONFIG_RFKILL=y
 CONFIG_NFC=y
-CONFIG_NFC_NCI=y
-CONFIG_NFC_ST_NCI=y
-CONFIG_NFC_ST_NCI_I2C=y
+CONFIG_NFC_NCI=m
+CONFIG_NFC_ST_NCI=m
+CONFIG_NFC_ST_NCI_I2C=m
 
 # Audio (MT6789 AFE + MT6366/MT6358 PMIC codec + FS1599 speaker amp + ACCDET)
-CONFIG_SND_SOC_MT8186=y
-CONFIG_SND_SOC_MT6789_MT6366=y
-CONFIG_SND_SOC_FS1599=y
-CONFIG_SND_SOC_MT6358_ACCDET=y
+# Core ALSA/ASoC built-in; platform/machine/codec drivers built as curated =m.
+CONFIG_SOUND=y
+CONFIG_SND=y
+CONFIG_SND_SOC=y
+CONFIG_SND_SOC_MT8186=m
+CONFIG_SND_SOC_MT6358=m
+CONFIG_SND_SOC_MT6789_MT6366=m
+CONFIG_SND_SOC_FS1599=m
+CONFIG_SND_SOC_MT6358_ACCDET=m
 
 # Thermal: MediaTek eFuse, socinfo and LVTS thermal sensor
 CONFIG_NVMEM_MTK_EFUSE=y
 CONFIG_MTK_SOCINFO=y
+CONFIG_MTK_THERMAL=y
 CONFIG_MTK_LVTS_THERMAL=y
 CONFIG_MTK_MT6366_THERMAL=y
 CONFIG_GENERIC_ADC_THERMAL=y
@@ -212,15 +240,16 @@ CONFIG_TYPEC_TCPM=y
 CONFIG_TYPEC_TCPCI=y
 CONFIG_TYPEC_RT1711H=y
 
-# Power Domains & GPU (Mali-G57 MC2 Panfrost)
+# Power Domains & GPU (Mali-G57 MC2 Panfrost, non-essential =m)
 CONFIG_MTK_SCPSYS_PM_DOMAINS=y
-CONFIG_DRM_PANFROST=y
+CONFIG_DRM_PANFROST=m
 
 # MediaTek SMI and MMSYS
 CONFIG_MTK_SMI=y
 CONFIG_MTK_MMSYS=y
 
 # MediaTek MT6789 CCCI cellular modem (WWAN)
+CONFIG_GNSS=y
 CONFIG_WWAN=y
 CONFIG_MTK_CCCI=y
 

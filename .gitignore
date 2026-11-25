@@ -4,5 +4,7 @@ dist/
 *.tar.xz
 scripts/bin/llvm-*
 scripts/bin/ld.lld
+initramfs/src/init
+initramfs/src/test_init
 __pycache__/
 *.pyc

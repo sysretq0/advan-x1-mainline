@@ -1,0 +1,37 @@
+# Ordered list of curated kernel modules loaded by static C /init via SYS_finit_module.
+# /init uses modprobe_dep() from /lib/modules/<uname -r>/modules.dep when
+# available (automatic dependency order), and falls back to /lib/modules/extra/<name>.ko
+# in this exact dependency order when depmod was not run at build time.
+#
+# Modules not staged in the current build (e.g. chipone_tddi when INCLUDE_EXTRA=0)
+# are skipped silently. Any extra out-of-tree .ko in /lib/modules/extra/ is also
+# auto-loaded.
+
+# GPU (helpers -> Panfrost)
+gpu-sched
+drm_shmem_helper
+panfrost
+
+# Touch (whichever is staged: mainline or out-of-tree chipone_tddi)
+chipone_icnl9922c
+chipone_tddi
+
+# NFC (core -> transport)
+nci
+st-nci
+st-nci_i2c
+
+# Audio (common -> AFE -> codecs -> machine)
+snd-soc-mtk-common
+snd-soc-mt8186-afe
+snd-soc-mt6358
+snd-soc-mt6358-accdet
+snd-soc-fs1599
+mt6789-mt6366
+
+# Userspace input / chardev / haptic
+uinput
+uhid
+spidev
+i2c-dev
+regulator-haptic
