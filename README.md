@@ -18,32 +18,45 @@ from stock LK via Loki Stage-1) using a SHA-256-verified **U-Boot FIT image**
 See **[`docs/hardware-status.md`](docs/hardware-status.md)** for the full
 subsystem matrix, driver/DT mapping, and hardware verification evidence.
 
-- **Working (hardware-verified):** 8-core SMP + `mtk-cpufreq-hw`, core/MMSYS/MFG
-  clocks & SCPSYS power domains, MT6366/MT6358 PMIC (regulators, keys, RTC,
-  AUXADC, vibrator), native `mediatek-drm` 120 Hz DSC display + `disp_iommu`
-  (0 M4U faults) + PWM backlight + Wayland desktop, Mali-G57 MC2 GPU (`panfrost`
-  + MFGPLL devfreq), Chipone ICNL9922C SPI touchscreen, UFS 2.2 storage, USB
-  ConfigFS gadget (ACM `/dev/ttyGS0` + NCM `usb0`, including cold battery boot),
-  SC89601A charger, CW2217 fuel gauge, 13-zone LVTS thermal, watchdog +
-  reboot-mode, pstore/ramoops.
-- **WIP / partially working:** Full 8 GiB RAM mapping (currently ~3.88 GiB /
-  4 GiB exposed across 2 conservative U-Boot/DT DRAM banks; ~3.8 GiB remaining
-  pending full `no-map` carveouts + U-Boot bank update), Gen95 CCCI cellular
-  modem (MD BootROM passes, HS1 handshake / WWAN AT / DPMAIF `wwan0` in
-  progress), ASoC audio card (`mt6789-mt6366` registers; external speaker amp
-  `speaker_amp@34` & jack detect `accdet` not yet wired), ST21NFCD NFC (`nfc0`
-  probes + IRQ 16 fires; live RF poll pending), USB-C host/OTG/PD role swap,
-  live microSD I/O test, high-voltage charge pump.
-- **Not yet started:** Wi-Fi / Bluetooth / GPS (MT6789 ConnSys/WMT), cameras &
-  ISP, hardware video decode/encode (`vdec`/`venc`), SCP sensor hub
-  (accel/gyro/mag/ALS), fingerprint reader, suspend-to-RAM (S3).
+- **Working (hardware-verified):** full 8 GiB LPDDR4X RAM (~7.69 GiB usable,
+  31 `no-map` carveouts), 8-core SMP + `mtk-cpufreq-hw`, core/MMSYS/MFG clocks
+  & SCPSYS power domains, MT6366/MT6358 PMIC (regulators, keys, RTC, AUXADC,
+  vibrator), native `mediatek-drm` 120 Hz DSC display + `disp_iommu` (0 M4U
+  faults) + PWM backlight + Wayland desktop, Mali-G57 MC2 GPU (`panfrost` +
+  MFGPLL devfreq), Chipone ICNL9922C SPI touchscreen, UFS 2.2 storage, USB
+  ConfigFS gadget (ACM `/dev/ttyGS0` + NCM `usb0`, including cold battery
+  boot), SC89601A charger, CW2217 fuel gauge, 13-zone LVTS thermal, watchdog +
+  reboot-mode, pstore/ramoops, Gen95 CCCI cellular modem (`mtk-ccci` + DPMAIF
+  v1 + SMEM UL + `/dev/wwan0at0` + `wwan0` + ModemManager `mtk-ccci` plugin,
+  live 4G LTE auto-connect & NTP sync verified), ASoC audio card
+  (`mt6789-mt6366`, FourSemi FS1599 speaker amp `5-0034`, `mt6358-accdet`
+  Headset Jack — probe/bind verified; UCM2 profiles included).
+- **WIP / pending operator boot test (Phase A/B statically verified):**
+  suspend-to-RAM (`s2idle` PSCI `0x01011f01` + SPM deep sleep + MIPI-TX/DSI
+  cold-start resume & CRTC vblank drain fix), LVTS STAGE3 hardware thermal
+  reboot (`113.5 °C`), CCCI 30 s HS1/HS2 timeout with FS-in-flight extension &
+  DT-driven CCIF SRAM size, I²C `mt6789_compat` (`dma_sync=1`), hardened
+  `/dev/mem` (`STRICT_DEVMEM` + `IO_STRICT_DEVMEM`), board NTC thermal zones
+  (`ap-ntc-thermal` / `ltepa-ntc-thermal`), MT6366 DCXO `XO_NFC` clock buffer
+  for ST21NFCD NFC (`nfc0` probes + IRQ 16 fires; live RF poll pending),
+  MT6358/MT6366 PMIC eFuse NVMEM (`fixed-layout`) + 4 MT6366 PMIC thermal zones
+  (`pmic-pmu/bk1/bk2/bk3-thermal`), ACCDET eFuse/moisture/CDD thresholds,
+  FS1599 `-200 mB` LINEOUT mitigation, USB-C host/OTG/PD (`rt1711h`), live
+  microSD card I/O test (`GPIO_ACTIVE_HIGH` CD), live audio playback/jack test,
+  high-voltage charge pump.
+- **Not yet started:** Wi-Fi / Bluetooth / GPS (MT6789 ConnSys/WMT & consys
+  thermal), cameras & ISP, hardware video decode/encode (`vdec`/`venc`), SCP
+  sensor hub (accel/gyro/mag/ALS) & SCP speaker DSP (`FS1599` Re25/F0),
+  fingerprint reader.
 
 ## Documentation
 
 | Document | Purpose |
 |---|---|
 | [`docs/hardware-status.md`](docs/hardware-status.md) | Authoritative matrix of what works, what is WIP, what is not yet started, and next milestones. |
-| [`docs/upstream-status.md`](docs/upstream-status.md) | 82-patch series layout, completed upstream-deviation remediation summary, and remaining pre-LKML items. |
+| [`docs/upstream-status.md`](docs/upstream-status.md) | 82-patch series layout, completed upstream-deviation remediation summary, Tier A provenance, and remaining pre-LKML items. |
+| [`docs/phase-b-backlog.md`](docs/phase-b-backlog.md) | Phase B modernization status (implemented upstream-able drivers/bindings and remaining deferred items with Tier A evidence). |
+| [`docs/audio-speaker-protection.md`](docs/audio-speaker-protection.md) | FourSemi FS1599 speaker hardware protection analysis and Phase A `-200 mB` LINEOUT mitigation. |
 | [`docs/ccci-bringup-plan.md`](docs/ccci-bringup-plan.md) | Phase 5 Gen95 cellular modem ground-truth spec (memory map, CCIF0, SCP CCISM, RO NVRAM FS RPC, DPMAIF v1) and progress. |
 | [`docs/ccci-sip-abi.md`](docs/ccci-sip-abi.md) | EL3 BL31 `MTK_SIP_KERNEL_CCCI_CONTROL` SMC ABI and Loki/LK modem handover contract. |
 
@@ -57,12 +70,13 @@ subsystem matrix, driver/DT mapping, and hardware verification evidence.
   by default).
 - `dts/` — `mt6789.dtsi` and `mt6789-advan-x1.dts` (kept byte-identical to
   `patches/07-dts/0002` and `0003` via `scripts/verify_patches.sh`).
-- `config/` — kernel config fragments (`advan-x1-p1.configfrag` + `extra/`).
+- `config/` — kernel config fragments (`advan-x1-p1.configfrag` + opt-in
+  `extra/` fragments such as `devmem-debug.configfrag`).
 - `boot/` — U-Boot `boot.cmd.in`, plain-text `uEnv.txt.in` runtime override
   template, and optional `extlinux.conf.example`.
 - `tools/` — `pack_uboot_boot.py` (FIT + `boot.scr` + `<=32 MiB` single-space
-  or automatic 2-space split packager; legacy `pack_linux_bundle.py` kept only
-  for historical reference).
+  or automatic 2-space split packager), `modemmanager-mtk-ccci/` (native MM
+  1.24 plugin), `mtk-wwan-connect/`, and `ucm2/` (ALSA UCM2 profiles).
 - `scripts/` — `verify_patches.sh` (clean-tree apply, DTS sync, `dtc`,
   `dt-validate`), `build.sh`, and `fetch_ci_bundle.sh`.
 - `initramfs/` — standalone BusyBox initramfs with USB ACM (`ttyGS0`) + NCM
