@@ -1,0 +1,384 @@
+From b9df30ee2dc1b5dcc31f95dacf0a0f70fcf030fa Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Wed, 25 Nov 2026 05:27:27 +0000
+Subject: [PATCH] ASoC: codecs: Add FourSemi FS1599 analog speaker amplifier
+ driver
+
+Add an ASoC auxiliary component driver for the FourSemi FS1599
+I2C-controlled Class-K boost analog-input speaker amplifier used on
+MediaTek MT6789 boards (driven from the MT6366 PMIC LINEOUT output).
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ sound/soc/codecs/Kconfig  |   8 +
+ sound/soc/codecs/Makefile |   2 +
+ sound/soc/codecs/fs1599.c | 318 ++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 328 insertions(+)
+ create mode 100644 sound/soc/codecs/fs1599.c
+
+diff --git a/sound/soc/codecs/Kconfig b/sound/soc/codecs/Kconfig
+index ba59dabee..5f22ec7cc 100644
+--- a/sound/soc/codecs/Kconfig
++++ b/sound/soc/codecs/Kconfig
+@@ -1351,6 +1351,17 @@ config SND_SOC_FRAMER
+ 	  To compile this driver as a module, choose M here: the module
+ 	  will be called snd-soc-framer.
+ 
++config SND_SOC_FS1599
++	tristate "FourSemi FS1599 analog speaker amplifier"
++	depends on I2C
++	select REGMAP_I2C
++	help
++	  Enable support for the FourSemi FS1599 I2C-controlled Class-K
++	  boost analog-input speaker amplifier.
++
++	  To compile this driver as a module, choose M here: the module
++	  will be called snd-soc-fs1599.
++
+ config SND_SOC_FS_AMP_LIB
+ 	select CRC16
+ 	tristate
+diff --git a/sound/soc/codecs/Makefile b/sound/soc/codecs/Makefile
+index 3826f9e4f..5f454785d 100644
+--- a/sound/soc/codecs/Makefile
++++ b/sound/soc/codecs/Makefile
+@@ -143,6 +143,7 @@ snd-soc-es8389-y := es8389.o
+ snd-soc-es9039q2m-y := es9039q2m.o
+ snd-soc-es9356-y := es9356.o
+ snd-soc-framer-y := framer-codec.o
++snd-soc-fs1599-y := fs1599.o
+ snd-soc-fs-amp-lib-y := fs-amp-lib.o
+ snd-soc-fs210x-y := fs210x.o
+ snd-soc-gtm601-y := gtm601.o
+@@ -591,6 +592,7 @@ obj-$(CONFIG_SND_SOC_ES8389)    += snd-soc-es8389.o
+ obj-$(CONFIG_SND_SOC_ES9039Q2M)	+= snd-soc-es9039q2m.o
+ obj-$(CONFIG_SND_SOC_ES9356)    += snd-soc-es9356.o
+ obj-$(CONFIG_SND_SOC_FRAMER)	+= snd-soc-framer.o
++obj-$(CONFIG_SND_SOC_FS1599)	+= snd-soc-fs1599.o
+ obj-$(CONFIG_SND_SOC_FS_AMP_LIB)+= snd-soc-fs-amp-lib.o
+ obj-$(CONFIG_SND_SOC_FS210X)	+= snd-soc-fs210x.o
+ obj-$(CONFIG_SND_SOC_GTM601)    += snd-soc-gtm601.o
+diff --git a/sound/soc/codecs/fs1599.c b/sound/soc/codecs/fs1599.c
+new file mode 100644
+index 000000000..0612d9ada
+--- /dev/null
++++ b/sound/soc/codecs/fs1599.c
+@@ -0,0 +1,318 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * FourSemi FS1599 I2C-controlled analog speaker amplifier driver
++ *
++ * Copyright (c) 2026 sysretq0 <sysretq0@proton.me>
++ */
++
++#include <linux/bitfield.h>
++#include <linux/delay.h>
++#include <linux/i2c.h>
++#include <linux/mod_devicetable.h>
++#include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/regmap.h>
++#include <sound/soc.h>
++
++#define FS1599_REG_DEVID		0x01
++#define FS1599_REG_REV			0x02
++#define FS1599_REG_DEVID_ALT		0x03
++#define FS1599_REG_STATUS		0x0e
++#define FS1599_REG_SYSCTRL		0x10
++#define FS1599_REG_AMPCTRL		0x11
++#define FS1599_REG_ACCESS		0x1f
++#define FS1599_REG_BSTCTRL		0xc0
++
++#define FS1599_DEVID_MASK		0xff00
++#define FS1599_DEVID_FS1599		0x2100
++
++#define FS1599_SYSCTRL_PWDN		BIT(0)
++#define FS1599_SYSCTRL_I2CR		BIT(1)
++
++#define FS1599_AMPCTRL_ENABLE		0x00c0
++#define FS1599_ACCESS_UNLOCK_OTP	0xca91
++#define FS1599_ACCESS_UNLOCK_REG	0x0091
++#define FS1599_ACCESS_LOCK		0x0000
++
++#define FS1599_RESET_RETRIES		5
++
++struct fs1599_bf_reg {
++	u8 reg;
++	u16 mask;
++	u16 val;
++};
++
++struct fs1599_priv {
++	struct device *dev;
++	struct regmap *regmap;
++	struct mutex lock; /* serializes power and init sequences */
++	bool initialized;
++};
++
++/*
++ * Default Class-K boost and analog front-end register sequence for FS1599
++ * (standard 8-ohm speaker profile).
++ */
++static const struct fs1599_bf_reg fs1599_init_seq[] = {
++	{ 0x3e, 0xffff, 0x8500 },
++	{ 0x3f, 0xffff, 0x9100 },
++	{ 0x58, 0xffff, 0x8250 },
++	{ 0x59, 0xffff, 0x884f },
++	{ 0x5a, 0xffff, 0x80cd },
++	{ 0x5b, 0xffff, 0x2108 },
++	{ 0x1f, 0xffff, FS1599_ACCESS_UNLOCK_OTP },
++	{ 0xd7, 0xffff, 0x0420 },
++	{ 0x1f, 0xffff, FS1599_ACCESS_LOCK },
++	{ 0xbc, 0x7fff, 0x113e },
++	/* Normal playback scene */
++	{ 0x28, 0xc000, 0x0000 },
++	{ 0x21, 0xffff, 0x0513 },
++	{ 0x22, 0x0700, 0x0000 },
++	{ 0x23, 0xffff, 0x0010 },
++	{ 0x18, 0xffff, 0x000c },
++	{ 0x3f, 0x8000, 0x0000 },
++	{ 0xbc, 0x8000, 0x0000 },
++	{ 0x1f, 0xffff, FS1599_ACCESS_UNLOCK_OTP },
++	{ 0x58, 0xffff, 0x8250 },
++	{ 0x59, 0xffff, 0x084f },
++	{ 0x19, 0x001f, 0x000b },
++	{ 0x5a, 0xffff, 0x80ba },
++	{ 0x5b, 0xffff, 0x2108 },
++	{ 0x1f, 0xffff, FS1599_ACCESS_LOCK },
++};
++
++static const struct regmap_config fs1599_regmap_config = {
++	.reg_bits = 8,
++	.val_bits = 16,
++	.val_format_endian = REGMAP_ENDIAN_BIG,
++	.max_register = 0xff,
++	.cache_type = REGCACHE_NONE,
++};
++
++static int fs1599_hw_init(struct fs1599_priv *fs)
++{
++	unsigned int val = 0;
++	int i, ret;
++
++	for (i = 0; i < FS1599_RESET_RETRIES; i++) {
++		/*
++		 * I2C soft-reset resets the slave interface immediately and may
++		 * legitimately NACK the final byte.
++		 */
++		regmap_write(fs->regmap, FS1599_REG_SYSCTRL,
++			     FS1599_SYSCTRL_I2CR);
++		regmap_read(fs->regmap, FS1599_REG_SYSCTRL, &val);
++		usleep_range(15000, 16000);
++
++		ret = regmap_write(fs->regmap, FS1599_REG_SYSCTRL,
++				   FS1599_SYSCTRL_PWDN);
++		if (ret)
++			continue;
++
++		ret = regmap_read(fs->regmap, FS1599_REG_STATUS, &val);
++		if (!ret && (val == 0x0003 || val == 0x0300))
++			break;
++	}
++
++	if (i == FS1599_RESET_RETRIES) {
++		dev_err(fs->dev, "soft reset timed out (status=0x%04x)\n", val);
++		return -ETIMEDOUT;
++	}
++
++	ret = regmap_write(fs->regmap, FS1599_REG_ACCESS,
++			   FS1599_ACCESS_UNLOCK_REG);
++	if (ret)
++		return ret;
++
++	for (i = 0; i < ARRAY_SIZE(fs1599_init_seq); i++) {
++		const struct fs1599_bf_reg *e = &fs1599_init_seq[i];
++
++		if (e->mask == 0xffff)
++			ret = regmap_write(fs->regmap, e->reg, e->val);
++		else
++			ret = regmap_update_bits(fs->regmap, e->reg,
++						 e->mask, e->val);
++		if (ret)
++			return ret;
++	}
++
++	ret = regmap_write(fs->regmap, FS1599_REG_ACCESS, FS1599_ACCESS_LOCK);
++	if (!ret)
++		fs->initialized = true;
++
++	return ret;
++}
++
++static int fs1599_start_up(struct fs1599_priv *fs)
++{
++	int ret;
++
++	if (!fs->initialized) {
++		ret = fs1599_hw_init(fs);
++		if (ret)
++			return ret;
++	}
++
++	ret = regmap_write(fs->regmap, FS1599_REG_ACCESS,
++			   FS1599_ACCESS_UNLOCK_OTP);
++	if (ret)
++		return ret;
++
++	ret = regmap_write(fs->regmap, FS1599_REG_BSTCTRL, 0x0010);
++	if (ret)
++		goto out_lock;
++
++	ret = regmap_write(fs->regmap, FS1599_REG_SYSCTRL, 0x0000);
++	if (ret)
++		goto out_lock;
++
++	ret = regmap_write(fs->regmap, FS1599_REG_AMPCTRL,
++			   FS1599_AMPCTRL_ENABLE);
++	if (ret)
++		goto out_lock;
++
++	usleep_range(10000, 11000);
++
++	ret = regmap_write(fs->regmap, FS1599_REG_BSTCTRL, 0x0000);
++
++out_lock:
++	regmap_write(fs->regmap, FS1599_REG_ACCESS, FS1599_ACCESS_LOCK);
++	return ret;
++}
++
++static int fs1599_shut_down(struct fs1599_priv *fs)
++{
++	int ret;
++
++	ret = regmap_write(fs->regmap, FS1599_REG_AMPCTRL, 0x0000);
++	if (ret)
++		return ret;
++
++	usleep_range(20000, 21000);
++
++	return regmap_write(fs->regmap, FS1599_REG_SYSCTRL,
++			    FS1599_SYSCTRL_PWDN);
++}
++
++static int fs1599_drv_event(struct snd_soc_dapm_widget *w,
++			    struct snd_kcontrol *kcontrol, int event)
++{
++	struct snd_soc_component *comp = snd_soc_dapm_to_component(w->dapm);
++	struct fs1599_priv *fs = snd_soc_component_get_drvdata(comp);
++	int ret = 0;
++
++	mutex_lock(&fs->lock);
++	switch (event) {
++	case SND_SOC_DAPM_POST_PMU:
++		ret = fs1599_start_up(fs);
++		break;
++	case SND_SOC_DAPM_PRE_PMD:
++		ret = fs1599_shut_down(fs);
++		break;
++	default:
++		break;
++	}
++	mutex_unlock(&fs->lock);
++
++	if (ret)
++		dev_err(fs->dev, "power event %d failed: %d\n", event, ret);
++
++	return ret;
++}
++
++static const struct snd_soc_dapm_widget fs1599_dapm_widgets[] = {
++	SND_SOC_DAPM_INPUT("IN"),
++	SND_SOC_DAPM_OUT_DRV_E("DRV", SND_SOC_NOPM, 0, 0, NULL, 0,
++			       fs1599_drv_event,
++			       SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_PRE_PMD),
++	SND_SOC_DAPM_OUTPUT("OUT"),
++};
++
++static const struct snd_soc_dapm_route fs1599_dapm_routes[] = {
++	{ "DRV", NULL, "IN" },
++	{ "OUT", NULL, "DRV" },
++};
++
++static const struct snd_soc_component_driver fs1599_component_driver = {
++	.dapm_widgets = fs1599_dapm_widgets,
++	.num_dapm_widgets = ARRAY_SIZE(fs1599_dapm_widgets),
++	.dapm_routes = fs1599_dapm_routes,
++	.num_dapm_routes = ARRAY_SIZE(fs1599_dapm_routes),
++};
++
++static int fs1599_i2c_probe(struct i2c_client *i2c)
++{
++	struct device *dev = &i2c->dev;
++	struct fs1599_priv *fs;
++	unsigned int devid = 0, rev = 0;
++	int ret;
++
++	fs = devm_kzalloc(dev, sizeof(*fs), GFP_KERNEL);
++	if (!fs)
++		return -ENOMEM;
++
++	fs->dev = dev;
++	mutex_init(&fs->lock);
++	i2c_set_clientdata(i2c, fs);
++
++	fs->regmap = devm_regmap_init_i2c(i2c, &fs1599_regmap_config);
++	if (IS_ERR(fs->regmap))
++		return dev_err_probe(dev, PTR_ERR(fs->regmap),
++				     "failed to init regmap\n");
++
++	ret = regmap_read(fs->regmap, FS1599_REG_DEVID, &devid);
++	if (ret || (devid & FS1599_DEVID_MASK) != FS1599_DEVID_FS1599) {
++		ret = regmap_read(fs->regmap, FS1599_REG_DEVID_ALT, &devid);
++		if (ret)
++			return dev_err_probe(dev, ret,
++					     "failed to read device ID\n");
++	}
++
++	if ((devid & FS1599_DEVID_MASK) != FS1599_DEVID_FS1599)
++		return dev_err_probe(dev, -ENODEV,
++				     "unexpected device ID 0x%04x\n", devid);
++
++	regmap_read(fs->regmap, FS1599_REG_REV, &rev);
++	dev_info(dev, "FourSemi FS1599 detected (id=0x%04x rev=0x%04x)\n",
++		 devid, rev);
++
++	return devm_snd_soc_register_component(dev, &fs1599_component_driver,
++					       NULL, 0);
++}
++
++static void fs1599_i2c_shutdown(struct i2c_client *i2c)
++{
++	struct fs1599_priv *fs = i2c_get_clientdata(i2c);
++
++	mutex_lock(&fs->lock);
++	if (fs->initialized)
++		fs1599_shut_down(fs);
++	mutex_unlock(&fs->lock);
++}
++
++static const struct of_device_id fs1599_of_match[] = {
++	{ .compatible = "foursemi,fs1599" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, fs1599_of_match);
++
++static const struct i2c_device_id fs1599_i2c_id[] = {
++	{ "fs1599" },
++	{ }
++};
++MODULE_DEVICE_TABLE(i2c, fs1599_i2c_id);
++
++static struct i2c_driver fs1599_i2c_driver = {
++	.driver = {
++		.name = "fs1599",
++		.of_match_table = fs1599_of_match,
++	},
++	.probe = fs1599_i2c_probe,
++	.shutdown = fs1599_i2c_shutdown,
++	.id_table = fs1599_i2c_id,
++};
++module_i2c_driver(fs1599_i2c_driver);
++
++MODULE_AUTHOR("sysretq0 <sysretq0@proton.me>");
++MODULE_DESCRIPTION("FourSemi FS1599 analog speaker amplifier driver");
++MODULE_LICENSE("GPL");

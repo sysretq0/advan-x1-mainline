@@ -8,6 +8,7 @@
 /dts-v1/;
 
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/iio/adc/mediatek,mt6358-auxadc.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/input/input.h>
@@ -253,6 +254,8 @@
 		compatible = "mediatek,mt6789-mt6366-sound";
 		model = "mt6789-mt6366";
 		mediatek,platform = <&afe>;
+		mediatek,accdet = <&mt6358accdet>;
+		aux-devs = <&speaker_amp>;
 		pinctrl-names = "aud_clk_mosi_off",
 				"aud_clk_mosi_on",
 				"aud_clk_miso_off",
@@ -277,9 +280,14 @@
 		pinctrl-9 = <&aud_gpio_i2s0_on>;
 		pinctrl-10 = <&aud_gpio_i2s3_off>;
 		pinctrl-11 = <&aud_gpio_i2s3_on>;
-		audio-routing = "Headphone", "Headphone L",
+		audio-routing = "Ext Spk IN", "LINEOUT L",
+				"Speaker", "Ext Spk OUT",
+				"Headphone", "Headphone L",
 				"Headphone", "Headphone R",
-				"Earpiece", "Receiver";
+				"Earpiece", "Receiver",
+				"AIN0", "Main Mic",
+				"AIN1", "Headset Mic",
+				"AIN2", "Sub Mic";
 	};
 };
 
@@ -357,7 +365,15 @@
 };
 
 &usb0 {
+	dr_mode = "otg";
+	usb-role-switch;
 	status = "okay";
+
+	port {
+		usb0_ep: endpoint {
+			remote-endpoint = <&usb_c_ep>;
+		};
+	};
 };
 
 &spi0 {
@@ -458,15 +474,24 @@
 		pinctrl-0 = <&tcpc_pins>;
 		interrupt-parent = <&pio>;
 		interrupts = <13 IRQ_TYPE_LEVEL_LOW>;
+		vbus-supply = <&charger_vbus>;
 		wakeup-source;
 
 		connector {
 			compatible = "usb-c-connector";
 			label = "USB-C";
-			power-role = "sink";
-			data-role = "device";
+			power-role = "dual";
+			data-role = "dual";
+			try-power-role = "sink";
+			source-pdos = <PDO_FIXED(5000, 1000, PDO_FIXED_USB_COMM)>;
 			sink-pdos = <PDO_FIXED(5000, 2000, PDO_FIXED_USB_COMM)>;
 			op-sink-microwatt = <10000000>;
+
+			port {
+				usb_c_ep: endpoint {
+					remote-endpoint = <&usb0_ep>;
+				};
+			};
 		};
 	};
 
@@ -485,6 +510,10 @@
 		ti,boost-voltage = <5000000>;
 		ti,boost-max-current = <1200000>;
 		monitored-battery = <&battery>;
+
+		charger_vbus: usb-otg-vbus {
+			regulator-name = "usb-otg-vbus";
+		};
 	};
 };
 
@@ -493,6 +522,12 @@
 	pinctrl-0 = <&i2c6_pins>;
 	clock-frequency = <400000>;
 	status = "okay";
+
+	speaker_amp: audio-amplifier@34 {
+		compatible = "foursemi,fs1599";
+		reg = <0x34>;
+		sound-name-prefix = "Ext Spk";
+	};
 
 	lcd_bias: regulator@3e {
 		compatible = "ti,tps65132";
@@ -544,6 +579,22 @@
 			compatible = "mediatek,mt6366-sound", "mediatek,mt6358-sound";
 			Avdd-supply = <&mt6366_vaud28_reg>;
 			mediatek,dmic-mode = <0>;
+		};
+
+		mt6358accdet: accdet {
+			compatible = "mediatek,mt6358-accdet";
+			io-channels = <&pmic_adc MT6358_AUXADC_ACCDET>;
+			io-channel-names = "pmic_accdet";
+			mediatek,mic-vol = <6>;
+			mediatek,mic-mode = <1>;
+			mediatek,plugout-debounce = <1>;
+			mediatek,eint-level-pol = <8>;
+			mediatek,pwm-deb-setting = <0x500 0x500 0x01 0x1f0
+						    0x800 0x800 0x20 0x44
+						    0x00 0x00 0x0e 0x00
+						    0x00 0x00 0x00>;
+			mediatek,three-key-threshold = <0 80 220 400>;
+			mediatek,four-key-threshold = <0 58 121 192 400>;
 		};
 
 		mt6358rtc: rtc {

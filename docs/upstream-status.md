@@ -10,18 +10,18 @@ mainline Linux port.
 
 ---
 
-## 1. Patch Series Layout (60 Upstream Patches + 2 Optional)
+## 1. Patch Series Layout (71 Upstream Patches + 2 Optional)
 
 | Directory | Count | Scope |
 |---|---:|---|
 | `patches/01-clk/` | 5 | MT6789 clock/reset bindings, core clocks (`apmixedsys`, `topckgen`, `infra_ao` + MFGPLL mux-park notifier), `imp_iic_wrap`, `mmsys`, `mfgcfg` |
 | `patches/02-pinctrl/` | 2 | MT6789 pinctrl binding and 188-pin pinctrl/EINT driver |
 | `patches/03-soc-power/` | 14 | SCPSYS power domains, MT6789 PMIC wrapper (`mt6789_regs[]`), regulator coupler, MMSYS, disp-mutex (+ probe deferral), SMI, socinfo, disp IOMMU (`mtk-iommu`) |
-| `patches/04-peripherals/` | 26 | SPI, I²C (`mt8188_compat`), eFuse, watchdog, LVTS thermal (+ per-SoC zero-MSR guard), DISP PWM, MT6358 long-press fix, MMC, SC89601A charger, CW2217 fuel gauge, Chipone ICNL9922C SPI touch, MT6789 AFE/MT6366 audio, UFS/USB PHY bindings + T-PHY wake/OTG, `tps65132` wakeup, CCCI/CCIF/DPMAIF bindings & core |
+| `patches/04-peripherals/` | 37 | SPI, I²C (`mt8188_compat`), eFuse, watchdog, LVTS thermal (+ per-SoC zero-MSR guard), DISP PWM, MT6358 long-press fix, MMC, SC89601A charger, CW2217 fuel gauge, Chipone ICNL9922C SPI touch, MT6789 AFE/MT6366 audio + FourSemi FS1599 + MT6358 ACCDET, UFS/USB PHY bindings + T-PHY wake/OTG, `tps65132` wakeup, CCCI/CCIF0/RPC/FS/WWAN AT/DPMAIF v1 + SMEM UL modem stack |
 | `patches/05-gpu/` | 2 | Mali-G57 MC2 (`panfrost`) binding and compatible |
 | `patches/06-display/` | 8 | MIPI-TX DSI PHY, `mediatek-drm` pipeline + OVL0 splash DMA halt, DSI + hardware DSC 1.1, Chipone ICNL9922C panel binding & driver, disp-mutex bind deferral |
 | `patches/07-dts/` | 3 | SoC/board binding, `mt6789.dtsi`, `mt6789-advan-x1.dts` |
-| **Total (`patches/`)** | **60** | **Upstream submission series** |
+| **Total (`patches/`)** | **71** | **Upstream submission series** |
 | `patches-extra/` | 2 | Out-of-tree Chipone vendor TDDI fallback (`cts_core`). **Excluded from upstream submission.** |
 
 ---

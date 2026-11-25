@@ -1,0 +1,154 @@
+From df42bb70bb9684065e4f8b348d8dfaffe860e145 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Wed, 25 Nov 2026 05:27:28 +0000
+Subject: [PATCH] ASoC: mediatek: mt6789: Wire auxiliary speaker amps and
+ MT6358 ACCDET
+
+Parse optional aux-devs auxiliary codecs, defer probe until the
+referenced mediatek,accdet component is registered, create the Headset
+Jack wired to mt6358-accdet, and add Speaker and microphone DAPM
+widgets to the mt6789-mt6366 machine driver.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ sound/soc/mediatek/mt8186/mt6789-mt6366.c | 80 ++++++++++++++++++++++-
+ 1 file changed, 77 insertions(+), 3 deletions(-)
+
+diff --git a/sound/soc/mediatek/mt8186/mt6789-mt6366.c b/sound/soc/mediatek/mt8186/mt6789-mt6366.c
+index bb1a06ade..d47da0815 100644
+--- a/sound/soc/mediatek/mt8186/mt6789-mt6366.c
++++ b/sound/soc/mediatek/mt8186/mt6789-mt6366.c
+@@ -10,9 +10,11 @@
+ #include <linux/of_platform.h>
+ #include <linux/platform_device.h>
+ #include <linux/pm_runtime.h>
++#include <sound/jack.h>
+ #include <sound/pcm_params.h>
+ #include <sound/soc.h>
+ 
++#include "../../codecs/mt6358-accdet.h"
+ #include "../common/mtk-afe-platform-driver.h"
+ #include "../common/mtk-soc-card.h"
+ #include "../common/mtk-soundcard-driver.h"
+@@ -63,6 +65,52 @@ SND_SOC_DAILINK_DEFS(i2s3,
+ 		     DAILINK_COMP_ARRAY(COMP_DUMMY()),
+ 		     DAILINK_COMP_ARRAY(COMP_EMPTY()));
+ 
++static struct snd_soc_jack_pin mt6789_headset_jack_pins[] = {
++	{
++		.pin = "Headphone",
++		.mask = SND_JACK_HEADPHONE,
++	},
++	{
++		.pin = "Headset Mic",
++		.mask = SND_JACK_MICROPHONE,
++	},
++};
++
++static int mt6789_mt6366_primary_init(struct snd_soc_pcm_runtime *rtd)
++{
++	struct mtk_soc_card_data *soc_card_data =
++		snd_soc_card_get_drvdata(rtd->card);
++	struct snd_soc_jack *jack;
++	int ret;
++
++	ret = mt8186_mt6366_init(rtd);
++	if (ret)
++		return ret;
++
++	if (!soc_card_data->accdet)
++		return 0;
++
++	jack = &soc_card_data->card_data->jacks[0];
++	ret = snd_soc_card_jack_new_pins(rtd->card, "Headset Jack",
++					 SND_JACK_HEADSET |
++					 SND_JACK_BTN_0 | SND_JACK_BTN_1 |
++					 SND_JACK_BTN_2 | SND_JACK_BTN_3,
++					 jack, mt6789_headset_jack_pins,
++					 ARRAY_SIZE(mt6789_headset_jack_pins));
++	if (ret) {
++		dev_err(rtd->dev, "Headset Jack create failed: %d\n", ret);
++		return ret;
++	}
++
++	ret = mt6358_accdet_enable_jack_detect(soc_card_data->accdet, jack);
++	if (ret) {
++		dev_err(rtd->dev, "Headset Jack enable failed: %d\n", ret);
++		return ret;
++	}
++
++	return 0;
++}
++
+ static struct snd_soc_dai_link mt6789_mt6366_dai_links[] = {
+ 	/* Front End DAI links */
+ 	{
+@@ -135,7 +183,7 @@ static struct snd_soc_dai_link mt6789_mt6366_dai_links[] = {
+ 		.name = "Primary Codec",
+ 		.no_pcm = 1,
+ 		.ignore_suspend = 1,
+-		.init = mt8186_mt6366_init,
++		.init = mt6789_mt6366_primary_init,
+ 		SND_SOC_DAILINK_REG(adda),
+ 	},
+ 	{
+@@ -161,6 +209,10 @@ static struct snd_soc_dai_link mt6789_mt6366_dai_links[] = {
+ static const struct snd_soc_dapm_widget mt6789_mt6366_widgets[] = {
+ 	SND_SOC_DAPM_HP("Headphone", NULL),
+ 	SND_SOC_DAPM_SPK("Earpiece", NULL),
++	SND_SOC_DAPM_SPK("Speaker", NULL),
++	SND_SOC_DAPM_MIC("Main Mic", NULL),
++	SND_SOC_DAPM_MIC("Sub Mic", NULL),
++	SND_SOC_DAPM_MIC("Headset Mic", NULL),
+ };
+ 
+ static struct snd_soc_card mt6789_mt6366_soc_card = {
+@@ -182,6 +234,13 @@ static int mt6789_mt6366_soc_probe(struct mtk_soc_card_data *soc_card_data,
+ 	if (ret)
+ 		return dev_err_probe(card->dev, ret, "init AFE gpio error\n");
+ 
++	if (of_property_present(card->dev->of_node, "aux-devs")) {
++		ret = snd_soc_of_parse_aux_devs(card, "aux-devs");
++		if (ret)
++			return dev_err_probe(card->dev, ret,
++					     "parse aux-devs error\n");
++	}
++
+ 	return 0;
+ }
+ 
+@@ -216,6 +275,7 @@ static const struct mtk_pcm_constraints_data mt6789_pcm_constraints[MTK_CONSTRAI
+ static const struct mtk_soundcard_pdata mt6789_mt6366_pdata = {
+ 	.card_data = &(struct mtk_platform_card_data) {
+ 		.card = &mt6789_mt6366_soc_card,
++		.num_jacks = 1,
+ 		.pcm_constraints = mt6789_pcm_constraints,
+ 		.num_pcm_constraints = ARRAY_SIZE(mt6789_pcm_constraints),
+ 	},
+@@ -224,10 +284,24 @@ static const struct mtk_soundcard_pdata mt6789_mt6366_pdata = {
+ 
+ static int mt6789_mt6366_platform_probe(struct platform_device *pdev)
+ {
+-	struct platform_device *afe_pdev;
+-	struct device_node *platform_node;
++	struct platform_device *afe_pdev, *accdet_pdev;
++	struct device_node *platform_node, *accdet_node;
++	struct snd_soc_component *accdet_comp;
+ 	int ret;
+ 
++	accdet_node = of_parse_phandle(pdev->dev.of_node, "mediatek,accdet", 0);
++	if (accdet_node) {
++		accdet_pdev = of_find_device_by_node(accdet_node);
++		of_node_put(accdet_node);
++		if (!accdet_pdev)
++			return -EPROBE_DEFER;
++
++		accdet_comp = snd_soc_lookup_component(&accdet_pdev->dev, NULL);
++		put_device(&accdet_pdev->dev);
++		if (!accdet_comp)
++			return -EPROBE_DEFER;
++	}
++
+ 	platform_node = of_parse_phandle(pdev->dev.of_node,
+ 					 "mediatek,platform", 0);
+ 	if (!platform_node)

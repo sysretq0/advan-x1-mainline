@@ -1,6 +1,6 @@
 # Phase 5: Clean Mainline CCCI Modem Bring-up Plan — ADVAN X1 (MT6789 / Helio G99)
 
-**Status:** Phase 5.0 Research Complete · Phase 5.1 (DTS/Power) DONE · Phase 5.2 (CCIF0 Core + Boot) IN PROGRESS (MD BootROM passes `0x5443000c/0x53320000`; HS1 timeout next)  
+**Status:** Phase 5.0–5.5 COMPLETE & HARDWARE-VERIFIED (MD HS2 READY, `/dev/wwan0at0` AT, DPMAIF v1 + SMEM UL `wwan0` 4G LTE IP data, Native ModemManager 1.24.2 + NetworkManager auto-connect)  
 **Companion Docs:** [`docs/ccci-sip-abi.md`](ccci-sip-abi.md) (EL3 SiP SMC & Loki/LK handover contract) · [`docs/hardware-status.md`](hardware-status.md) (overall device status)  
 **Target Kernel:** Pristine upstream Linux (`drivers/net/wwan/wwan_core.c` + `t7xx`-style DPMAIF NAPI rings; modular patch series in `advan-x1-mainline`)  
 **Reference Cross-Checks:**
@@ -429,17 +429,13 @@ struct dpmaifq_normal_pit {
 ## 2. Clean Mainline Phased Implementation Roadmap (Phases 5.1–5.5)
 
 - **Phase 5.1 (DTS & Memory Map) — DONE (`0df2309`):** Added Advan X1's 9 exact `no-map` reserved-memory nodes (`0xdc000000`, `0xddc00000`, `0xde800000`, `0xe3200000`, `0x8e000000`, `0x8c000000`, `0xbf7f0000`, `0x8f000000`, `0xbf800000`), `MT6789_POWER_DOMAIN_MD` (`srclken-o1` / `power-flow-config`), and `modem` DT node in `mt6789.dtsi` + `mt6789-advan-x1.dts`. Verified on hardware (`deferred=none`, all 9 carveouts active).
-- **Phase 5.2 (CCIF0 Core + Boot Handshake + Emulated SCP CCISM) — IN PROGRESS (`patches/04-peripherals/0026`, verified through `b1a3ae6`):**
-  - *Done & hardware-verified:* `mtk-ccci` (`drivers/net/wwan/mtk_ccci/`) parses LK `ccci_tag_mem` (`tags=27`, `md1_verified=1`), reads `md1rom`/`md1dsp` via Loki EMI MPU remap, guards MD MTCMOS power cycle against active CCIF0 traffic, writes the CCIF0 SRAM `"rtbn"` footer (`0x7274626e / 0x40800800 / 0x3800`), invokes `MD_KERNEL_BOOT_UP` SMC, and achieves **MD BootROM pass** (`boot_status=0x5443000c / 0x53320000`).
-  - *Current blocker / remaining:* CCIF0 HS1 handshake times out at 5 s (`hs1=0`, `AP_CCIF0` `rch=0`). Complete HS1/HS2, `CCCI_CONTROL`/`CCCI_SYSTEM`/`CCCI_STATUS` keepalive, and Emulated SCP CCISM Ring (`0x8e810000`, Q0 `16K`/`1K`, `SCP_CLK_SET_DONE` + `0x119`/`0x11A`/`0x11B`) so MD reaches `READY` and stays alive >120 s with zero asserts.
-- **Phase 5.3 (RO NVRAM FS RPC + `WWAN_PORT_AT`) — NOT STARTED:** Expose `CCCI_UART2` (`ch 10/12`, Q5) as upstream `wwan_core` `WWAN_PORT_AT` (`/dev/wwan0at0`) and `CCCI_FS` (`ch 14/15`, Q4) to a minimal clean FS RPC daemon backed strictly by `ro,noload` ext4 mounts (`sdc6`/`sdc7`/`sdc16`/`sdc17`) + volatile `tmpfs` overlay. Target: `AT`, `ATI`, `AT+CPIN?` (after `AT+CFUN=4`) succeed cleanly.
-- **Phase 5.4 (DPMAIF v1 + `MD_DATA` SW UL + `wwan0` Netdev) — NOT STARTED:** Implement clean `t7xx`-styled `mtk-dpmaif` driver (12B PIT DL + 1024-entry BAT NAPI RX, `SMEM_USER_MD_DATA` 3-queue SW UL TX + CCIF0 `ID_CCIF_USER_DATA=0`, `wwan_register_ops()` `wwan0`). Target: LTE registration (`+EREG: 3,1`, `+CGREG: 3,1`, `+COPS`) stays registered with active data bearer (`AT+CGPADDR` / `AT+CGCONTRDP`) and IPv4 ping works over `wwan0`.
-- **Phase 5.5 (ModemManager Integration) — NOT STARTED:** Upstream-clean `mtk-ccci` ModemManager plugin/udev rules targeting `/dev/wwan0at0` + `wwan0` (using lessons from `zinwa-q25-linux/packages/modemmanager-q25/`).
+- **Phase 5.2 (CCIF0 Core + Boot Handshake + Emulated SCP CCISM) — DONE (`e78b929`, `patches/04-peripherals/0026..0031`):** Complete CCIF0 ringbuffer transport, RPC responder (`0x4005..0x4014`), Gen95 CCB control header init, `/dev/ccci_fs` + `/dev/ccci_rpc` userspace bridges (`tools/ccci_fsd`, `tools/ccci_rpcd`), Emulated SCP CCISM Ring (`0x8e810000`), and HS1/HS2 handshake reaching **MD READY** with `+EIND: 128` and zero MD asserts/WDTs.
+- **Phase 5.3 (RO NVRAM FS RPC + `WWAN_PORT_AT`) — DONE (`39bbf06`, `patches/04-peripherals/0032`):** Exposed `CCCI_UART2` (`ch 10/12`, Q5) as upstream `wwan_core` `WWAN_PORT_AT` (`/dev/wwan0at0`) backed by read-only ext4 + volatile tmpfs overlay `ccci_fsd`. Verified live bidirectional AT commands (`1.2 ms` RTT) and physical USIM read (`+ICCID`, `+ESIMAPP`, XL Axiata `510/11`).
+- **Phase 5.4 (DPMAIF v1 + `MD_DATA` SW UL + `wwan0` Netdev) — DONE (`e2fcb28`, `patches/04-peripherals/0033`):** Clean upstream-styled `mtk_ccci_dpmaif` driver (12B PIT DL + 1024-entry BAT NAPI RX, `SMEM_USER_MD_DATA` 3-queue SW UL TX + CCIF0 `ID_CCIF_USER_DATA=0`, `CLK_IFRAO_CLDMA_BCLK` `"bclk"` + `CLK_IFRAO_DPMAIF_MAIN`, `wwan_register_ops()` `wwan0`). Hardware-verified live 4G LTE data (`DPMAIF v1 started` in `1.58 ms`, `ping 1.1.1.1` 4/4 18.9 ms RTT, exact 1:1 DMA parity, 0 errors/WDTs).
+- **Phase 5.5 (ModemManager Integration) — DONE (`e959721`, `tools/modemmanager-mtk-ccci/`, `tools/mtk-wwan-connect/`):** Built and deployed `libmm-plugin-mtk-ccci.so` for Debian ModemManager 1.24.2 + udev rules targeting `/dev/wwan0at0` + `wwan0` + NetworkManager `Mobile LTE` auto-connect profile + standalone `mtk-wwan-connect` fallback. Hardware-verified full cold-boot auto-connect at `19.26 s`, live `systemd-timesyncd` NTP sync over 4G LTE, and clean shutdown teardown.
 
 ---
 
-## 3. Verification Status & Current Blocker
+## 3. Verification Status
 
-- **Phase 5.0 Ground-Truth Spec:** 100% resolved and binary/oracle-verified across all 10 `[DISCOVER]` specifications (Sections 1.1–1.10).
-- **Phase 5.1 & 5.2 Hardware Gate (`b1a3ae6`):** LK tag parsing, Loki EMI MPU remap (`md1rom`/`md1dsp` readable), MD MTCMOS cycle, CCIF0 `"rtbn"` footer, and EL3 `MD_KERNEL_BOOT_UP` SMC all pass on hardware with MD BootROM reaching `0x5443000c / 0x53320000`.
-- **Next debugging target:** Diagnose why MD firmware stops between BootROM pass (`0x5443000c / 0x53320000`) and AP CCIF0 HS1 delivery (`hs1=0` at 5 s timeout).
+- **Phase 5.0–5.5 Complete:** End-to-end cellular control, NVRAM FS/RPC, USIM, DPMAIF v1 + SMEM UL 4G LTE IP data, and native ModemManager + NetworkManager integration are **100% hardware-verified** on physical Advan X1 (`e2fcb28` + `e959721`).
