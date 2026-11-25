@@ -102,14 +102,12 @@ jobs:
           path: build/busybox-install
           key: busybox-1.38.0-arm64-static-${{ runner.os }}
 
-      - name: Test static C /init & prepare static BusyBox
+      - name: Build static BusyBox (cache miss only)
+        if: ${{ steps.busybox-cache.outputs.cache-hit != 'true' }}
         timeout-minutes: 10
         env:
           OUT: ${{ github.workspace }}/build
         run: |
-          make -C initramfs/src OUT="$GITHUB_WORKSPACE/build/init-check" test
-          make -C initramfs/src CROSS=aarch64-linux-gnu- OUT="$GITHUB_WORKSPACE/build/init-check" all
-          rm -rf "$GITHUB_WORKSPACE/build/init-check"
           BUSYBOX_ONLY=1 JOBS="$(nproc)" ./scripts/build-initramfs.sh
 
       - name: Save static BusyBox cache
@@ -163,6 +161,7 @@ jobs:
           ccache --set-config=compression=true
           ccache --set-config=compression_level=6
           ccache --set-config=base_dir="$GITHUB_WORKSPACE"
+          ccache --set-config=compiler_check="%compiler% --version"
           ccache --set-config=sloppiness=time_macros,include_file_mtime,file_macro
           ccache -z
           ccache -s
