@@ -219,4 +219,8 @@ CONFIG_MTK_MMSYS=y
 CONFIG_WWAN=y
 CONFIG_MTK_CCCI=y
 
+# System sleep & PSCI suspend diagnostics
+CONFIG_PM_DEBUG=y
+CONFIG_PM_SLEEP_DEBUG=y
+
 

@@ -1,0 +1,119 @@
+From 73ee22f9602818d6bf9eca55daf40f5f4ef39e0a Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Wed, 25 Nov 2026 06:58:17 +0000
+Subject: [PATCH] net: wwan: mtk_ccci: Add system suspend/resume wakeup support
+
+Enable device wakeup on the MT6789 CCCI modem platform device and wire
+system sleep PM callbacks so that when the modem is running, CCIF0
+data IRQs, MD WDT IRQ, and DPMAIF RX IRQ are marked as wakeup sources
+during suspend and balanced on resume.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ drivers/net/wwan/mtk_ccci/mtk_ccci.h        |  2 ++
+ drivers/net/wwan/mtk_ccci/mtk_ccci_core.c   | 37 +++++++++++++++++++++
+ drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c | 10 ++++++
+ 3 files changed, 49 insertions(+)
+
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci.h b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
+index 46b5e5358..377ba5f5f 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci.h
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
+@@ -412,6 +412,7 @@ struct mtk_ccci_dev {
+ 	int wdt_irq;
+ 	int ccif_irq0;
+ 	int ccif_irq1;
++	bool irq_wake_enabled;
+ 
+ 	phys_addr_t nc_smem_phys;
+ 	size_t nc_smem_size;
+@@ -511,5 +512,6 @@ void mtk_ccci_dpmaif_uninit(struct mtk_ccci_dev *ccci);
+ int mtk_ccci_dpmaif_start(struct mtk_ccci_dev *ccci);
+ int mtk_ccci_dpmaif_register_wwan(struct mtk_ccci_dev *ccci);
+ void mtk_ccci_dpmaif_smem_tx_irq(struct mtk_ccci_dev *ccci);
++void mtk_ccci_dpmaif_set_irq_wake(struct mtk_ccci_dev *ccci, bool on);
+ 
+ #endif /* __MTK_CCCI_H__ */
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+index 6b34aa641..48d458115 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+@@ -1733,6 +1733,7 @@ static int mtk_ccci_probe(struct platform_device *pdev)
+ 			 ret);
+ 
+ 	pm_runtime_enable(&pdev->dev);
++	device_init_wakeup(&pdev->dev, true);
+ 	mtk_ccci_park_md(ccci);
+ 
+ 	dev_info(&pdev->dev, "MT6789 CCCI modem probed (nc=%pa c=%pa md=%pa, state=%s)\n",
+@@ -1777,6 +1778,41 @@ static void mtk_ccci_remove(struct platform_device *pdev)
+ 		clk_put(ccci->ccif_clks[i].clk);
+ }
+ 
++static int mtk_ccci_suspend(struct device *dev)
++{
++	struct mtk_ccci_dev *ccci = dev_get_drvdata(dev);
++
++	if (!ccci->md_running || !device_may_wakeup(dev))
++		return 0;
++
++	enable_irq_wake(ccci->wdt_irq);
++	enable_irq_wake(ccci->ccif_irq0);
++	enable_irq_wake(ccci->ccif_irq1);
++	mtk_ccci_dpmaif_set_irq_wake(ccci, true);
++	ccci->irq_wake_enabled = true;
++
++	return 0;
++}
++
++static int mtk_ccci_resume(struct device *dev)
++{
++	struct mtk_ccci_dev *ccci = dev_get_drvdata(dev);
++
++	if (!ccci->irq_wake_enabled)
++		return 0;
++
++	mtk_ccci_dpmaif_set_irq_wake(ccci, false);
++	disable_irq_wake(ccci->ccif_irq1);
++	disable_irq_wake(ccci->ccif_irq0);
++	disable_irq_wake(ccci->wdt_irq);
++	ccci->irq_wake_enabled = false;
++
++	return 0;
++}
++
++static DEFINE_SIMPLE_DEV_PM_OPS(mtk_ccci_pm_ops,
++				mtk_ccci_suspend, mtk_ccci_resume);
++
+ static const struct of_device_id mtk_ccci_of_match[] = {
+ 	{ .compatible = "mediatek,mt6789-ccci" },
+ 	{ }
+@@ -1790,6 +1826,7 @@ static struct platform_driver mtk_ccci_driver = {
+ 		.name = "mtk-ccci",
+ 		.of_match_table = mtk_ccci_of_match,
+ 		.dev_groups = mtk_ccci_groups,
++		.pm = pm_sleep_ptr(&mtk_ccci_pm_ops),
+ 	},
+ };
+ module_platform_driver(mtk_ccci_driver);
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c
+index c566dc676..5e47e8605 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c
+@@ -1491,3 +1491,13 @@ void mtk_ccci_dpmaif_uninit(struct mtk_ccci_dev *ccci)
+ 	clk_put(dp->clk);
+ 	ccci->dpmaif = NULL;
+ }
++
++void mtk_ccci_dpmaif_set_irq_wake(struct mtk_ccci_dev *ccci, bool on)
++{
++	struct mtk_ccci_dpmaif *dp = ccci->dpmaif;
++
++	if (!dp || !dp->irq_enabled || dp->irq <= 0)
++		return;
++
++	irq_set_irq_wake(dp->irq, on);
++}
+-- 
+2.55.0
+

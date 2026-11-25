@@ -64,6 +64,9 @@
 			enable-method = "psci";
 			capacity-dmips-mhz = <383>;
 			performance-domains = <&performance 0>;
+			cpu-idle-states = <&cpuoff_l &clusteroff_l &mcusysoff
+					   &system_mem &system_pll &system_bus
+					   &s2idle>;
 			#cooling-cells = <2>;
 		};
 
@@ -74,6 +77,9 @@
 			enable-method = "psci";
 			capacity-dmips-mhz = <383>;
 			performance-domains = <&performance 0>;
+			cpu-idle-states = <&cpuoff_l &clusteroff_l &mcusysoff
+					   &system_mem &system_pll &system_bus
+					   &s2idle>;
 			#cooling-cells = <2>;
 		};
 
@@ -84,6 +90,9 @@
 			enable-method = "psci";
 			capacity-dmips-mhz = <383>;
 			performance-domains = <&performance 0>;
+			cpu-idle-states = <&cpuoff_l &clusteroff_l &mcusysoff
+					   &system_mem &system_pll &system_bus
+					   &s2idle>;
 			#cooling-cells = <2>;
 		};
 
@@ -94,6 +103,9 @@
 			enable-method = "psci";
 			capacity-dmips-mhz = <383>;
 			performance-domains = <&performance 0>;
+			cpu-idle-states = <&cpuoff_l &clusteroff_l &mcusysoff
+					   &system_mem &system_pll &system_bus
+					   &s2idle>;
 			#cooling-cells = <2>;
 		};
 
@@ -104,6 +116,9 @@
 			enable-method = "psci";
 			capacity-dmips-mhz = <383>;
 			performance-domains = <&performance 0>;
+			cpu-idle-states = <&cpuoff_l &clusteroff_l &mcusysoff
+					   &system_mem &system_pll &system_bus
+					   &s2idle>;
 			#cooling-cells = <2>;
 		};
 
@@ -114,6 +129,9 @@
 			enable-method = "psci";
 			capacity-dmips-mhz = <383>;
 			performance-domains = <&performance 0>;
+			cpu-idle-states = <&cpuoff_l &clusteroff_l &mcusysoff
+					   &system_mem &system_pll &system_bus
+					   &s2idle>;
 			#cooling-cells = <2>;
 		};
 
@@ -124,6 +142,9 @@
 			enable-method = "psci";
 			capacity-dmips-mhz = <1024>;
 			performance-domains = <&performance 1>;
+			cpu-idle-states = <&cpuoff_b &clusteroff_b &mcusysoff
+					   &system_mem &system_pll &system_bus
+					   &s2idle>;
 			#cooling-cells = <2>;
 		};
 
@@ -134,6 +155,9 @@
 			enable-method = "psci";
 			capacity-dmips-mhz = <1024>;
 			performance-domains = <&performance 1>;
+			cpu-idle-states = <&cpuoff_b &clusteroff_b &mcusysoff
+					   &system_mem &system_pll &system_bus
+					   &s2idle>;
 			#cooling-cells = <2>;
 		};
 
@@ -150,6 +174,91 @@
 			cluster1 {
 				core0 { cpu = <&cpu6>; };
 				core1 { cpu = <&cpu7>; };
+			};
+		};
+
+		idle-states {
+			entry-method = "psci";
+
+			cpuoff_l: cpu-off-l {
+				compatible = "arm,idle-state";
+				arm,psci-suspend-param = <0x00010001>;
+				local-timer-stop;
+				entry-latency-us = <50>;
+				exit-latency-us = <100>;
+				min-residency-us = <1600>;
+			};
+
+			cpuoff_b: cpu-off-b {
+				compatible = "arm,idle-state";
+				arm,psci-suspend-param = <0x00010002>;
+				local-timer-stop;
+				entry-latency-us = <50>;
+				exit-latency-us = <100>;
+				min-residency-us = <1400>;
+			};
+
+			clusteroff_l: cluster-off-l {
+				compatible = "arm,idle-state";
+				arm,psci-suspend-param = <0x01010101>;
+				local-timer-stop;
+				entry-latency-us = <100>;
+				exit-latency-us = <250>;
+				min-residency-us = <2100>;
+			};
+
+			clusteroff_b: cluster-off-b {
+				compatible = "arm,idle-state";
+				arm,psci-suspend-param = <0x01010102>;
+				local-timer-stop;
+				entry-latency-us = <100>;
+				exit-latency-us = <250>;
+				min-residency-us = <1900>;
+			};
+
+			mcusysoff: cluster-mcusys-off {
+				compatible = "arm,idle-state";
+				arm,psci-suspend-param = <0x01010701>;
+				local-timer-stop;
+				entry-latency-us = <450>;
+				exit-latency-us = <600>;
+				min-residency-us = <4000>;
+			};
+
+			system_mem: cluster-system-mem {
+				compatible = "arm,idle-state";
+				arm,psci-suspend-param = <0x01010f01>;
+				local-timer-stop;
+				entry-latency-us = <700>;
+				exit-latency-us = <850>;
+				min-residency-us = <4000>;
+			};
+
+			system_pll: cluster-system-pll {
+				compatible = "arm,idle-state";
+				arm,psci-suspend-param = <0x01010f02>;
+				local-timer-stop;
+				entry-latency-us = <800>;
+				exit-latency-us = <950>;
+				min-residency-us = <4000>;
+			};
+
+			system_bus: cluster-system-bus {
+				compatible = "arm,idle-state";
+				arm,psci-suspend-param = <0x01010f03>;
+				local-timer-stop;
+				entry-latency-us = <1300>;
+				exit-latency-us = <2800>;
+				min-residency-us = <4000>;
+			};
+
+			s2idle: cluster-s2idle {
+				compatible = "arm,idle-state";
+				arm,psci-suspend-param = <0x01011f01>;
+				local-timer-stop;
+				entry-latency-us = <10000>;
+				exit-latency-us = <10000>;
+				min-residency-us = <0xffffffff>;
 			};
 		};
 	};

@@ -11,16 +11,16 @@ and display pipeline.
 
 Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
- arch/arm64/boot/dts/mediatek/mt6789.dtsi | 1624 ++++++++++++++++++++++
- 1 file changed, 1624 insertions(+)
+ arch/arm64/boot/dts/mediatek/mt6789.dtsi | 1734 ++++++++++++++++++++++
+ 1 file changed, 1734 insertions(+)
  create mode 100644 arch/arm64/boot/dts/mediatek/mt6789.dtsi
 
 diff --git a/arch/arm64/boot/dts/mediatek/mt6789.dtsi b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
 new file mode 100644
-index 0000000..0dacf5f
+index 000000000000..111111111111
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
-@@ -0,0 +1,1625 @@
+@@ -0,0 +1,1734 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * MediaTek MT6789 (Helio G99) SoC base device tree — mainline shape.
@@ -87,6 +87,9 @@ index 0000000..0dacf5f
 +			enable-method = "psci";
 +			capacity-dmips-mhz = <383>;
 +			performance-domains = <&performance 0>;
++			cpu-idle-states = <&cpuoff_l &clusteroff_l &mcusysoff
++					   &system_mem &system_pll &system_bus
++					   &s2idle>;
 +			#cooling-cells = <2>;
 +		};
 +
@@ -97,6 +100,9 @@ index 0000000..0dacf5f
 +			enable-method = "psci";
 +			capacity-dmips-mhz = <383>;
 +			performance-domains = <&performance 0>;
++			cpu-idle-states = <&cpuoff_l &clusteroff_l &mcusysoff
++					   &system_mem &system_pll &system_bus
++					   &s2idle>;
 +			#cooling-cells = <2>;
 +		};
 +
@@ -107,6 +113,9 @@ index 0000000..0dacf5f
 +			enable-method = "psci";
 +			capacity-dmips-mhz = <383>;
 +			performance-domains = <&performance 0>;
++			cpu-idle-states = <&cpuoff_l &clusteroff_l &mcusysoff
++					   &system_mem &system_pll &system_bus
++					   &s2idle>;
 +			#cooling-cells = <2>;
 +		};
 +
@@ -117,6 +126,9 @@ index 0000000..0dacf5f
 +			enable-method = "psci";
 +			capacity-dmips-mhz = <383>;
 +			performance-domains = <&performance 0>;
++			cpu-idle-states = <&cpuoff_l &clusteroff_l &mcusysoff
++					   &system_mem &system_pll &system_bus
++					   &s2idle>;
 +			#cooling-cells = <2>;
 +		};
 +
@@ -127,6 +139,9 @@ index 0000000..0dacf5f
 +			enable-method = "psci";
 +			capacity-dmips-mhz = <383>;
 +			performance-domains = <&performance 0>;
++			cpu-idle-states = <&cpuoff_l &clusteroff_l &mcusysoff
++					   &system_mem &system_pll &system_bus
++					   &s2idle>;
 +			#cooling-cells = <2>;
 +		};
 +
@@ -137,6 +152,9 @@ index 0000000..0dacf5f
 +			enable-method = "psci";
 +			capacity-dmips-mhz = <383>;
 +			performance-domains = <&performance 0>;
++			cpu-idle-states = <&cpuoff_l &clusteroff_l &mcusysoff
++					   &system_mem &system_pll &system_bus
++					   &s2idle>;
 +			#cooling-cells = <2>;
 +		};
 +
@@ -147,6 +165,9 @@ index 0000000..0dacf5f
 +			enable-method = "psci";
 +			capacity-dmips-mhz = <1024>;
 +			performance-domains = <&performance 1>;
++			cpu-idle-states = <&cpuoff_b &clusteroff_b &mcusysoff
++					   &system_mem &system_pll &system_bus
++					   &s2idle>;
 +			#cooling-cells = <2>;
 +		};
 +
@@ -157,6 +178,9 @@ index 0000000..0dacf5f
 +			enable-method = "psci";
 +			capacity-dmips-mhz = <1024>;
 +			performance-domains = <&performance 1>;
++			cpu-idle-states = <&cpuoff_b &clusteroff_b &mcusysoff
++					   &system_mem &system_pll &system_bus
++					   &s2idle>;
 +			#cooling-cells = <2>;
 +		};
 +
@@ -173,6 +197,91 @@ index 0000000..0dacf5f
 +			cluster1 {
 +				core0 { cpu = <&cpu6>; };
 +				core1 { cpu = <&cpu7>; };
++			};
++		};
++
++		idle-states {
++			entry-method = "psci";
++
++			cpuoff_l: cpu-off-l {
++				compatible = "arm,idle-state";
++				arm,psci-suspend-param = <0x00010001>;
++				local-timer-stop;
++				entry-latency-us = <50>;
++				exit-latency-us = <100>;
++				min-residency-us = <1600>;
++			};
++
++			cpuoff_b: cpu-off-b {
++				compatible = "arm,idle-state";
++				arm,psci-suspend-param = <0x00010002>;
++				local-timer-stop;
++				entry-latency-us = <50>;
++				exit-latency-us = <100>;
++				min-residency-us = <1400>;
++			};
++
++			clusteroff_l: cluster-off-l {
++				compatible = "arm,idle-state";
++				arm,psci-suspend-param = <0x01010101>;
++				local-timer-stop;
++				entry-latency-us = <100>;
++				exit-latency-us = <250>;
++				min-residency-us = <2100>;
++			};
++
++			clusteroff_b: cluster-off-b {
++				compatible = "arm,idle-state";
++				arm,psci-suspend-param = <0x01010102>;
++				local-timer-stop;
++				entry-latency-us = <100>;
++				exit-latency-us = <250>;
++				min-residency-us = <1900>;
++			};
++
++			mcusysoff: cluster-mcusys-off {
++				compatible = "arm,idle-state";
++				arm,psci-suspend-param = <0x01010701>;
++				local-timer-stop;
++				entry-latency-us = <450>;
++				exit-latency-us = <600>;
++				min-residency-us = <4000>;
++			};
++
++			system_mem: cluster-system-mem {
++				compatible = "arm,idle-state";
++				arm,psci-suspend-param = <0x01010f01>;
++				local-timer-stop;
++				entry-latency-us = <700>;
++				exit-latency-us = <850>;
++				min-residency-us = <4000>;
++			};
++
++			system_pll: cluster-system-pll {
++				compatible = "arm,idle-state";
++				arm,psci-suspend-param = <0x01010f02>;
++				local-timer-stop;
++				entry-latency-us = <800>;
++				exit-latency-us = <950>;
++				min-residency-us = <4000>;
++			};
++
++			system_bus: cluster-system-bus {
++				compatible = "arm,idle-state";
++				arm,psci-suspend-param = <0x01010f03>;
++				local-timer-stop;
++				entry-latency-us = <1300>;
++				exit-latency-us = <2800>;
++				min-residency-us = <4000>;
++			};
++
++			s2idle: cluster-s2idle {
++				compatible = "arm,idle-state";
++				arm,psci-suspend-param = <0x01011f01>;
++				local-timer-stop;
++				entry-latency-us = <10000>;
++				exit-latency-us = <10000>;
++				min-residency-us = <0xffffffff>;
 +			};
 +		};
 +	};
@@ -1647,5 +1756,4 @@ index 0000000..0dacf5f
 +	};
 +};
 -- 
-2.55.0
-
+2.47.0
