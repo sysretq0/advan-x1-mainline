@@ -1,34 +1,34 @@
-From d7e072af8f10e02613cc26b0248233167d71883e Mon Sep 17 00:00:00 2001
+From 35382f8a608da8d0eabd8e52f458c78b0c1cc750 Mon Sep 17 00:00:00 2001
 From: sysretq0 <sysretq0@proton.me>
 Date: Wed, 25 Nov 2026 08:51:58 +0000
 Subject: [PATCH] drm/mediatek: dsi: Fix MT6789 runtime PM and suspend/resume
  sequence
 
-Fix four display suspend/resume bugs on MediaTek MT6789 that caused
-DSI command timeouts and SMI LARB0 sleep-ctrl failures after S3 resume:
+Fix three display suspend/resume bugs on MediaTek MT6789 that caused
+DSI command timeouts after S3 resume:
 
 1. Enable runtime PM in mtk_dsi_probe() and hold pm_runtime across
    mtk_dsi_poweron()/mtk_dsi_poweroff(). Without this,
-   MT6789_POWER_DOMAIN_DISP powered off during mtk_crtc_atomic_disable()
-   before panel_unprepare() and mtk_dsi_poweroff() ran.
+   MT6789_POWER_DOMAIN_DISP powered off before mtk_dsi_poweroff() ran.
 2. Restore phy_power_on() ahead of engine/digital clock enable and DSI
    enable/reset in mtk_dsi_poweron() so the MIPI-TX PLL is locked before
    DSI_CK_DOMAIN clocks and DSI_RESET run on cold-start resume (bootloader
    handover stays undisturbed because MT6789 PLL prepare returns early
    when RG_DSI_PLL_EN is already set).
 3. Sequence MT6789 ULPS enter/exit with MIPI-TX PRE_OE and SW_CTL_EN via
-   phy_set_mode_ext(), matching vendor mtk_dsi_enter_ulps()/exit_ulps().
-4. Poll !DSI_BUSY in mtk_dsi_switch_to_cmd_mode() when poll_for_idle is
-   set, skip switching when already in CMD mode during poweroff, and do
-   not restart video mode after mtk_dsi_host_transfer() when !dsi->enabled.
+   phy_set_mode_ext(), matching vendor mtk_dsi_enter_ulps()/exit_ulps(),
+   and poll !DSI_BUSY in mtk_dsi_switch_to_cmd_mode() when poll_for_idle
+   is set (while keeping restore_dsi_mode in mtk_dsi_host_transfer() so
+   DSI video mode stays active across panel_unprepare() until
+   mtk_crtc_atomic_disable() finishes drm_crtc_wait_one_vblank()).
 
 Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
- drivers/gpu/drm/mediatek/mtk_dsi.c | 96 ++++++++++++++++++++++++------
- 1 file changed, 79 insertions(+), 17 deletions(-)
+ drivers/gpu/drm/mediatek/mtk_dsi.c | 94 +++++++++++++++++++++++++-----
+ 1 file changed, 78 insertions(+), 16 deletions(-)
 
 diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_dsi.c
-index 527092ed1..06f743a72 100644
+index 527092ed1..83e17c82d 100644
 --- a/drivers/gpu/drm/mediatek/mtk_dsi.c
 +++ b/drivers/gpu/drm/mediatek/mtk_dsi.c
 @@ -12,6 +12,7 @@
@@ -212,15 +212,6 @@ index 527092ed1..06f743a72 100644
  
  	dsi->lanes_ready = false;
  }
-@@ -1435,7 +1491,7 @@ static ssize_t mtk_dsi_host_transfer(struct mipi_dsi_host *host,
- 		 recv_cnt, *((u8 *)(msg->tx_buf)));
- 
- restore_dsi_mode:
--	if (dsi_mode & MODE) {
-+	if ((dsi_mode & MODE) && dsi->enabled) {
- 		mtk_dsi_set_mode(dsi);
- 		mtk_dsi_start(dsi);
- 	}
 @@ -1508,6 +1564,12 @@ static int mtk_dsi_probe(struct platform_device *pdev)
  		return dev_err_probe(&pdev->dev, ret, "Failed to request DSI irq\n");
  	}
