@@ -1,5 +1,5 @@
 From d9a7f0c2fdba2926301ee390381d668ce558c8d5 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Fri, 27 Nov 2026 01:52:27 +0700
 Subject: [PATCH] soc: mediatek: Add MT6366 DCXO clock buffer driver
 
@@ -8,7 +8,7 @@ buffer controller (DCXO_CW00..CW19) and register its MFD cell in
 mt6397-core.c. Enables DT-selected XO buffers (such as XO_NFC) under
 software control and restores the initial DCXO_CW00 mask on teardown.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/mfd/mt6397-core.c                |   3 +
  drivers/soc/mediatek/Kconfig             |   9 ++

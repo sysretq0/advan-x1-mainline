@@ -1,5 +1,5 @@
 From ce157db673f7e4aa0b83f875b67c01041c9604e2 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Fri, 27 Nov 2026 01:52:26 +0700
 Subject: [PATCH] clk: mediatek: mt6789: Use Linux 7.4 alloc and cleanup
  helpers
@@ -7,7 +7,7 @@ Subject: [PATCH] clk: mediatek: mt6789: Use Linux 7.4 alloc and cleanup
 Modernize clk-mt6789-topckgen.c to use scoped_guard(spinlock_irqsave)
 and devm_kzalloc_obj().
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/clk/mediatek/clk-mt6789-topckgen.c | 32 +++++++++++-----------
  1 file changed, 16 insertions(+), 16 deletions(-)

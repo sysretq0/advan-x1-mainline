@@ -1,5 +1,5 @@
 From 9ff57b91cb60abf0c8f55b0681eb68a5811d1f59 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Fri, 27 Nov 2026 01:52:25 +0700
 Subject: [PATCH] ASoC: mediatek: mt8186: Restore MT6789 AFE across system
  sleep
@@ -20,7 +20,7 @@ ring end registers as non-volatile on MT6789 (matching upstream
 mt8188/mt8195) so regcache_sync() restores them instead of leaving
 their power-on reset values.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  sound/soc/mediatek/mt8186/mt8186-afe-pcm.c | 24 ++++++++++++++++++++++
  1 file changed, 24 insertions(+)

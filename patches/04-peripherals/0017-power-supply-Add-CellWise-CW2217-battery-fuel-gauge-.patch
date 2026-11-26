@@ -1,5 +1,5 @@
 From c95496df5b4f41e5c574423cb8b347b802668bdf Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Fri, 27 Nov 2026 01:52:26 +0700
 Subject: [PATCH] power: supply: Add CellWise CW2217 battery fuel gauge driver
 
@@ -7,7 +7,7 @@ Add a mainline power_supply driver for the CellWise CW2215/CW2217
 battery fuel gauge over I2C, exposing voltage, current, state of
 charge, temperature, cycle count, health, and design charge.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/power/supply/Kconfig          |  11 +
  drivers/power/supply/Makefile         |   1 +

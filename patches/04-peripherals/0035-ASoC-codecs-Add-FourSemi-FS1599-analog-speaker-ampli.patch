@@ -1,5 +1,5 @@
 From 4f80ef35f8515dde5bee7c7414356104e5fbd344 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Fri, 27 Nov 2026 01:52:27 +0700
 Subject: [PATCH] ASoC: codecs: Add FourSemi FS1599 analog speaker amplifier
  driver
@@ -8,7 +8,7 @@ Add an ASoC auxiliary component driver for the FourSemi FS1599
 I2C-controlled Class-K boost analog-input speaker amplifier used on
 MediaTek MT6789 boards (driven from the MT6366 PMIC LINEOUT output).
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  sound/soc/codecs/Kconfig  |  13 ++
  sound/soc/codecs/Makefile |   2 +

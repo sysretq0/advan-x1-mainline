@@ -1,5 +1,5 @@
 From 646782d4094d26dfd42cf72b0b411c682f6ac1e1 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Fri, 27 Nov 2026 01:54:18 +0700
 Subject: [PATCH] net: wwan: mtk_ccci: Modernize with Linux 7.4 alloc and
  pm_runtime helpers
@@ -7,7 +7,7 @@ Subject: [PATCH] net: wwan: mtk_ccci: Modernize with Linux 7.4 alloc and
 Convert mtk_ccci_core.c and mtk_ccci_dpmaif.c to devm_kzalloc_obj(),
 devm_kzalloc_objs(), and devm_pm_runtime_enable().
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/net/wwan/mtk_ccci/mtk_ccci_core.c   | 12 +++++++-----
  drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c | 10 +++++-----

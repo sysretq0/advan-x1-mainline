@@ -1,5 +1,5 @@
 From dbe59a25dd797e3634f56eeffbea66813fd17097 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Fri, 27 Nov 2026 01:52:29 +0700
 Subject: [PATCH] Input: chipone-icnl9922c - modernize with Linux 7.4 devm and
  cleanup helpers
@@ -9,7 +9,7 @@ devm_work_autocancel() (dropping the custom cancel_work_sync devm
 action), and guard/scoped_guard(mutex) from <linux/cleanup.h> while
 preserving the unlock-before-disable_irq() ordering.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/input/touchscreen/chipone_icnl9922c.c | 192 +++++++++---------
  1 file changed, 93 insertions(+), 99 deletions(-)

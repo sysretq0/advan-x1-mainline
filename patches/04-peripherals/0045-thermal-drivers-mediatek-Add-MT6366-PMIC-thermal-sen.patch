@@ -1,5 +1,5 @@
 From e4c2d7d37825e5d03f6bfee5be82bfb14d3f5c3d Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Fri, 27 Nov 2026 01:52:28 +0700
 Subject: [PATCH] thermal/drivers/mediatek: Add MT6366 PMIC thermal sensor
  driver
@@ -9,7 +9,7 @@ the MediaTek MT6366 PMIC (PMU die, VCORE, VPROC, and VGPU bucks). Reads
 12-bit raw counts from mt6359-auxadc and converts them using per-unit
 eFuse slope/intercept parameters from mt6366_e_data.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/thermal/mediatek/Kconfig          |   9 +
  drivers/thermal/mediatek/Makefile         |   1 +

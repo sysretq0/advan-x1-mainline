@@ -1,5 +1,5 @@
 From 73c1f5cd3030d0d6b473f6d615d14ad7d12c2a59 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Fri, 27 Nov 2026 01:52:28 +0700
 Subject: [PATCH] nvmem: Add MediaTek MT6358/MT6366 PMIC eFuse driver
 
@@ -8,7 +8,7 @@ OTP eFuse array (128 x 16-bit rows = 256 bytes) and register its MFD cell
 in mt6397-core.c. Provides per-unit calibration cells for MT6366 PMIC
 thermal sensors and MT6358/MT6366 ACCDET.
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  drivers/mfd/mt6397-core.c    |   3 +
  drivers/nvmem/Kconfig        |  11 ++

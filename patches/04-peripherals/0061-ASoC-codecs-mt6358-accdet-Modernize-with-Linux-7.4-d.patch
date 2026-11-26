@@ -1,5 +1,5 @@
 From 987b549691e36218779a2bfe247ebc60a355d970 Mon Sep 17 00:00:00 2001
-From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+From: sysretq0 <sysretq0@proton.me>
 Date: Fri, 27 Nov 2026 01:52:29 +0700
 Subject: [PATCH] ASoC: codecs: mt6358-accdet: Modernize with Linux 7.4 devm
  and cleanup helpers
@@ -8,7 +8,7 @@ Convert mt6358-accdet.c to devm_kzalloc_obj(), devm_mutex_init(),
 guard/scoped_guard(mutex), and alloc_ordered_workqueue() instead of
 deprecated create_singlethread_workqueue().
 
-Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
  sound/soc/codecs/mt6358-accdet.c | 63 ++++++++++++++++----------------
  1 file changed, 32 insertions(+), 31 deletions(-)
