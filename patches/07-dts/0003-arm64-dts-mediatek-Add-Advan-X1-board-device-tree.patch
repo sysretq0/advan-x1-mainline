@@ -15,10 +15,10 @@ Signed-off-by: sysretq0 <sysretq0@proton.me>
 
 diff --git a/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
 new file mode 100644
-index 0000000..eb12987
+index 000000000..111111111
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
-@@ -0,0 +1,1293 @@
+@@ -0,0 +1,1299 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Device Tree Source for the Advan X1 smartphone (MediaTek MT6789).
@@ -1141,6 +1141,8 @@ index 0000000..eb12987
 +		pins-clk-sync {
 +			pinmux = <PINMUX_GPIO169__FUNC_AUD_CLK_MOSI>,
 +				 <PINMUX_GPIO170__FUNC_AUD_SYNC_MOSI>;
++			input-schmitt-enable;
++			bias-disable;
 +		};
 +	};
 +
@@ -1157,6 +1159,8 @@ index 0000000..eb12987
 +		pins-clk-sync {
 +			pinmux = <PINMUX_GPIO173__FUNC_AUD_CLK_MISO>,
 +				 <PINMUX_GPIO174__FUNC_AUD_SYNC_MISO>;
++			input-schmitt-enable;
++			bias-disable;
 +		};
 +	};
 +
@@ -1173,6 +1177,8 @@ index 0000000..eb12987
 +		pins-dat {
 +			pinmux = <PINMUX_GPIO171__FUNC_AUD_DAT_MOSI0>,
 +				 <PINMUX_GPIO172__FUNC_AUD_DAT_MOSI1>;
++			input-schmitt-enable;
++			bias-disable;
 +		};
 +	};
 +

@@ -1120,6 +1120,8 @@
 		pins-clk-sync {
 			pinmux = <PINMUX_GPIO169__FUNC_AUD_CLK_MOSI>,
 				 <PINMUX_GPIO170__FUNC_AUD_SYNC_MOSI>;
+			input-schmitt-enable;
+			bias-disable;
 		};
 	};
 
@@ -1136,6 +1138,8 @@
 		pins-clk-sync {
 			pinmux = <PINMUX_GPIO173__FUNC_AUD_CLK_MISO>,
 				 <PINMUX_GPIO174__FUNC_AUD_SYNC_MISO>;
+			input-schmitt-enable;
+			bias-disable;
 		};
 	};
 
@@ -1152,6 +1156,8 @@
 		pins-dat {
 			pinmux = <PINMUX_GPIO171__FUNC_AUD_DAT_MOSI0>,
 				 <PINMUX_GPIO172__FUNC_AUD_DAT_MOSI1>;
+			input-schmitt-enable;
+			bias-disable;
 		};
 	};
 
