@@ -1,0 +1,31 @@
+From cfc3e2bc5a51e958b74533590a27ef08fde2483f Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 00:24:44 +0700
+Subject: [PATCH] dt-bindings: clock: mt6789: Add CLK_TOP_AUD_1 clock ID
+
+Add CLK_TOP_AUD_1 to the MT6789 topckgen clock binding header so
+topckgen can expose the "top_aud_1" 1:1 factor clock expected by the
+shared MT8186/MT6789 audsys clock driver for aud_tdm_clk.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ include/dt-bindings/clock/mt6789-clk.h | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/include/dt-bindings/clock/mt6789-clk.h b/include/dt-bindings/clock/mt6789-clk.h
+index e36ad77..2a1f545 100644
+--- a/include/dt-bindings/clock/mt6789-clk.h
++++ b/include/dt-bindings/clock/mt6789-clk.h
+@@ -178,7 +178,8 @@
+ #define CLK_TOP_DSI_OCC					166
+ #define CLK_TOP_I2C_PSEUDO				167
+ #define CLK_TOP_APDMA					168
+-#define CLK_TOP_NR_CLK					169
++#define CLK_TOP_AUD_1					169
++#define CLK_TOP_NR_CLK					170
+ 
+ /* INFRACFG_AO */
+ 
+-- 
+2.55.0
+

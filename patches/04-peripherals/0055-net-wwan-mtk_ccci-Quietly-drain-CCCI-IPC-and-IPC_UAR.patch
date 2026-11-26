@@ -1,0 +1,56 @@
+From 597a03e4bb4ad266c34d3ca1eb0867df4db331d6 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 00:21:23 +0700
+Subject: [PATCH] net: wwan: mtk_ccci: Quietly drain CCCI IPC and IPC_UART RX
+ channels
+
+During LTE registration on MT6789, the Gen95 modem sends unsolicited
+coexistence IPC packets on logical channel 34 (CCCI_CH_IPC_RX, task
+AP_MOD_WMT) and AGPS IPC UART packets on channel 38
+(CCCI_CH_IPC_UART_RX). Without WMT/AGPS userspace daemons running,
+these fall through to the unhandled warning path and dump raw hex into
+dmesg.
+
+Define CCCI_CH_IPC_RX (34) and CCCI_CH_IPC_UART_RX (38) and drain them
+quietly at debug level alongside CCCI_CH_IMSM_RX (169).
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/net/wwan/mtk_ccci/mtk_ccci.h      | 2 ++
+ drivers/net/wwan/mtk_ccci/mtk_ccci_core.c | 6 ++++--
+ 2 files changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci.h b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
+index aa57072..81b5824 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci.h
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
+@@ -109,6 +109,8 @@
+ #define CCCI_CH_FS_TX			15
+ #define CCCI_CH_RPC_RX			32
+ #define CCCI_CH_RPC_TX			33
++#define CCCI_CH_IPC_RX			34
++#define CCCI_CH_IPC_UART_RX		38
+ #define CCCI_CH_STATUS_RX		67
+ #define CCCI_CH_STATUS_TX		68
+ #define CCCI_CH_IMSM_RX			169
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+index 8ad116b..1d550b7 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+@@ -885,9 +885,11 @@ static void mtk_ccci_drain_queue(struct mtk_ccci_dev *ccci, u32 q)
+ 		case CCCI_CH_UART2_RX:
+ 			mtk_ccci_at_rx(ccci, ccci->rx_buf, ret);
+ 			break;
++		case CCCI_CH_IPC_RX:
++		case CCCI_CH_IPC_UART_RX:
+ 		case CCCI_CH_IMSM_RX:
+-			dev_dbg(ccci->dev, "CCIF Q%u IMSM RX len=%d\n",
+-				q, ret);
++			dev_dbg(ccci->dev, "CCIF Q%u ch=%u RX len=%d\n",
++				q, hdr->channel, ret);
+ 			break;
+ 		default:
+ 			if (__ratelimit(&ccci->unhandled_rs)) {
+-- 
+2.55.0
+

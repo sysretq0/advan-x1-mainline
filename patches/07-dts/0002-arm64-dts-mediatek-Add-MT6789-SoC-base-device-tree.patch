@@ -11,7 +11,7 @@ and display pipeline.
 
 Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
- arch/arm64/boot/dts/mediatek/mt6789.dtsi | 1873 ++++++++++++++++++++++
+ arch/arm64/boot/dts/mediatek/mt6789.dtsi | 1880 ++++++++++++++++++++++
  1 file changed, 1873 insertions(+)
  create mode 100644 arch/arm64/boot/dts/mediatek/mt6789.dtsi
 
@@ -20,7 +20,7 @@ new file mode 100644
 index 000000000000..111111111111
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
-@@ -0,0 +1,1873 @@
+@@ -0,0 +1,1880 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * MediaTek MT6789 (Helio G99) SoC base device tree — mainline shape.
@@ -323,6 +323,13 @@ index 000000000000..111111111111
 +		#clock-cells = <0>;
 +		clock-frequency = <32768>;
 +		clock-output-names = "clk32k";
++	};
++
++	ulposc: oscillator-ulposc {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-frequency = <260000000>;
++		clock-output-names = "ulposc";
 +	};
 +
 +	gpu_opp_table: opp-table-gpu {

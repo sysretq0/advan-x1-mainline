@@ -1,0 +1,35 @@
+From cde3c7b1b538e72d0a6e69873552dc0f16244d50 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 00:24:44 +0700
+Subject: [PATCH] clk: mediatek: mt6789: Add top_aud_1 factor clock for audsys
+
+The shared MT8186/MT6789 audsys clock driver registers aud_tdm_clk with
+parent "top_aud_1", matching MT8186's topckgen naming. MT6789 topckgen
+currently exposes the mux as "aud_1_sel" without a "top_aud_1" 1:1
+factor clock, leaving aud_tdm_clk orphaned at rate 0 in
+clk_orphan_summary.
+
+Add CLK_TOP_AUD_1 ("top_aud_1") backed by "aud_1_sel", matching the
+existing top_audio / top_aud_engen1 / top_aud_engen2 / top_audio_h
+factor clocks.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/clk/mediatek/clk-mt6789-topckgen.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/clk/mediatek/clk-mt6789-topckgen.c b/drivers/clk/mediatek/clk-mt6789-topckgen.c
+index 0686648..45929ee 100644
+--- a/drivers/clk/mediatek/clk-mt6789-topckgen.c
++++ b/drivers/clk/mediatek/clk-mt6789-topckgen.c
+@@ -99,6 +99,7 @@ static const struct mtk_fixed_factor top_divs[] = {
+ 	FACTOR(CLK_TOP_USB_TOP, "top_usb", "usb_sel", 1, 1),
+ 	FACTOR(CLK_TOP_I2C, "top_i2c", "i2c_sel", 1, 1),
+ 	FACTOR(CLK_TOP_AUD_ENGEN1, "top_aud_engen1", "aud_engen1_sel", 1, 1),
++	FACTOR(CLK_TOP_AUD_1, "top_aud_1", "aud_1_sel", 1, 1),
+ 	FACTOR(CLK_TOP_AUD_ENGEN2, "top_aud_engen2", "aud_engen2_sel", 1, 1),
+ 	FACTOR(CLK_TOP_AES_UFSFDE, "top_aes_ufsfde", "aes_ufsfde_sel", 1, 1),
+ 	FACTOR(CLK_TOP_UFS, "top_ufs", "ufs_sel", 1, 1),
+-- 
+2.55.0
+
