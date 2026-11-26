@@ -449,6 +449,7 @@
 				power-domain@10 {
 					reg = <MT6789_POWER_DOMAIN_DISP>;
 					clocks = <&topckgen CLK_TOP_DISP_SEL>,
+						 <&topckgen CLK_TOP_MDP_SEL>,
 						 <&mmsys CLK_MM_SMI_INFRA>,
 						 <&mmsys CLK_MM_SMI_COMMON>,
 						 <&mmsys CLK_MM_SMI_GALS>,
@@ -456,6 +457,7 @@
 						 <&mmsys CLK_MM_APB_BUS>,
 						 <&mmsys CLK_MM_DISP_26M>;
 					clock-names = "disp",
+						      "mdp",
 						      "subsys-smi-infra",
 						      "subsys-smi-common",
 						      "subsys-smi-gals",
@@ -1248,20 +1250,22 @@
 		smi_common: smi@14002000 {
 			compatible = "mediatek,mt6789-smi-common";
 			reg = <0x00 0x14002000 0x00 0x1000>;
-			clocks = <&mmsys CLK_MM_SMI_COMMON>,
+			clocks = <&mmsys CLK_MM_SMI_INFRA>,
 				 <&mmsys CLK_MM_SMI_COMMON>,
 				 <&mmsys CLK_MM_SMI_GALS>,
-				 <&mmsys CLK_MM_SMI_GALS>;
+				 <&mmsys CLK_MM_SMI_IOMMU>;
 			clock-names = "apb", "smi", "gals0", "gals1";
+			mediatek,smi = <&smi_sub_comm0>, <&smi_sub_comm1>;
 			power-domains = <&spm MT6789_POWER_DOMAIN_DISP>;
 		};
 
 		larb0: smi@14003000 {
 			compatible = "mediatek,mt6789-smi-larb";
 			reg = <0x00 0x14003000 0x00 0x1000>;
-			clocks = <&mmsys CLK_MM_SMI_COMMON>,
-				 <&mmsys CLK_MM_SMI_COMMON>;
-			clock-names = "apb", "smi";
+			clocks = <&mmsys CLK_MM_SMI_INFRA>,
+				 <&mmsys CLK_MM_SMI_COMMON>,
+				 <&mmsys CLK_MM_SMI_GALS>;
+			clock-names = "apb", "smi", "gals";
 			mediatek,larb-id = <0>;
 			mediatek,smi = <&smi_common>;
 			power-domains = <&spm MT6789_POWER_DOMAIN_DISP>;
@@ -1270,9 +1274,10 @@
 		larb1: smi@14004000 {
 			compatible = "mediatek,mt6789-smi-larb";
 			reg = <0x00 0x14004000 0x00 0x1000>;
-			clocks = <&mmsys CLK_MM_SMI_COMMON>,
-				 <&mmsys CLK_MM_SMI_COMMON>;
-			clock-names = "apb", "smi";
+			clocks = <&mmsys CLK_MM_SMI_INFRA>,
+				 <&mmsys CLK_MM_SMI_COMMON>,
+				 <&mmsys CLK_MM_SMI_GALS>;
+			clock-names = "apb", "smi", "gals";
 			mediatek,larb-id = <1>;
 			mediatek,smi = <&smi_common>;
 			power-domains = <&spm MT6789_POWER_DOMAIN_DISP>;
@@ -1382,6 +1387,28 @@
 			power-domains = <&spm MT6789_POWER_DOMAIN_DISP>;
 			mediatek,larbs = <&larb0>, <&larb1>;
 			#iommu-cells = <1>;
+		};
+
+		smi_sub_comm0: smi@1401b000 {
+			compatible = "mediatek,mt6789-smi-sub-common";
+			reg = <0x00 0x1401b000 0x00 0x1000>;
+			clocks = <&mmsys CLK_MM_SMI_INFRA>,
+				 <&mmsys CLK_MM_SMI_COMMON>,
+				 <&mmsys CLK_MM_SMI_GALS>,
+				 <&mmsys CLK_MM_SMI_IOMMU>;
+			clock-names = "apb", "smi", "gals0", "gals1";
+			power-domains = <&spm MT6789_POWER_DOMAIN_DISP>;
+		};
+
+		smi_sub_comm1: smi@1401c000 {
+			compatible = "mediatek,mt6789-smi-sub-common";
+			reg = <0x00 0x1401c000 0x00 0x1000>;
+			clocks = <&mmsys CLK_MM_SMI_INFRA>,
+				 <&mmsys CLK_MM_SMI_COMMON>,
+				 <&mmsys CLK_MM_SMI_GALS>,
+				 <&mmsys CLK_MM_SMI_IOMMU>;
+			clock-names = "apb", "smi", "gals0", "gals1";
+			power-domains = <&spm MT6789_POWER_DOMAIN_DISP>;
 		};
 	};
 

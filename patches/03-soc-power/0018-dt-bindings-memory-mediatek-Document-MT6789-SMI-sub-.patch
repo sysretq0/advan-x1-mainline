@@ -1,0 +1,79 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Thu, 26 Nov 2026 03:35:00 +0000
+Subject: [PATCH] dt-bindings: memory: mediatek: Document MT6789 SMI 2x1 sub-common and LARB GALS clock
+
+Document mediatek,mt6789-smi-sub-common (with four GALS/SMI clocks),
+allow mediatek,mt6789-smi-common to reference up to two upstream
+smi-sub-common nodes via mediatek,smi, and add mediatek,mt6789-smi-larb
+to the optional GALS clock list.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ .../memory-controllers/mediatek,smi-common.yaml       | 19 +++++++++++++++----
+ .../memory-controllers/mediatek,smi-larb.yaml         |  1 +
+ 2 files changed, 16 insertions(+), 4 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/memory-controllers/mediatek,smi-common.yaml b/Documentation/devicetree/bindings/memory-controllers/mediatek,smi-common.yaml
+index 83c432268..05dced104 100644
+--- a/Documentation/devicetree/bindings/memory-controllers/mediatek,smi-common.yaml
++++ b/Documentation/devicetree/bindings/memory-controllers/mediatek,smi-common.yaml
+@@ -48,6 +48,7 @@ properties:
+           - mediatek,mt2712-smi-common
+           - mediatek,mt6779-smi-common
+           - mediatek,mt6789-smi-common
++          - mediatek,mt6789-smi-sub-common
+           - mediatek,mt6795-smi-common
+           - mediatek,mt6893-smi-common
+           - mediatek,mt8167-smi-common
+@@ -93,8 +94,10 @@ properties:
+     maxItems: 4
+ 
+   mediatek,smi:
+-    $ref: /schemas/types.yaml#/definitions/phandle
+-    description: a phandle to the smi-common node above. Only for sub-common.
++    $ref: /schemas/types.yaml#/definitions/phandle-array
++    minItems: 1
++    maxItems: 2
++    description: phandle(s) to the upstream smi-common or smi-sub-common node(s).
+ 
+ required:
+   - compatible
+@@ -141,8 +144,15 @@ allOf:
+             - const: smi
+             - const: gals0
+     else:
+-      properties:
+-        mediatek,smi: false
++      if:
++        not:
++          properties:
++            compatible:
++              contains:
++                const: mediatek,mt6789-smi-common
++      then:
++        properties:
++          mediatek,smi: false
+ 
+   - if:  # for gen2 HW that have gals
+       properties:
+@@ -150,6 +160,7 @@ allOf:
+           enum:
+             - mediatek,mt6779-smi-common
+             - mediatek,mt6789-smi-common
++            - mediatek,mt6789-smi-sub-common
+             - mediatek,mt8183-smi-common
+             - mediatek,mt8186-smi-common
+             - mediatek,mt8192-smi-common
+diff --git a/Documentation/devicetree/bindings/memory-controllers/mediatek,smi-larb.yaml b/Documentation/devicetree/bindings/memory-controllers/mediatek,smi-larb.yaml
+index f20de26e4..f973cfa31 100644
+--- a/Documentation/devicetree/bindings/memory-controllers/mediatek,smi-larb.yaml
++++ b/Documentation/devicetree/bindings/memory-controllers/mediatek,smi-larb.yaml
+@@ -84,6 +84,7 @@ allOf:
+       properties:
+         compatible:
+           enum:
++            - mediatek,mt6789-smi-larb
+             - mediatek,mt8183-smi-larb
+             - mediatek,mt8186-smi-larb
+             - mediatek,mt8188-smi-larb

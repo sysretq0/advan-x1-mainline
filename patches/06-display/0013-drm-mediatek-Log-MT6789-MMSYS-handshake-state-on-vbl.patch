@@ -1,0 +1,98 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Thu, 26 Nov 2026 03:35:00 +0000
+Subject: [PATCH] drm/mediatek: Log MT6789 MMSYS handshake state on vblank stall
+
+When mtk_crtc_atomic_disable() times out waiting for a vblank on
+MT6789, dump the MMSYS clock gates, SODI/EMI control, SMI LARB GREQ,
+DL_VALID/DL_READY handshake signals, and DDP routing registers before
+clocks are gated off. This adds zero output on healthy frames and
+pinpoints the exact stalled DDP link if a post-suspend hang occurs.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/gpu/drm/mediatek/mtk_crtc.c | 48 +++++++++++++++++++++++++++++++++++++
+ 1 file changed, 48 insertions(+)
+
+diff --git a/drivers/gpu/drm/mediatek/mtk_crtc.c b/drivers/gpu/drm/mediatek/mtk_crtc.c
+index 52dd02b20..6e9ae6ac8 100644
+--- a/drivers/gpu/drm/mediatek/mtk_crtc.c
++++ b/drivers/gpu/drm/mediatek/mtk_crtc.c
+@@ -6,8 +6,10 @@
+ #include <linux/clk.h>
+ #include <linux/dma-mapping.h>
+ #include <linux/mailbox_controller.h>
++#include <linux/mfd/syscon.h>
+ #include <linux/of.h>
+ #include <linux/pm_runtime.h>
++#include <linux/regmap.h>
+ #include <linux/soc/mediatek/mtk-cmdq.h>
+ #include <linux/soc/mediatek/mtk-mmsys.h>
+ #include <linux/soc/mediatek/mtk-mutex.h>
+@@ -811,12 +813,55 @@ static void mtk_crtc_atomic_enable(struct drm_crtc *crtc,
+ 	mtk_crtc->enabled = true;
+ }
+ 
++static void mtk_crtc_dump_mt6789_mmsys_stall(struct mtk_crtc *mtk_crtc)
++{
++	struct drm_device *dev = mtk_crtc->base.dev;
++	struct regmap *mmsys;
++	u32 cg0 = 0, cg1 = 0, misc = 0, sodi = 0, emi = 0;
++	u32 greq0 = 0, greq1 = 0, v0 = 0, v1 = 0, r0 = 0, r1 = 0;
++	u32 ovl_con = 0, ovl_mout = 0, dither_mout = 0, dsi_sel = 0, dsc_mout = 0;
++
++	if (!mtk_crtc->mmsys_dev ||
++	    !of_device_is_compatible(mtk_crtc->mmsys_dev->of_node,
++				     "mediatek,mt6789-mmsys"))
++		return;
++
++	mmsys = syscon_node_to_regmap(mtk_crtc->mmsys_dev->of_node);
++	if (IS_ERR(mmsys))
++		return;
++
++	regmap_read(mmsys, 0x0f0, &misc);
++	regmap_read(mmsys, 0x0f4, &sodi);
++	regmap_read(mmsys, 0x0f8, &emi);
++	regmap_read(mmsys, 0x100, &cg0);
++	regmap_read(mmsys, 0x110, &cg1);
++	regmap_read(mmsys, 0x8dc, &greq0);
++	regmap_read(mmsys, 0x8e0, &greq1);
++	regmap_read(mmsys, 0xe9c, &v0);
++	regmap_read(mmsys, 0xea0, &v1);
++	regmap_read(mmsys, 0xea8, &r0);
++	regmap_read(mmsys, 0xeac, &r1);
++	regmap_read(mmsys, 0xf04, &ovl_con);
++	regmap_read(mmsys, 0xf18, &ovl_mout);
++	regmap_read(mmsys, 0xf20, &dither_mout);
++	regmap_read(mmsys, 0xf30, &dsi_sel);
++	regmap_read(mmsys, 0xf38, &dsc_mout);
++
++	drm_err(dev,
++		"mt6789 mmsys stall: cg0=0x%x cg1=0x%x misc=0x%x sodi=0x%x emi=0x%x greq0=0x%x greq1=0x%x\n",
++		cg0, cg1, misc, sodi, emi, greq0, greq1);
++	drm_err(dev,
++		"mt6789 mmsys dl: va0=0x%x va1=0x%x rd0=0x%x rd1=0x%x ovl=0x%x/0x%x dither=0x%x dsi=0x%x dsc=0x%x\n",
++		v0, v1, r0, r1, ovl_con, ovl_mout, dither_mout, dsi_sel, dsc_mout);
++}
++
+ static void mtk_crtc_atomic_disable(struct drm_crtc *crtc,
+ 				    struct drm_atomic_commit *state)
+ {
+ 	struct mtk_crtc *mtk_crtc = to_mtk_crtc(crtc);
+ 	struct mtk_ddp_comp *comp = mtk_crtc->ddp_comp[0];
+ 	struct drm_device *dev = mtk_crtc->base.dev;
++	u64 vbl_before;
+ 	int i;
+ 
+ 	drm_dbg_driver(dev, "%s %d\n", __func__, crtc->base.id);
+@@ -843,7 +888,10 @@ static void mtk_crtc_atomic_disable(struct drm_crtc *crtc,
+ 				   msecs_to_jiffies(500));
+ #endif
+ 	/* Wait for planes to be disabled */
++	vbl_before = drm_crtc_vblank_count(crtc);
+ 	drm_crtc_wait_one_vblank(crtc);
++	if (drm_crtc_vblank_count(crtc) == vbl_before)
++		mtk_crtc_dump_mt6789_mmsys_stall(mtk_crtc);
+ 
+ 	drm_crtc_vblank_off(crtc);
+ 	mtk_crtc_ddp_hw_fini(mtk_crtc);

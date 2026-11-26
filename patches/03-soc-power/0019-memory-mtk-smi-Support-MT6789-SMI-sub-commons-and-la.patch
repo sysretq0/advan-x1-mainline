@@ -1,0 +1,265 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Thu, 26 Nov 2026 03:35:00 +0000
+Subject: [PATCH] memory: mtk-smi: Support MT6789 2x1 SMI sub-commons and full larb cmd_thrt_con
+
+On MediaTek MT6789, smi_common (14002000.smi) routes display traffic
+through two 2x1 SMI sub-commons (1401b000.smi and 1401c000.smi) inside
+MT6789_POWER_DOMAIN_DISP before reaching disp_iommu/EMI. Across s2idle,
+the DISP power domain powers off and resets both 2x1 sub-commons to 0x0,
+clearing SMI_L1LEN (0xa), SMI_PREULTRA_MASK1 (0x2105), SMI_DCM (0x4f1),
+and SMI_DUMMY (0x1) and stalling OVL0/larb0 display reads on wake.
+
+Support MT6789's 2x1 sub-common topology and restore full downstream
+MT6789 SMI register state on runtime resume:
+- Add mediatek,mt6789-smi-sub-common with mtk_smi_sub_common_mt6789_init
+  and optional gals1 clock handling on MTK_SMI_GEN2_SUB_COMM.
+- Allow MTK_SMI_GEN2 smi-common to link up to two upstream mediatek,smi
+  suppliers so smi_sub_comm0/1 resume ahead of smi_common.
+- Run plat->init on MTK_SMI_GEN2_SUB_COMM during mtk_smi_common_resume()
+  while keeping SMI_BUS_SEL restricted to MTK_SMI_GEN2.
+- Restore the full downstream MT6789 SMI_LARB_CMD_THRT_CON value
+  (0x370256) on larb resume and log SMI_LARB_STAT/CMD_THRT_CON if
+  sleep_ctrl_enable times out.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/memory/mtk-smi.c | 93 +++++++++++++++++++++++++++++++++++++-----------
+ 1 file changed, 73 insertions(+), 20 deletions(-)
+
+diff --git a/drivers/memory/mtk-smi.c b/drivers/memory/mtk-smi.c
+index e033325..d50f6c9 100644
+--- a/drivers/memory/mtk-smi.c
++++ b/drivers/memory/mtk-smi.c
+@@ -33,10 +33,12 @@
+ #define SMI_M4U_TH			0x234
+ #define SMI_FIFO_TH1			0x238
+ #define SMI_FIFO_TH2			0x23c
++#define SMI_PREULTRA_MASK1		0x244
+ #define SMI_DCM				0x300
+ #define SMI_DUMMY			0x444
+ 
+ /* SMI LARB */
++#define SMI_LARB_STAT			0x0
+ #define SMI_LARB_SLP_CON                0xc
+ #define SLP_PROT_EN                     BIT(0)
+ #define SLP_PROT_RDY                    BIT(16)
+@@ -87,6 +89,7 @@
+ 
+ #define SMI_COMMON_INIT_REGS_NR		6
+ #define SMI_LARB_PORT_NR_MAX		32
++#define MTK_SMI_COMMON_LINKS_MAX	2
+ 
+ #define MTK_SMI_FLAG_THRT_UPDATE	BIT(0)
+ #define MTK_SMI_FLAG_SW_FLAG		BIT(1)
+@@ -133,6 +136,7 @@ struct mtk_smi_larb_gen {
+ 	int				(*config_port)(struct device *dev);
+ 	unsigned int			larb_direct_to_common_mask;
+ 	unsigned int			flags_general;
++	u32				cmd_thrt_con;
+ 	const u8			(*ostd)[SMI_LARB_PORT_NR_MAX];
+ };
+ 
+@@ -145,7 +149,8 @@ struct mtk_smi {
+ 		void __iomem		*smi_ao_base; /* only for gen1 */
+ 		void __iomem		*base;	      /* only for gen2 */
+ 	};
+-	struct device			*smi_common_dev; /* for sub common */
++	struct device			*smi_common_dev[MTK_SMI_COMMON_LINKS_MAX];
++	unsigned int			smi_common_nr;
+ 	const struct mtk_smi_common_plat *plat;
+ };
+ 
+@@ -247,7 +252,10 @@ static int mtk_smi_larb_config_port_gen2_general(struct device *dev)
+ 	if (BIT(larb->larbid) & larb->larb_gen->larb_direct_to_common_mask)
+ 		return 0;
+ 
+-	if (MTK_SMI_CAPS(flags_general, MTK_SMI_FLAG_THRT_UPDATE)) {
++	if (larb->larb_gen->cmd_thrt_con) {
++		writel_relaxed(larb->larb_gen->cmd_thrt_con,
++			       larb->base + SMI_LARB_CMD_THRT_CON);
++	} else if (MTK_SMI_CAPS(flags_general, MTK_SMI_FLAG_THRT_UPDATE)) {
+ 		reg = readl_relaxed(larb->base + SMI_LARB_CMD_THRT_CON);
+ 		reg &= ~SMI_LARB_THRT_RD_NU_LMT_MSK;
+ 		reg |= SMI_LARB_THRT_RD_NU_LMT;
+@@ -555,6 +563,7 @@ static const struct mtk_smi_larb_gen mtk_smi_larb_mt6789 = {
+ 	.config_port                = mtk_smi_larb_config_port_gen2_general,
+ 	.flags_general	            = MTK_SMI_FLAG_THRT_UPDATE | MTK_SMI_FLAG_SW_FLAG |
+ 				      MTK_SMI_FLAG_SLEEP_CTL,
++	.cmd_thrt_con               = 0x370256,
+ 	.ostd		            = mtk_smi_larb_mt6789_ostd,
+ };
+ 
+@@ -641,7 +650,10 @@ static int mtk_smi_larb_sleep_ctrl_enable(struct mtk_smi_larb *larb)
+ 					tmp, !!(tmp & SLP_PROT_RDY), 10, 1000);
+ 	if (ret) {
+ 		/* TODO: Reset this larb if it fails here. */
+-		dev_err(larb->smi.dev, "sleep ctrl is not ready(0x%x).\n", tmp);
++		dev_err(larb->smi.dev,
++			"sleep ctrl is not ready(0x%x) stat=0x%x thrt=0x%x.\n",
++			tmp, readl_relaxed(larb->base + SMI_LARB_STAT),
++			readl_relaxed(larb->base + SMI_LARB_CMD_THRT_CON));
+ 	}
+ 	return ret;
+ }
+@@ -651,14 +663,14 @@ static void mtk_smi_larb_sleep_ctrl_disable(struct mtk_smi_larb *larb)
+ 	writel_relaxed(0, larb->base + SMI_LARB_SLP_CON);
+ }
+ 
+-static int mtk_smi_device_link_common(struct device *dev, struct device **com_dev)
++static int mtk_smi_device_link_common(struct device *dev, struct device **com_dev, int index)
+ {
+ 	struct platform_device *smi_com_pdev;
+ 	struct device_node *smi_com_node;
+ 	struct device *smi_com_dev;
+ 	struct device_link *link;
+ 
+-	smi_com_node = of_parse_phandle(dev->of_node, "mediatek,smi", 0);
++	smi_com_node = of_parse_phandle(dev->of_node, "mediatek,smi", index);
+ 	if (!smi_com_node)
+ 		return -EINVAL;
+ 
+@@ -732,7 +744,7 @@ static int mtk_smi_larb_probe(struct platform_device *pdev)
+ 
+ 	larb->smi.dev = dev;
+ 
+-	ret = mtk_smi_device_link_common(dev, &larb->smi_common_dev);
++	ret = mtk_smi_device_link_common(dev, &larb->smi_common_dev, 0);
+ 	if (ret < 0)
+ 		return ret;
+ 
+@@ -817,6 +829,13 @@ static const struct mtk_smi_reg_pair mtk_smi_common_mt6789_init[SMI_COMMON_INIT_
+ 	{SMI_DUMMY, 0x1},
+ };
+ 
++static const struct mtk_smi_reg_pair mtk_smi_sub_common_mt6789_init[SMI_COMMON_INIT_REGS_NR] = {
++	{SMI_L1LEN, 0xa},
++	{SMI_PREULTRA_MASK1, 0x2105},
++	{SMI_DCM, 0x4f1},
++	{SMI_DUMMY, 0x1},
++};
++
+ static const struct mtk_smi_reg_pair mtk_smi_common_mt6795_init[SMI_COMMON_INIT_REGS_NR] = {
+ 	{SMI_L1_ARB, 0x1b},
+ 	{SMI_M4U_TH, 0xce810c85},
+@@ -862,6 +881,12 @@ static const struct mtk_smi_common_plat mtk_smi_common_mt6789 = {
+ 	.init     = mtk_smi_common_mt6789_init,
+ };
+ 
++static const struct mtk_smi_common_plat mtk_smi_sub_common_mt6789 = {
++	.type     = MTK_SMI_GEN2_SUB_COMM,
++	.has_gals = true,
++	.init     = mtk_smi_sub_common_mt6789_init,
++};
++
+ static const struct mtk_smi_common_plat mtk_smi_common_mt6893 = {
+ 	.type     = MTK_SMI_GEN2,
+ 	.has_gals = true,
+@@ -942,6 +967,7 @@ static const struct of_device_id mtk_smi_common_of_ids[] = {
+ 	{.compatible = "mediatek,mt2712-smi-common", .data = &mtk_smi_common_gen2},
+ 	{.compatible = "mediatek,mt6779-smi-common", .data = &mtk_smi_common_mt6779},
+ 	{.compatible = "mediatek,mt6789-smi-common", .data = &mtk_smi_common_mt6789},
++	{.compatible = "mediatek,mt6789-smi-sub-common", .data = &mtk_smi_sub_common_mt6789},
+ 	{.compatible = "mediatek,mt6795-smi-common", .data = &mtk_smi_common_mt6795},
+ 	{.compatible = "mediatek,mt6893-smi-common", .data = &mtk_smi_common_mt6893},
+ 	{.compatible = "mediatek,mt8167-smi-common", .data = &mtk_smi_common_gen2},
+@@ -965,7 +991,7 @@ static int mtk_smi_common_probe(struct platform_device *pdev)
+ {
+ 	struct device *dev = &pdev->dev;
+ 	struct mtk_smi *common;
+-	int ret, clk_required = MTK_SMI_COM_REQ_CLK_NR;
++	int ret, i, clk_required = MTK_SMI_COM_REQ_CLK_NR, clk_optional = 0;
+ 
+ 	common = devm_kzalloc_obj(dev, *common);
+ 	if (!common)
+@@ -974,12 +1000,15 @@ static int mtk_smi_common_probe(struct platform_device *pdev)
+ 	common->plat = of_device_get_match_data(dev);
+ 
+ 	if (common->plat->has_gals) {
+-		if (common->plat->type == MTK_SMI_GEN2)
++		if (common->plat->type == MTK_SMI_GEN2) {
+ 			clk_required = MTK_SMI_COM_GALS_REQ_CLK_NR;
+-		else if (common->plat->type == MTK_SMI_GEN2_SUB_COMM)
++		} else if (common->plat->type == MTK_SMI_GEN2_SUB_COMM) {
+ 			clk_required = MTK_SMI_SUB_COM_GALS_REQ_CLK_NR;
++			clk_optional = MTK_SMI_CLK_NR_MAX - clk_required;
++		}
+ 	}
+-	ret = mtk_smi_dts_clk_init(dev, common, mtk_smi_common_clks, clk_required, 0);
++	ret = mtk_smi_dts_clk_init(dev, common, mtk_smi_common_clks,
++				   clk_required, clk_optional);
+ 	if (ret)
+ 		return ret;
+ 
+@@ -1003,11 +1032,32 @@ static int mtk_smi_common_probe(struct platform_device *pdev)
+ 			return PTR_ERR(common->base);
+ 	}
+ 
+-	/* link its smi-common if this is smi-sub-common */
+-	if (common->plat->type == MTK_SMI_GEN2_SUB_COMM) {
+-		ret = mtk_smi_device_link_common(dev, &common->smi_common_dev);
+-		if (ret < 0)
+-			return ret;
++	/*
++	 * Link upstream smi-common/sub-common suppliers when present in DT:
++	 * sub-commons normally link to smi-common, while MT6789 smi-common
++	 * links to its 2x1 sub-commons sitting toward IOMMU/EMI.
++	 */
++	if (of_property_present(dev->of_node, "mediatek,smi")) {
++		int nr = of_count_phandle_with_args(dev->of_node, "mediatek,smi", NULL);
++
++		if (nr < 0)
++			return nr;
++		if (nr > MTK_SMI_COMMON_LINKS_MAX)
++			nr = MTK_SMI_COMMON_LINKS_MAX;
++
++		for (i = 0; i < nr; i++) {
++			ret = mtk_smi_device_link_common(dev, &common->smi_common_dev[i], i);
++			if (ret < 0) {
++				while (--i >= 0) {
++					device_link_remove(dev, common->smi_common_dev[i]);
++					put_device(common->smi_common_dev[i]);
++				}
++				return ret;
++			}
++		}
++		common->smi_common_nr = nr;
++	} else if (common->plat->type == MTK_SMI_GEN2_SUB_COMM && !common->plat->init) {
++		return -EINVAL;
+ 	}
+ 
+ 	pm_runtime_enable(dev);
+@@ -1018,11 +1068,13 @@ static int mtk_smi_common_probe(struct platform_device *pdev)
+ static void mtk_smi_common_remove(struct platform_device *pdev)
+ {
+ 	struct mtk_smi *common = dev_get_drvdata(&pdev->dev);
++	unsigned int i;
+ 
+-	if (common->plat->type == MTK_SMI_GEN2_SUB_COMM)
+-		device_link_remove(&pdev->dev, common->smi_common_dev);
++	for (i = 0; i < common->smi_common_nr; i++)
++		device_link_remove(&pdev->dev, common->smi_common_dev[i]);
+ 	pm_runtime_disable(&pdev->dev);
+-	put_device(common->smi_common_dev);
++	for (i = 0; i < common->smi_common_nr; i++)
++		put_device(common->smi_common_dev[i]);
+ }
+ 
+ static int __maybe_unused mtk_smi_common_resume(struct device *dev)
+@@ -1036,13 +1088,14 @@ static int __maybe_unused mtk_smi_common_resume(struct device *dev)
+ 	if (ret)
+ 		return ret;
+ 
+-	if (common->plat->type != MTK_SMI_GEN2)
++	if (common->plat->type == MTK_SMI_GEN1)
+ 		return 0;
+ 
+ 	for (i = 0; i < SMI_COMMON_INIT_REGS_NR && init && init[i].offset; i++)
+ 		writel_relaxed(init[i].value, common->base + init[i].offset);
+ 
+-	writel(bus_sel, common->base + SMI_BUS_SEL);
++	if (common->plat->type == MTK_SMI_GEN2)
++		writel(bus_sel, common->base + SMI_BUS_SEL);
+ 	return 0;
+ }
+ 
