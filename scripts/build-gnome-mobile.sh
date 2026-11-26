@@ -411,8 +411,8 @@ Section: x11
 Priority: optional
 Architecture: arm64
 Maintainer: sysretq0 <324514544+sysretq0@users.noreply.github.com>
-Depends: gdm3, gnome-shell, gnome-shell-common, mutter, mutter-common, mutter-common-bin, xwayland
-Recommends: gnome-console, nautilus, gnome-text-editor, loupe, gnome-calculator, gnome-control-center, fonts-cantarell, adwaita-icon-theme, advan-x1-support
+Depends: gdm3, gnome-session, gnome-shell, gnome-shell-common, mutter, mutter-common, mutter-common-bin, xwayland, gir1.2-modemmanager-1.0
+Recommends: ibus, rtkit, gnome-console, nautilus, gnome-text-editor, loupe, gnome-calculator, gnome-control-center, fonts-cantarell, adwaita-icon-theme, advan-x1-support
 Description: GNOME Mobile (mutter-mobile + gnome-shell-mobile) for Advan X1
  Built with Google AOSP Clang targeting Debian sid/forky arm64.
  Uses dpkg-divert into /usr/lib/advan-x1-gnome-mobile-diverted so stock
@@ -555,6 +555,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y --no-install-recommends \
     "$DEB" \
+    ibus rtkit \
     gnome-console nautilus gnome-text-editor loupe gnome-calculator gnome-control-center \
     fonts-cantarell adwaita-icon-theme
 
