@@ -341,7 +341,7 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/meson-venv"
           "$RUNNER_TEMP/meson-venv/bin/pip" install --quiet 'meson>=1.5.0'
           echo "$RUNNER_TEMP/meson-venv/bin" >> "$GITHUB_PATH"
-          meson --version
+          "$RUNNER_TEMP/meson-venv/bin/meson" --version
 
       - name: Restore full Google Clang cache (userspace cross-compile)
         id: clang-userspace-cache
