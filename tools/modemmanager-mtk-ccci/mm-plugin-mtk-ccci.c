@@ -842,6 +842,12 @@ load_current_modes_finish (MMIfaceModem *self, GAsyncResult *res,
     return TRUE;
 }
 
+static gboolean
+set_current_modes_finish (MMIfaceModem *self, GAsyncResult *res, GError **error)
+{
+    return g_task_propagate_boolean (G_TASK (res), error);
+}
+
 static void
 set_current_modes_ready (MMBaseModem *modem, GAsyncResult *res, GTask *task)
 {
