@@ -312,7 +312,6 @@ jobs:
 
   userspace:
     name: Build Userspace (CCCI, MM Plugin, UCM2 & GNOME Mobile — arm64, Google Clang)
-    needs: build
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_gnome_mobile == true }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
