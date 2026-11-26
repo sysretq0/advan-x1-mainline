@@ -86,9 +86,30 @@ mtk_auth_type (const gchar *user, const gchar *password, MMBearerAllowedAuth aut
     return 2;
 }
 
+static const gchar *
+mtk_ip_protocol (MMBearerIpFamily family)
+{
+    if (family == MM_BEARER_IP_FAMILY_IPV4)
+        return "IP";
+    if (family == MM_BEARER_IP_FAMILY_IPV6)
+        return "IPV6";
+    return "IPV4V6";
+}
+
+static gboolean
+mtk_ip_family_supported (MMBearerIpFamily family)
+{
+    return family == MM_BEARER_IP_FAMILY_NONE ||
+           family == MM_BEARER_IP_FAMILY_ANY ||
+           !!(family & (MM_BEARER_IP_FAMILY_IPV4 |
+                        MM_BEARER_IP_FAMILY_IPV6 |
+                        MM_BEARER_IP_FAMILY_IPV4V6));
+}
+
 static void
 configure_apn (MMBaseModem *modem, const gchar *apn,
-               const gchar *user, const gchar *password, MMBearerAllowedAuth auth,
+               const gchar *user, const gchar *password,
+               MMBearerIpFamily family, MMBearerAllowedAuth auth,
                GAsyncReadyCallback callback, gpointer user_data)
 {
     /*
@@ -98,7 +119,7 @@ configure_apn (MMBaseModem *modem, const gchar *apn,
      *                      AT+EAPNSET="<apn>",2,"type=...;protocol=...;authtype=..."
      *   unlockApn():       AT+EAPNLOCK=0
      *   handleSetInitialAttachApnRequest():
-     *                      AT+EIAAPN="<apn>",0,"IPV4V6","IPV4V6",<authtype>,"<user>","<pwd>"
+     *                      AT+EIAAPN="<apn>",0,"<proto>","<proto>",<authtype>,"<user>","<pwd>"
      */
     static const MMBaseModemAtCommand commands[] = {
         { "+EGTYPE=4", 10, FALSE, mm_base_modem_response_processor_no_result_continue },
@@ -116,17 +137,18 @@ configure_apn (MMBaseModem *modem, const gchar *apn,
     ApnSetup *ctx = g_new0 (ApnSetup, 1);
     const gchar *u = user ? user : "";
     const gchar *p = password ? password : "";
+    const gchar *proto = mtk_ip_protocol (family);
     guint authtype = mtk_auth_type (u, p, auth);
 
     G_STATIC_ASSERT (G_N_ELEMENTS (commands) == G_N_ELEMENTS (ctx->commands));
     memcpy (ctx->commands, commands, sizeof (commands));
     ctx->set_apn_creds = g_strdup_printf ("+EAPNSET=\"%s\",1,\"%s\",\"%s\"", apn, u, p);
     ctx->set_apn_params = g_strdup_printf (
-        "+EAPNSET=\"%s\",2,\"type=default,supl;protocol=IPV4V6;roaming_protocol=IPV4V6;"
+        "+EAPNSET=\"%s\",2,\"type=default,supl;protocol=%s;roaming_protocol=%s;"
         "authtype=%u;carrier_enabled=1;max_conns=0;max_conns_time=0;wait_time=0;"
-        "bearer_bitmask=0;inactive_timer=0\"", apn, authtype);
-    ctx->initial_apn = g_strdup_printf ("+EIAAPN=\"%s\",0,\"IPV4V6\",\"IPV4V6\",%u,\"%s\",\"%s\"",
-                                        apn, authtype, u, p);
+        "bearer_bitmask=0;inactive_timer=0\"", apn, proto, proto, authtype);
+    ctx->initial_apn = g_strdup_printf ("+EIAAPN=\"%s\",0,\"%s\",\"%s\",%u,\"%s\",\"%s\"",
+                                        apn, proto, proto, authtype, u, p);
     ctx->commands[3].command = ctx->set_apn_creds;
     ctx->commands[4].command = ctx->set_apn_params;
     ctx->commands[7].command = ctx->initial_apn;
@@ -164,15 +186,22 @@ typedef struct {
     gchar *apn;
     gchar *user;
     gchar *password;
+    MMBearerIpFamily family;
     MMBearerAllowedAuth auth;
     gboolean activated;
-    gboolean have_eif;
+    gboolean have_eif_v4;
+    gboolean have_eif_v6;
     gboolean link_lost;
-    MMMtkCcciEif eif;
+    guint eif_id;
+    guint eif_addr_type;
+    MMMtkCcciEif eif_v4;
+    MMMtkCcciEif eif_v6;
     guint wait_id;
     guint wait_count;
+    guint dual_wait_count;
     GError *error;
     MMBearerIpConfig *ip_config;
+    MMBearerIpConfig *ipv6_config;
     MMPort *data;
 } ConnectContext;
 
@@ -186,6 +215,7 @@ connect_context_free (ConnectContext *ctx)
     g_clear_object (&ctx->modem);
     g_clear_object (&ctx->primary);
     g_clear_object (&ctx->ip_config);
+    g_clear_object (&ctx->ipv6_config);
     g_clear_object (&ctx->data);
     g_clear_error (&ctx->error);
     g_free (ctx->apn);
@@ -298,20 +328,42 @@ connect_command_ready (MMBaseModem *modem, GAsyncResult *res, GTask *task)
 
     response = mm_base_modem_at_command_full_finish (modem, res, &error);
     if (!response) {
-        if (ctx->step == CONNECT_ACTIVATE && !ctx->have_eif)
+        if (ctx->step == CONNECT_ACTIVATE && !ctx->have_eif_v4 && !ctx->have_eif_v6)
             ctx->activated = FALSE;
         g_prefix_error (&error, "CCCI connect step %u: ", ctx->step);
         connect_fail (task, error);
         return;
     }
     if (ctx->step == CONNECT_DNS) {
-        g_auto(GStrv) dns = mm_mtk_ccci_parse_dns (response, ctx->apn, ctx->eif.address, &error);
+        gboolean got_any_dns = FALSE;
 
-        if (!dns) {
-            connect_fail (task, error);
-            return;
+        if (ctx->ip_config) {
+            g_autoptr(GError) v4_err = NULL;
+            g_auto(GStrv) dns = mm_mtk_ccci_parse_dns (response, ctx->apn,
+                                                       ctx->eif_v4.address, FALSE, &v4_err);
+            if (dns) {
+                mm_bearer_ip_config_set_dns (ctx->ip_config, (const gchar **) dns);
+                got_any_dns = TRUE;
+            } else if (!ctx->ipv6_config) {
+                connect_fail (task, g_steal_pointer (&v4_err));
+                return;
+            } else {
+                mm_obj_warn (g_task_get_source_object (task),
+                             "IPv4 DNS unavailable in +CGCONTRDP: %s", v4_err->message);
+            }
         }
-        mm_bearer_ip_config_set_dns (ctx->ip_config, (const gchar **) dns);
+        if (ctx->ipv6_config) {
+            g_autoptr(GError) v6_err = NULL;
+            g_auto(GStrv) dns6 = mm_mtk_ccci_parse_dns (response, ctx->apn,
+                                                        ctx->eif_v6.address, TRUE, &v6_err);
+            if (dns6) {
+                mm_bearer_ip_config_set_dns (ctx->ipv6_config, (const gchar **) dns6);
+                got_any_dns = TRUE;
+            } else if (!got_any_dns && !ctx->ip_config) {
+                mm_obj_warn (g_task_get_source_object (task),
+                             "IPv6 DNS unavailable in +CGCONTRDP: %s", v6_err->message);
+            }
+        }
     }
     ctx->step++;
     connect_step (task);
@@ -350,7 +402,8 @@ connect_step (GTask *task)
     }
     switch (ctx->step) {
     case CONNECT_CONFIGURE_APN:
-        configure_apn (ctx->modem, ctx->apn, ctx->user, ctx->password, ctx->auth,
+        configure_apn (ctx->modem, ctx->apn, ctx->user, ctx->password,
+                       ctx->family, ctx->auth,
                        (GAsyncReadyCallback) connect_apn_ready, task);
         return;
     case CONNECT_ALLOW:
@@ -360,21 +413,37 @@ connect_step (GTask *task)
         ctx->activated = TRUE;
         command = g_strdup_printf ("+EAPNACT=1,\"%s\",\"default\",0", ctx->apn);
         break;
-    case CONNECT_WAIT_EIF:
-        if (!ctx->have_eif) {
+    case CONNECT_WAIT_EIF: {
+        gboolean want_v4 = (ctx->family == MM_BEARER_IP_FAMILY_NONE ||
+                            ctx->family == MM_BEARER_IP_FAMILY_ANY ||
+                            !!(ctx->family & (MM_BEARER_IP_FAMILY_IPV4 | MM_BEARER_IP_FAMILY_IPV4V6)));
+        gboolean want_v6 = (ctx->family == MM_BEARER_IP_FAMILY_NONE ||
+                            ctx->family == MM_BEARER_IP_FAMILY_ANY ||
+                            !!(ctx->family & (MM_BEARER_IP_FAMILY_IPV6 | MM_BEARER_IP_FAMILY_IPV4V6)));
+        gboolean have_match = (want_v4 && ctx->have_eif_v4) || (want_v6 && ctx->have_eif_v6);
+
+        if (!have_match) {
             if (ctx->wait_count >= 30) {
                 connect_fail (task, g_error_new_literal (MM_CORE_ERROR, MM_CORE_ERROR_TIMEOUT,
-                                                        "No IPv4 +EIF indication after PDN activation"));
+                                                        "No matching +EIF indication after PDN activation"));
                 return;
             }
             ctx->wait_id = g_timeout_add_seconds (1, (GSourceFunc) wait_eif, task);
             return;
         }
+        /* For dual-stack, allow a brief window for the peer IP family +EIF line. */
+        if (want_v4 && want_v6 && !(ctx->have_eif_v4 && ctx->have_eif_v6) &&
+            ctx->dual_wait_count < 2) {
+            ctx->dual_wait_count++;
+            ctx->wait_id = g_timeout_add_seconds (1, (GSourceFunc) wait_eif, task);
+            return;
+        }
         {
-            guint net_if = ctx->eif.id % 100;
+            guint net_if = ctx->eif_id % 100;
 
             if (bind_wwan0_if_id (net_if)) {
-                mm_obj_msg (self, "bound wwan0 to DPMAIF net_if %u (EIF %u)", net_if, ctx->eif.id);
+                mm_obj_msg (self, "bound wwan0 to DPMAIF net_if %u (EIF %u, addr_type=%u)",
+                            net_if, ctx->eif_id, ctx->eif_addr_type);
                 command = g_strdup ("wwan0");
             } else {
                 command = g_strdup_printf ("wwan%u", net_if);
@@ -384,28 +453,44 @@ connect_step (GTask *task)
         if (!ctx->data || mm_port_get_port_type (ctx->data) != MM_PORT_TYPE_NET ||
             mm_port_get_connected (ctx->data)) {
             connect_fail (task, g_error_new (MM_CORE_ERROR, MM_CORE_ERROR_NOT_FOUND,
-                                            "EIF %u requires available net port %s", ctx->eif.id, command));
+                                            "EIF %u requires available net port %s", ctx->eif_id, command));
             return;
         }
-        ctx->ip_config = mm_bearer_ip_config_new ();
-        mm_bearer_ip_config_set_method (ctx->ip_config, MM_BEARER_IP_METHOD_STATIC);
-        mm_bearer_ip_config_set_address (ctx->ip_config, ctx->eif.address);
-        mm_bearer_ip_config_set_prefix (ctx->ip_config, 32);
-        mm_bearer_ip_config_set_mtu (ctx->ip_config, 1400);
+        if (want_v4 && ctx->have_eif_v4) {
+            ctx->ip_config = mm_bearer_ip_config_new ();
+            mm_bearer_ip_config_set_method (ctx->ip_config, MM_BEARER_IP_METHOD_STATIC);
+            mm_bearer_ip_config_set_address (ctx->ip_config, ctx->eif_v4.address);
+            mm_bearer_ip_config_set_prefix (ctx->ip_config, 32);
+            mm_bearer_ip_config_set_mtu (ctx->ip_config, 1400);
+        }
+        if (want_v6 && ctx->have_eif_v6) {
+            g_autoptr(GInetAddress) v6 = g_inet_address_new_from_string (ctx->eif_v6.address);
+            gboolean is_ll = v6 && g_inet_address_get_is_link_local (v6);
+
+            ctx->ipv6_config = mm_bearer_ip_config_new ();
+            mm_bearer_ip_config_set_method (ctx->ipv6_config,
+                                            is_ll ? MM_BEARER_IP_METHOD_DHCP : MM_BEARER_IP_METHOD_STATIC);
+            mm_bearer_ip_config_set_address (ctx->ipv6_config, ctx->eif_v6.address);
+            mm_bearer_ip_config_set_prefix (ctx->ipv6_config, 64);
+            mm_bearer_ip_config_set_mtu (ctx->ipv6_config, 1400);
+        }
         ctx->step++;
         connect_step (task);
         return;
+    }
     case CONNECT_ACK_EIF:
-        command = g_strdup_printf ("+EIF=%u,\"ifst\",\"up\",3", ctx->eif.id);
+        command = g_strdup_printf ("+EIF=%u,\"ifst\",\"up\",%u",
+                                   ctx->eif_id, ctx->eif_addr_type ? ctx->eif_addr_type : 3);
         break;
     case CONNECT_DNS:
         command = g_strdup ("+CGCONTRDP");
         break;
     case CONNECT_DONE:
-        self->if_id = ctx->eif.id;
+        self->if_id = ctx->eif_id;
         self->have_if_id = TRUE;
         self->pending = NULL;
-        g_task_return_pointer (task, mm_bearer_connect_result_new (ctx->data, ctx->ip_config, NULL),
+        g_task_return_pointer (task,
+                               mm_bearer_connect_result_new (ctx->data, ctx->ip_config, ctx->ipv6_config),
                                (GDestroyNotify) mm_bearer_connect_result_unref);
         g_object_unref (task);
         return;
@@ -432,11 +517,9 @@ connect_3gpp (MMBroadbandBearer *bearer, MMBroadbandModem *modem,
     MMBearerAllowedAuth auth = mm_bearer_properties_get_allowed_auth (config);
 
     if (!mm_mtk_ccci_valid_apn (apn) || !mm_mtk_ccci_valid_cred (user) ||
-        !mm_mtk_ccci_valid_cred (password) ||
-        (family != MM_BEARER_IP_FAMILY_NONE && family != MM_BEARER_IP_FAMILY_ANY &&
-         !(family & (MM_BEARER_IP_FAMILY_IPV4 | MM_BEARER_IP_FAMILY_IPV4V6)))) {
+        !mm_mtk_ccci_valid_cred (password) || !mtk_ip_family_supported (family)) {
         g_task_return_new_error (task, MM_CORE_ERROR, MM_CORE_ERROR_UNSUPPORTED,
-                                 "CCCI requires a valid APN and IPv4 or IPv4v6");
+                                 "CCCI requires a valid APN and IPv4, IPv6, or IPv4v6");
         g_object_unref (task);
         return;
     }
@@ -446,6 +529,7 @@ connect_3gpp (MMBroadbandBearer *bearer, MMBroadbandModem *modem,
     ctx->apn = g_strdup (apn);
     ctx->user = g_strdup (user);
     ctx->password = g_strdup (password);
+    ctx->family = family;
     ctx->auth = auth;
     g_task_set_task_data (task, ctx, (GDestroyNotify) connect_context_free);
     g_task_set_check_cancellable (task, FALSE);
@@ -502,9 +586,19 @@ bearer_process_eif (MMBaseBearer *bearer, MMMtkCcciEif *eif)
         if (ctx->error || !ctx->activated)
             return;
         if (eif->up) {
-            ctx->eif = *eif;
-            ctx->have_eif = TRUE;
-        } else if (ctx->have_eif && ctx->eif.id == eif->id) {
+            ctx->eif_id = eif->id;
+            if (eif->is_ipv6) {
+                ctx->eif_v6 = *eif;
+                ctx->have_eif_v6 = TRUE;
+            } else {
+                ctx->eif_v4 = *eif;
+                ctx->have_eif_v4 = TRUE;
+            }
+            if (eif->addr_type == 3 || (ctx->have_eif_v4 && ctx->have_eif_v6))
+                ctx->eif_addr_type = 3;
+            else if (eif->addr_type == 1 || eif->addr_type == 2)
+                ctx->eif_addr_type = eif->addr_type;
+        } else if ((ctx->have_eif_v4 || ctx->have_eif_v6) && ctx->eif_id == eif->id) {
             ctx->link_lost = TRUE;
         }
     } else if (!eif->up && self->have_if_id && self->if_id == eif->id &&
@@ -512,6 +606,52 @@ bearer_process_eif (MMBaseBearer *bearer, MMMtkCcciEif *eif)
         self->have_if_id = FALSE;
         mm_base_bearer_report_connection_status (bearer, MM_BEARER_CONNECTION_STATUS_DISCONNECTED);
     }
+}
+
+static MMBearerConnectionStatus
+load_connection_status_finish (MMBaseBearer *self, GAsyncResult *res, GError **error)
+{
+    gssize ret = g_task_propagate_int (G_TASK (res), error);
+
+    return (ret < 0) ? MM_BEARER_CONNECTION_STATUS_UNKNOWN : (MMBearerConnectionStatus) ret;
+}
+
+static void
+cgact_query_ready (MMBaseModem *modem, GAsyncResult *res, GTask *task)
+{
+    MMBearerMtkCcci *self = g_task_get_source_object (task);
+    GError *error = NULL;
+    const gchar *response;
+    guint active = 0;
+
+    response = mm_base_modem_at_command_finish (modem, res, &error);
+    if (!response) {
+        g_task_return_error (task, error);
+    } else if (!mm_mtk_ccci_parse_cgact (response, &active)) {
+        g_task_return_int (task, MM_BEARER_CONNECTION_STATUS_UNKNOWN);
+    } else if (active > 0) {
+        g_task_return_int (task, MM_BEARER_CONNECTION_STATUS_CONNECTED);
+    } else {
+        self->have_if_id = FALSE;
+        g_task_return_int (task, MM_BEARER_CONNECTION_STATUS_DISCONNECTED);
+    }
+    g_object_unref (task);
+}
+
+static void
+load_connection_status (MMBaseBearer *self, GAsyncReadyCallback callback, gpointer user_data)
+{
+    g_autoptr(MMBaseModem) modem = NULL;
+    GTask *task = g_task_new (self, NULL, callback, user_data);
+
+    g_object_get (self, MM_BASE_BEARER_MODEM, &modem, NULL);
+    if (!modem) {
+        g_task_return_int (task, MM_BEARER_CONNECTION_STATUS_UNKNOWN);
+        g_object_unref (task);
+        return;
+    }
+    mm_base_modem_at_command (modem, "+CGACT?", 5, FALSE,
+                              (GAsyncReadyCallback) cgact_query_ready, task);
 }
 
 static void mm_bearer_mtk_ccci_init (MMBearerMtkCcci *self) {}
@@ -526,11 +666,11 @@ mm_bearer_mtk_ccci_class_init (MMBearerMtkCcciClass *klass)
     bearer_class->connect_3gpp_finish = connect_3gpp_finish;
     bearer_class->disconnect_3gpp = disconnect_3gpp;
     bearer_class->disconnect_3gpp_finish = disconnect_3gpp_finish;
-    base_class->load_connection_status = NULL;
-    base_class->load_connection_status_finish = NULL;
+    base_class->load_connection_status = load_connection_status;
+    base_class->load_connection_status_finish = load_connection_status_finish;
 #if defined WITH_SUSPEND_RESUME
-    base_class->reload_connection_status = NULL;
-    base_class->reload_connection_status_finish = NULL;
+    base_class->reload_connection_status = load_connection_status;
+    base_class->reload_connection_status_finish = load_connection_status_finish;
 #endif
 }
 
@@ -682,16 +822,14 @@ set_initial_eps_settings (MMIfaceModem3gpp *self, MMBearerProperties *config,
     MMBearerAllowedAuth auth = mm_bearer_properties_get_allowed_auth (config);
 
     if (!mm_mtk_ccci_valid_apn (apn) || !mm_mtk_ccci_valid_cred (user) ||
-        !mm_mtk_ccci_valid_cred (password) ||
-        (family != MM_BEARER_IP_FAMILY_NONE && family != MM_BEARER_IP_FAMILY_ANY &&
-         !(family & (MM_BEARER_IP_FAMILY_IPV4 | MM_BEARER_IP_FAMILY_IPV4V6)))) {
+        !mm_mtk_ccci_valid_cred (password) || !mtk_ip_family_supported (family)) {
         g_task_return_new_error (task, MM_CORE_ERROR, MM_CORE_ERROR_UNSUPPORTED,
-                                 "CCCI initial attach requires a valid APN and IPv4 or IPv4v6");
+                                 "CCCI initial attach requires a valid APN and IPv4, IPv6, or IPv4v6");
         g_object_unref (task);
         return;
     }
     g_task_set_task_data (task, g_object_ref (config), g_object_unref);
-    configure_apn (MM_BASE_MODEM (self), apn, user, password, auth,
+    configure_apn (MM_BASE_MODEM (self), apn, user, password, family, auth,
                    (GAsyncReadyCallback) initial_eps_apn_ready, task);
 }
 
@@ -745,6 +883,57 @@ create_bearer_list (MMIfaceModem *self)
 }
 
 static void
+power_up_voice_sms_ready (MMBaseModem *modem, GAsyncResult *res, GTask *task)
+{
+    g_autoptr(GError) error = NULL;
+
+    mm_base_modem_at_sequence_finish (modem, res, NULL, &error);
+    if (error)
+        mm_obj_warn (modem, "optional voice/SMS AT init incomplete: %s", error->message);
+    g_task_return_boolean (task, TRUE);
+    g_object_unref (task);
+}
+
+static void
+power_up_radio_ready (MMBaseModem *modem, GAsyncResult *res, GTask *task)
+{
+    /*
+     * Stock MOLY CS voice and SMS initialization verified from Advan X1
+     * stock radio.log (libmtk-ril.so):
+     *   - CS voice: enable CS call, caller ID (+CLIP/+COLP/+CSSN), voice mode
+     *     (+CMOD=0), disable auto-answer (S0=0). Keep +EAIC=0 so standard
+     *     RING/+CLCC/ATD/ATA/ATH work natively with ModemManager voice iface.
+     *   - SMS: PDU mode (+CMGF=0), Phase 2+ (+CSMS=1), direct URC routing
+     *     (+CNMI=1,2,2,1,1), SIM storage (+CPMS="SM","SM","SM") last so
+     *     missing/busy SIM does not block CS voice setup.
+     */
+    static const MMBaseModemAtCommand post_commands[] = {
+        { "+ECFGSET=\"disable_cs_call\",\"0\"", 5, FALSE, mm_base_modem_response_processor_no_result_continue },
+        { "+CLIP=1", 5, FALSE, mm_base_modem_response_processor_no_result_continue },
+        { "+COLP=1", 5, FALSE, mm_base_modem_response_processor_no_result_continue },
+        { "+CSSN=1,1", 5, FALSE, mm_base_modem_response_processor_no_result_continue },
+        { "+CMOD=0", 5, FALSE, mm_base_modem_response_processor_no_result_continue },
+        { "S0=0", 5, FALSE, mm_base_modem_response_processor_no_result_continue },
+        { "+CMGF=0", 5, FALSE, mm_base_modem_response_processor_no_result_continue },
+        { "+CSMS=1", 5, FALSE, mm_base_modem_response_processor_no_result_continue },
+        { "+CNMI=1,2,2,1,1", 5, FALSE, mm_base_modem_response_processor_no_result_continue },
+        { "+CPMS=\"SM\",\"SM\",\"SM\"", 5, FALSE, mm_base_modem_response_processor_no_result_continue },
+        { NULL }
+    };
+    GError *error = NULL;
+
+    mm_base_modem_at_sequence_finish (modem, res, NULL, &error);
+    if (error) {
+        g_task_return_error (task, error);
+        g_object_unref (task);
+        return;
+    }
+
+    mm_base_modem_at_sequence (modem, post_commands, NULL, NULL,
+                               (GAsyncReadyCallback) power_up_voice_sms_ready, task);
+}
+
+static void
 power_up (MMIfaceModem *self, GAsyncReadyCallback callback, gpointer user_data)
 {
     static const MMBaseModemAtCommand commands[] = {
@@ -752,21 +941,16 @@ power_up (MMIfaceModem *self, GAsyncReadyCallback callback, gpointer user_data)
         { "+CFUN=1", 30, FALSE, mm_base_modem_response_processor_no_result_continue },
         { NULL }
     };
+    GTask *task = g_task_new (self, NULL, callback, user_data);
 
-    mm_base_modem_at_sequence (MM_BASE_MODEM (self), commands, NULL, NULL, callback, user_data);
+    mm_base_modem_at_sequence (MM_BASE_MODEM (self), commands, NULL, NULL,
+                               (GAsyncReadyCallback) power_up_radio_ready, task);
 }
 
 static gboolean
 power_up_finish (MMIfaceModem *self, GAsyncResult *res, GError **error)
 {
-    GError *inner_error = NULL;
-
-    mm_base_modem_at_sequence_finish (MM_BASE_MODEM (self), res, NULL, &inner_error);
-    if (inner_error) {
-        g_propagate_error (error, inner_error);
-        return FALSE;
-    }
-    return TRUE;
+    return g_task_propagate_boolean (G_TASK (res), error);
 }
 
 static void
@@ -970,7 +1154,9 @@ load_supported_ip_families (MMIfaceModem *self, GAsyncReadyCallback callback, gp
 {
     GTask *task = g_task_new (self, NULL, callback, user_data);
 
-    g_task_return_int (task, MM_BEARER_IP_FAMILY_IPV4 | MM_BEARER_IP_FAMILY_IPV4V6);
+    g_task_return_int (task, MM_BEARER_IP_FAMILY_IPV4 |
+                             MM_BEARER_IP_FAMILY_IPV6 |
+                             MM_BEARER_IP_FAMILY_IPV4V6);
     g_object_unref (task);
 }
 

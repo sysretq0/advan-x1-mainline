@@ -36,8 +36,8 @@ KERNEL_LOAD_ADDR = 0x61000000
 KERNEL_ENTRY_ADDR = 0x61000000
 DEFAULT_BOOTARGS = (
     "earlycon=uart8250,mmio32,0x11002000 "
-    "console=ttyGS0,115200 console=tty0 nokaslr loglevel=7 "
-    "no_console_suspend loop.max_part=16 rdinit=/init panic=5"
+    "console=ttyGS0,115200 console=tty0 loglevel=4 "
+    "loop.max_part=16 rdinit=/init panic=5"
 )
 
 

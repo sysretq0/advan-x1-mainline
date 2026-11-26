@@ -1,0 +1,320 @@
+From a2175b3b06d4b523673bca7d00bcc05629e3245a Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Fri, 27 Nov 2026 03:17:07 +0700
+Subject: [PATCH 65/65] ASoC: mediatek: mt8186: Add MT6789 PCM2 MD1 voice call
+ crossbar
+
+Expose MediaTek MT6789's internal MD1 voice PCM2 interface (PCM2_INTF_CON
+at 0x053c, AFE_CONN17/18 uplink crossbar, and PCM_2_CAP_CH1 mono-to-stereo
+downlink onto ADDA_DL_CH1/CH2) along with the Hostless_Speech DPCM
+front-end
+DAI link in mt6789-mt6366.
+
+Together with /dev/ccci_aud speech mailbox control, this enables
+zero-CPU-DMA hardware routing between MT6366 analog earpiece/speaker/
+headset/mic and MD1 for cellular voice calls at 8/16/32/48 kHz.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+
+diff --git a/sound/soc/mediatek/mt8186/mt6789-mt6366.c b/sound/soc/mediatek/mt8186/mt6789-mt6366.c
+index d47da0815..0be73648a 100644
+--- a/sound/soc/mediatek/mt8186/mt6789-mt6366.c
++++ b/sound/soc/mediatek/mt8186/mt6789-mt6366.c
+@@ -48,6 +48,11 @@ SND_SOC_DAILINK_DEFS(capture2,
+ 		     DAILINK_COMP_ARRAY(COMP_DUMMY()),
+ 		     DAILINK_COMP_ARRAY(COMP_EMPTY()));
+ 
++SND_SOC_DAILINK_DEFS(hostless_speech,
++		     DAILINK_COMP_ARRAY(COMP_CPU("Hostless Speech DAI")),
++		     DAILINK_COMP_ARRAY(COMP_DUMMY()),
++		     DAILINK_COMP_ARRAY(COMP_EMPTY()));
++
+ /* Back End */
+ SND_SOC_DAILINK_DEFS(adda,
+ 		     DAILINK_COMP_ARRAY(COMP_CPU("ADDA")),
+@@ -65,6 +70,11 @@ SND_SOC_DAILINK_DEFS(i2s3,
+ 		     DAILINK_COMP_ARRAY(COMP_DUMMY()),
+ 		     DAILINK_COMP_ARRAY(COMP_EMPTY()));
+ 
++SND_SOC_DAILINK_DEFS(pcm2,
++		     DAILINK_COMP_ARRAY(COMP_CPU("PCM 2")),
++		     DAILINK_COMP_ARRAY(COMP_DUMMY()),
++		     DAILINK_COMP_ARRAY(COMP_EMPTY()));
++
+ static struct snd_soc_jack_pin mt6789_headset_jack_pins[] = {
+ 	{
+ 		.pin = "Headphone",
+@@ -178,6 +188,15 @@ static struct snd_soc_dai_link mt6789_mt6366_dai_links[] = {
+ 		.ops = &mtk_soundcard_common_capture_ops,
+ 		SND_SOC_DAILINK_REG(capture2),
+ 	},
++	{
++		.name = "Hostless_Speech",
++		.stream_name = "Hostless_Speech",
++		.trigger = { SND_SOC_DPCM_TRIGGER_PRE,
++			     SND_SOC_DPCM_TRIGGER_PRE },
++		.dynamic = 1,
++		.ignore_suspend = 1,
++		SND_SOC_DAILINK_REG(hostless_speech),
++	},
+ 	/* Back End DAI links */
+ 	{
+ 		.name = "Primary Codec",
+@@ -204,6 +223,12 @@ static struct snd_soc_dai_link mt6789_mt6366_dai_links[] = {
+ 			   SND_SOC_DAIFMT_CBC_CFC,
+ 		SND_SOC_DAILINK_REG(i2s3),
+ 	},
++	{
++		.name = "PCM 2",
++		.no_pcm = 1,
++		.ignore_suspend = 1,
++		SND_SOC_DAILINK_REG(pcm2),
++	},
+ };
+ 
+ static const struct snd_soc_dapm_widget mt6789_mt6366_widgets[] = {
+diff --git a/sound/soc/mediatek/mt8186/mt8186-afe-common.h b/sound/soc/mediatek/mt8186/mt8186-afe-common.h
+index d59258520..2a1bc01da 100644
+--- a/sound/soc/mediatek/mt8186/mt8186-afe-common.h
++++ b/sound/soc/mediatek/mt8186/mt8186-afe-common.h
+@@ -45,9 +45,11 @@ enum {
+ 	MT8186_DAI_SRC_1,
+ 	MT8186_DAI_SRC_2,
+ 	MT8186_DAI_PCM,
++	MT8186_DAI_PCM_2,
+ 	MT8186_DAI_TDM_IN,
+ 	MT8186_DAI_HOSTLESS_LPBK,
+ 	MT8186_DAI_HOSTLESS_FM,
++	MT8186_DAI_HOSTLESS_SPEECH,
+ 	MT8186_DAI_HOSTLESS_HW_GAIN_AAUDIO,
+ 	MT8186_DAI_HOSTLESS_SRC_AAUDIO,
+ 	MT8186_DAI_HOSTLESS_SRC_1,
+diff --git a/sound/soc/mediatek/mt8186/mt8186-afe-control.c b/sound/soc/mediatek/mt8186/mt8186-afe-control.c
+index 55edf6374..ee209d9c9 100644
+--- a/sound/soc/mediatek/mt8186/mt8186-afe-control.c
++++ b/sound/soc/mediatek/mt8186/mt8186-afe-control.c
+@@ -226,6 +226,7 @@ unsigned int mt8186_rate_transform(struct device *dev, unsigned int rate, int au
+ {
+ 	switch (aud_blk) {
+ 	case MT8186_DAI_PCM:
++	case MT8186_DAI_PCM_2:
+ 		return pcm_rate_transform(dev, rate);
+ 	case MT8186_DAI_TDM_IN:
+ 		return tdm_rate_transform(dev, rate);
+diff --git a/sound/soc/mediatek/mt8186/mt8186-dai-adda.c b/sound/soc/mediatek/mt8186/mt8186-dai-adda.c
+index 15bedc21c..c3c37bc73 100644
+--- a/sound/soc/mediatek/mt8186/mt8186-dai-adda.c
++++ b/sound/soc/mediatek/mt8186/mt8186-dai-adda.c
+@@ -101,6 +101,8 @@ static const struct snd_kcontrol_new mtk_adda_dl_ch2_mix[] = {
+ 				    I_GAIN1_OUT_CH2, 1, 0),
+ 	SOC_DAPM_SINGLE_AUTODISABLE("PCM_1_CAP_CH2 Switch", AFE_CONN4,
+ 				    I_PCM_1_CAP_CH2, 1, 0),
++	SOC_DAPM_SINGLE_AUTODISABLE("PCM_2_CAP_CH1 Switch", AFE_CONN4,
++				    I_PCM_2_CAP_CH1, 1, 0),
+ 	SOC_DAPM_SINGLE_AUTODISABLE("PCM_2_CAP_CH2 Switch", AFE_CONN4,
+ 				    I_PCM_2_CAP_CH2, 1, 0),
+ 	SOC_DAPM_SINGLE_AUTODISABLE("SRC_1_OUT_CH2 Switch", AFE_CONN4_1,
+diff --git a/sound/soc/mediatek/mt8186/mt8186-dai-hostless.c b/sound/soc/mediatek/mt8186/mt8186-dai-hostless.c
+index c7de6d1b3..3cfb37225 100644
+--- a/sound/soc/mediatek/mt8186/mt8186-dai-hostless.c
++++ b/sound/soc/mediatek/mt8186/mt8186-dai-hostless.c
+@@ -33,6 +33,17 @@ static const struct snd_soc_dapm_route mtk_dai_hostless_routes[] = {
+ 	{"I2S3_CH2", "ADDA_UL_CH2 Switch", "Hostless LPBK DL"},
+ 	{"Hostless LPBK UL", NULL, "ADDA_UL_Mux"},
+ 
++	/* Hostless Speech (MD1 internal PCM 2 <-> ADDA) */
++	{"ADDA_DL_CH1", "PCM_2_CAP_CH1 Switch", "Hostless Speech DL"},
++	{"ADDA_DL_CH2", "PCM_2_CAP_CH1 Switch", "Hostless Speech DL"},
++	{"ADDA_DL_CH2", "PCM_2_CAP_CH2 Switch", "Hostless Speech DL"},
++	{"PCM_2_PB_CH1", "ADDA_UL_CH1 Switch", "Hostless Speech DL"},
++	{"PCM_2_PB_CH1", "ADDA_UL_CH2 Switch", "Hostless Speech DL"},
++	{"PCM_2_PB_CH2", "ADDA_UL_CH1 Switch", "Hostless Speech DL"},
++	{"PCM_2_PB_CH2", "ADDA_UL_CH2 Switch", "Hostless Speech DL"},
++	{"Hostless Speech UL", NULL, "PCM 2 Capture"},
++	{"Hostless Speech UL", NULL, "ADDA_UL_Mux"},
++
+ 	/* Hostelss FM */
+ 	/* connsys_i2s to hw gain 1*/
+ 	{"Hostless FM UL", NULL, "Connsys I2S"},
+@@ -146,6 +157,25 @@ static struct snd_soc_dai_driver mtk_dai_hostless_driver[] = {
+ 		},
+ 		.ops = &mtk_dai_hostless_ops,
+ 	},
++	{
++		.name = "Hostless Speech DAI",
++		.id = MT8186_DAI_HOSTLESS_SPEECH,
++		.playback = {
++			.stream_name = "Hostless Speech DL",
++			.channels_min = 1,
++			.channels_max = 2,
++			.rates = MTK_HOSTLESS_RATES,
++			.formats = MTK_HOSTLESS_FORMATS,
++		},
++		.capture = {
++			.stream_name = "Hostless Speech UL",
++			.channels_min = 1,
++			.channels_max = 2,
++			.rates = MTK_HOSTLESS_RATES,
++			.formats = MTK_HOSTLESS_FORMATS,
++		},
++		.ops = &mtk_dai_hostless_ops,
++	},
+ 	{
+ 		.name = "Hostless_SRC_1_DAI",
+ 		.id = MT8186_DAI_HOSTLESS_SRC_1,
+diff --git a/sound/soc/mediatek/mt8186/mt8186-dai-pcm.c b/sound/soc/mediatek/mt8186/mt8186-dai-pcm.c
+index 7d1bf3c50..92c822765 100644
+--- a/sound/soc/mediatek/mt8186/mt8186-dai-pcm.c
++++ b/sound/soc/mediatek/mt8186/mt8186-dai-pcm.c
+@@ -115,6 +115,28 @@ static const struct snd_kcontrol_new mtk_pcm_1_playback_ch2_mix[] = {
+ 				    I_DL4_CH2, 1, 0),
+ };
+ 
++static const struct snd_kcontrol_new mtk_pcm_2_playback_ch1_mix[] = {
++	SOC_DAPM_SINGLE_AUTODISABLE("ADDA_UL_CH1 Switch", AFE_CONN17,
++				    I_ADDA_UL_CH1, 1, 0),
++	SOC_DAPM_SINGLE_AUTODISABLE("ADDA_UL_CH2 Switch", AFE_CONN17,
++				    I_ADDA_UL_CH2, 1, 0),
++	SOC_DAPM_SINGLE_AUTODISABLE("DL2_CH1 Switch", AFE_CONN17,
++				    I_DL2_CH1, 1, 0),
++	SOC_DAPM_SINGLE_AUTODISABLE("DL4_CH1 Switch", AFE_CONN17_1,
++				    I_DL4_CH1, 1, 0),
++};
++
++static const struct snd_kcontrol_new mtk_pcm_2_playback_ch2_mix[] = {
++	SOC_DAPM_SINGLE_AUTODISABLE("ADDA_UL_CH1 Switch", AFE_CONN18,
++				    I_ADDA_UL_CH1, 1, 0),
++	SOC_DAPM_SINGLE_AUTODISABLE("ADDA_UL_CH2 Switch", AFE_CONN18,
++				    I_ADDA_UL_CH2, 1, 0),
++	SOC_DAPM_SINGLE_AUTODISABLE("DL2_CH2 Switch", AFE_CONN18,
++				    I_DL2_CH2, 1, 0),
++	SOC_DAPM_SINGLE_AUTODISABLE("DL4_CH2 Switch", AFE_CONN18_1,
++				    I_DL4_CH2, 1, 0),
++};
++
+ static int mtk_pcm_en_event(struct snd_soc_dapm_widget *w,
+ 			    struct snd_kcontrol *kcontrol,
+ 			    int event)
+@@ -174,11 +196,23 @@ static const struct snd_soc_dapm_widget mtk_dai_pcm_widgets[] = {
+ 	SND_SOC_DAPM_MIXER("PCM_1_PB_CH2", SND_SOC_NOPM, 0, 0,
+ 			   mtk_pcm_1_playback_ch2_mix,
+ 			   ARRAY_SIZE(mtk_pcm_1_playback_ch2_mix)),
++	SND_SOC_DAPM_MIXER("PCM_2_PB_CH1", SND_SOC_NOPM, 0, 0,
++			   mtk_pcm_2_playback_ch1_mix,
++			   ARRAY_SIZE(mtk_pcm_2_playback_ch1_mix)),
++	SND_SOC_DAPM_MIXER("PCM_2_PB_CH2", SND_SOC_NOPM, 0, 0,
++			   mtk_pcm_2_playback_ch2_mix,
++			   ARRAY_SIZE(mtk_pcm_2_playback_ch2_mix)),
+ 
+ 	SND_SOC_DAPM_SUPPLY("PCM_1_EN",
+ 			    PCM_INTF_CON1, PCM_EN_SFT, 0,
+ 			    mtk_pcm_en_event,
+ 			    SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
++	SND_SOC_DAPM_SUPPLY("PCM_2_EN",
++			    PCM2_INTF_CON, PCM2_EN_SFT, 0,
++			    NULL, 0),
++
++	SND_SOC_DAPM_INPUT("MD1_TO_AFE"),
++	SND_SOC_DAPM_OUTPUT("AFE_TO_MD1"),
+ 
+ 	/* pcm in lpbk */
+ 	SND_SOC_DAPM_MUX("PCM_In_Lpbk_Mux",
+@@ -202,6 +236,21 @@ static const struct snd_soc_dapm_route mtk_dai_pcm_routes[] = {
+ 	{"PCM_1_PB_CH1", "DL4_CH1 Switch", "DL4"},
+ 	{"PCM_1_PB_CH2", "DL4_CH2 Switch", "DL4"},
+ 
++	{"PCM 2 Playback", NULL, "PCM_2_PB_CH1"},
++	{"PCM 2 Playback", NULL, "PCM_2_PB_CH2"},
++
++	{"PCM 2 Playback", NULL, "PCM_2_EN"},
++	{"PCM 2 Capture", NULL, "PCM_2_EN"},
++
++	{"AFE_TO_MD1", NULL, "PCM 2 Playback"},
++	{"PCM 2 Capture", NULL, "MD1_TO_AFE"},
++
++	{"PCM_2_PB_CH1", "DL2_CH1 Switch", "DL2"},
++	{"PCM_2_PB_CH2", "DL2_CH2 Switch", "DL2"},
++
++	{"PCM_2_PB_CH1", "DL4_CH1 Switch", "DL4"},
++	{"PCM_2_PB_CH2", "DL4_CH2 Switch", "DL4"},
++
+ 	/* pcm out lpbk */
+ 	{"PCM_Out_Lpbk_Mux", "Lpbk", "PCM 1 Playback"},
+ 	{"I2S0", NULL, "PCM_Out_Lpbk_Mux"},
+@@ -221,7 +270,7 @@ static int mtk_dai_pcm_hw_params(struct snd_pcm_substream *substream,
+ 	struct snd_soc_dapm_widget *p = snd_soc_dai_get_widget_playback(dai);
+ 	struct snd_soc_dapm_widget *c = snd_soc_dai_get_widget_capture(dai);
+ 	int pcm_id = dai->id;
+-	struct mtk_afe_pcm_priv *pcm_priv = afe_priv->dai_priv[pcm_id];
++	struct mtk_afe_pcm_priv *pcm_priv;
+ 	unsigned int rate = params_rate(params);
+ 	unsigned int rate_reg = mt8186_rate_transform(afe->dev, rate, dai->id);
+ 	snd_pcm_format_t format = params_format(params);
+@@ -241,6 +290,7 @@ static int mtk_dai_pcm_hw_params(struct snd_pcm_substream *substream,
+ 
+ 	switch (dai->id) {
+ 	case MT8186_DAI_PCM:
++		pcm_priv = afe_priv->dai_priv[pcm_id];
+ 		pcm_con |= AUD_TX_LCH_RPT_NO_REPEAT << PCM_TX_LCH_RPT_SFT;
+ 		pcm_con |= AUD_VBT_16K_MODE_DISABLE << PCM_VBT_16K_MODE_SFT;
+ 		pcm_con |= AUD_EXT_MODEM_SELECT_EXTERNAL << PCM_EXT_MODEM_SFT;
+@@ -274,6 +324,17 @@ static int mtk_dai_pcm_hw_params(struct snd_pcm_substream *substream,
+ 
+ 		regmap_update_bits(afe->regmap, PCM_INTF_CON1, 0xfffffffe, pcm_con);
+ 		break;
++	case MT8186_DAI_PCM_2:
++		pcm_con |= AUD_TX_LCH_RPT_NO_REPEAT << PCM2_TX_LCH_RPT_SFT;
++		pcm_con |= AUD_VBT_16K_MODE_DISABLE << PCM2_VBT_16K_MODE_SFT;
++		pcm_con |= AUD_BT_MODE_DUAL_MIC_ON_TX << PCM2_BT_MODE_SFT;
++		pcm_con |= AUD_PCM_AFIFO_AFIFO << PCM2_AFIFO_SFT;
++		pcm_con |= AUD_PCM_WLEN_PCM_32_BCK_CYCLES << PCM2_WLEN_SFT;
++		pcm_con |= rate_reg << PCM2_MODE_SFT;
++		pcm_con |= AUD_PCM_FMT_PCM_MODE_B << PCM2_FMT_SFT;
++
++		regmap_update_bits(afe->regmap, PCM2_INTF_CON, 0xfffffffe, pcm_con);
++		break;
+ 	default:
+ 		dev_err(afe->dev, "%s(), id %d not support\n", __func__, dai->id);
+ 		return -EINVAL;
+@@ -338,6 +399,10 @@ static const struct snd_soc_dai_ops mtk_dai_pcm_ops = {
+ 	.set_fmt = mtk_dai_pcm_set_fmt,
+ };
+ 
++static const struct snd_soc_dai_ops mtk_dai_pcm_2_ops = {
++	.hw_params = mtk_dai_pcm_hw_params,
++};
++
+ /* dai driver */
+ #define MTK_PCM_RATES (SNDRV_PCM_RATE_8000 |\
+ 		       SNDRV_PCM_RATE_16000 |\
+@@ -370,6 +435,27 @@ static struct snd_soc_dai_driver mtk_dai_pcm_driver[] = {
+ 		.symmetric_rate = 1,
+ 		.symmetric_sample_bits = 1,
+ 	},
++	{
++		.name = "PCM 2",
++		.id = MT8186_DAI_PCM_2,
++		.playback = {
++			.stream_name = "PCM 2 Playback",
++			.channels_min = 1,
++			.channels_max = 2,
++			.rates = MTK_PCM_RATES,
++			.formats = MTK_PCM_FORMATS,
++		},
++		.capture = {
++			.stream_name = "PCM 2 Capture",
++			.channels_min = 1,
++			.channels_max = 2,
++			.rates = MTK_PCM_RATES,
++			.formats = MTK_PCM_FORMATS,
++		},
++		.ops = &mtk_dai_pcm_2_ops,
++		.symmetric_rate = 1,
++		.symmetric_sample_bits = 1,
++	},
+ };
+ 
+ static struct mtk_afe_pcm_priv *init_pcm_priv_data(struct mtk_base_afe *afe)
+-- 
+2.55.0
+

@@ -43,7 +43,9 @@ mkdir -p "$WORK_DIR" "$STAGE_DIR" "$OUT_DIR" \
     "$STAGE_DIR/etc/udev/rules.d" \
     "$STAGE_DIR/usr/lib/aarch64-linux-gnu/ModemManager" \
     "$STAGE_DIR/usr/share/alsa/ucm2/MediaTek/mt6789-mt6366" \
-    "$STAGE_DIR/usr/share/alsa/ucm2/conf.d/mt6789-mt6366"
+    "$STAGE_DIR/usr/share/alsa/ucm2/conf.d/mt6789-mt6366" \
+    "$STAGE_DIR/etc/pipewire/pipewire-pulse.conf.d" \
+    "$STAGE_DIR/etc/wireplumber/wireplumber.conf.d"
 
 CLANG_AARCH64=(
     "$CLANG_DIR/bin/clang"
@@ -161,8 +163,15 @@ install -m 0644 "$REPO/tools/ucm2/MediaTek/mt6789-mt6366/mt6789-mt6366.conf" \
     "$STAGE_DIR/usr/share/alsa/ucm2/MediaTek/mt6789-mt6366/mt6789-mt6366.conf"
 install -m 0644 "$REPO/tools/ucm2/MediaTek/mt6789-mt6366/HiFi.conf" \
     "$STAGE_DIR/usr/share/alsa/ucm2/MediaTek/mt6789-mt6366/HiFi.conf"
+install -m 0644 "$REPO/tools/ucm2/MediaTek/mt6789-mt6366/VoiceCall.conf" \
+    "$STAGE_DIR/usr/share/alsa/ucm2/MediaTek/mt6789-mt6366/VoiceCall.conf"
 ln -sf ../../MediaTek/mt6789-mt6366/mt6789-mt6366.conf \
     "$STAGE_DIR/usr/share/alsa/ucm2/conf.d/mt6789-mt6366/mt6789-mt6366.conf"
+
+install -m 0644 "$REPO/tools/pipewire/pipewire-pulse/50-mt6789-latency.conf" \
+    "$STAGE_DIR/etc/pipewire/pipewire-pulse.conf.d/50-mt6789-latency.conf"
+install -m 0644 "$REPO/tools/pipewire/wireplumber/50-mt6789-alsa.conf" \
+    "$STAGE_DIR/etc/wireplumber/wireplumber.conf.d/50-mt6789-alsa.conf"
 
 if [ -d "$REPO/rootfs/advan-x1-support" ]; then
     cp -a "$REPO/rootfs/advan-x1-support/." "$STAGE_DIR/"
@@ -206,7 +215,7 @@ Version: ${PKG_VER}
 Section: admin
 Priority: optional
 Architecture: arm64
-Maintainer: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Maintainer: sysretq0 <sysretq0@proton.me>
 Depends: libc6, libglib2.0-0t64 | libglib2.0-0, libmm-glib0, util-linux, python3, alsa-ucm-conf, mobile-broadband-provider-info
 Recommends: modemmanager, network-manager, pipewire-audio | pipewire
 Description: Advan X1 (MediaTek MT6789) mainline Linux userspace support
@@ -214,24 +223,27 @@ Description: Advan X1 (MediaTek MT6789) mainline Linux userspace support
   - ccci_fsd & ccci_rpcd read-only NVRAM overlay modem daemons
   - ModemManager mtk-ccci plugin + udev rules + service drop-in
   - mtk-wwan-connect standalone helper
-  - ALSA UCM2 audio profiles for mt6789-mt6366 (FS1599 + MT6366)
+  - ALSA UCM2 HiFi + Voice Call profiles for mt6789-mt6366 (FS1599 + MT6366)
+  - PipeWire / WirePlumber MT6789 AFE latency & headroom drop-ins
   - Clean 0644 systemd journald/logind/usb0/udev and GNOME Mobile defaults
 EOF
 
 cat > "$STAGE_DIR/DEBIAN/postinst" <<'EOF'
 #!/bin/sh
 set -e
-# Remove legacy advan-power-screen conflicts if upgrading an older rootfs
+# Remove legacy bring-up services and debug helpers if upgrading an older rootfs
 rm -f /etc/systemd/system/multi-user.target.wants/advan-power-screen.service \
       /etc/systemd/system/advan-power-screen.service \
       /usr/local/bin/advan-power-screen.py \
-      /etc/systemd/network/20-usb0.network
+      /etc/systemd/network/20-usb0.network \
+      /etc/systemd/system/multi-user.target.wants/boot-diag-dump.service \
+      /etc/systemd/system/boot-diag-dump.service \
+      /usr/local/bin/boot-diag-dump.sh \
+      /usr/local/bin/test-touch.sh
 
 mkdir -p /etc/systemd/system/multi-user.target.wants
 ln -sf /etc/systemd/system/ccci-fsd.service \
        /etc/systemd/system/multi-user.target.wants/ccci-fsd.service
-ln -sf /etc/systemd/system/boot-diag-dump.service \
-       /etc/systemd/system/multi-user.target.wants/boot-diag-dump.service
 
 if command -v glib-compile-schemas >/dev/null 2>&1 && [ -d /usr/share/glib-2.0/schemas ]; then
     glib-compile-schemas /usr/share/glib-2.0/schemas || true

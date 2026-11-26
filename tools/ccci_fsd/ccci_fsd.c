@@ -245,6 +245,7 @@ _Static_assert(sizeof(struct fs_cmpt_write_in) == 44, "fs_cmpt_write_in size");
 _Static_assert(sizeof(struct fs_file_detail) == 24, "fs_file_detail size");
 
 static volatile sig_atomic_t g_stop;
+static bool g_verbose;
 static char g_root_dir[PATH_MAX] = "/run/ccci_fs";
 static struct fs_slot g_slots[FS_MAX_SLOTS];
 static struct fs_file_slot g_files[FS_MAX_HANDLES];
@@ -945,9 +946,11 @@ static void dispatch_fs_message(int dev_fd, uint32_t slot,
 		resp[1].len = 8;
 		resp[1].buf = hint;
 		resp_num = 2;
-		fprintf(stdout, "[ccci_fsd] op=0x%04x (%s) slot=%u path=%s -> %d\n",
-			hdr.op_id, op_name(hdr.op_id), slot, dpath, ret_val);
-		fflush(stdout);
+		if (g_verbose) {
+			fprintf(stdout, "[ccci_fsd] op=0x%04x (%s) slot=%u path=%s -> %d\n",
+				hdr.op_id, op_name(hdr.op_id), slot, dpath, ret_val);
+			fflush(stdout);
+		}
 		send_fs_reply(dev_fd, slot, hdr.op_id, resp, resp_num);
 		return;
 	}
@@ -989,9 +992,11 @@ static void dispatch_fs_message(int dev_fd, uint32_t slot,
 		resp[2].len = actual;
 		resp[2].buf = rbuf;
 		resp_num = 3;
-		fprintf(stdout, "[ccci_fsd] op=0x%04x (%s) slot=%u fh=%d req=%u -> ret=%d got=%u\n",
-			hdr.op_id, op_name(hdr.op_id), slot, fh, rlen, ret_val, actual);
-		fflush(stdout);
+		if (g_verbose) {
+			fprintf(stdout, "[ccci_fsd] op=0x%04x (%s) slot=%u fh=%d req=%u -> ret=%d got=%u\n",
+				hdr.op_id, op_name(hdr.op_id), slot, fh, rlen, ret_val, actual);
+			fflush(stdout);
+		}
 		send_fs_reply(dev_fd, slot, hdr.op_id, resp, resp_num);
 		return;
 	}
@@ -1014,9 +1019,11 @@ static void dispatch_fs_message(int dev_fd, uint32_t slot,
 		resp[1].len = 4;
 		resp[1].buf = (const uint8_t *)&written;
 		resp_num = 2;
-		fprintf(stdout, "[ccci_fsd] op=0x%04x (%s) slot=%u fh=%d len=%u -> ret=%d wr=%u\n",
-			hdr.op_id, op_name(hdr.op_id), slot, fh, wlen, ret_val, written);
-		fflush(stdout);
+		if (g_verbose) {
+			fprintf(stdout, "[ccci_fsd] op=0x%04x (%s) slot=%u fh=%d len=%u -> ret=%d wr=%u\n",
+				hdr.op_id, op_name(hdr.op_id), slot, fh, wlen, ret_val, written);
+			fflush(stdout);
+		}
 		send_fs_reply(dev_fd, slot, hdr.op_id, resp, resp_num);
 		return;
 	}
@@ -1179,10 +1186,12 @@ static void dispatch_fs_message(int dev_fd, uint32_t slot,
 		resp[1].len = sizeof(di);
 		resp[1].buf = (const uint8_t *)&di;
 		resp_num = 2;
-		fprintf(stdout, "[ccci_fsd] op=0x%04x (%s) slot=%u path=%s -> ret=%d tot=%u free=%u\n",
-			hdr.op_id, op_name(hdr.op_id), slot, dpath, ret_val,
-			di.total_clusters, di.free_clusters);
-		fflush(stdout);
+		if (g_verbose) {
+			fprintf(stdout, "[ccci_fsd] op=0x%04x (%s) slot=%u path=%s -> ret=%d tot=%u free=%u\n",
+				hdr.op_id, op_name(hdr.op_id), slot, dpath, ret_val,
+				di.total_clusters, di.free_clusters);
+			fflush(stdout);
+		}
 		send_fs_reply(dev_fd, slot, hdr.op_id, resp, resp_num);
 		return;
 	}
@@ -1293,9 +1302,11 @@ static void dispatch_fs_message(int dev_fd, uint32_t slot,
 		resp[2].len = name_u16_len;
 		resp[2].buf = name_u16;
 		resp_num = 3;
-		fprintf(stdout, "[ccci_fsd] op=0x%04x (%s) slot=%u path=%s -> ret=%d match=%s\n",
-			hdr.op_id, op_name(hdr.op_id), slot, dpath, ret_val, matched);
-		fflush(stdout);
+		if (g_verbose) {
+			fprintf(stdout, "[ccci_fsd] op=0x%04x (%s) slot=%u path=%s -> ret=%d match=%s\n",
+				hdr.op_id, op_name(hdr.op_id), slot, dpath, ret_val, matched);
+			fflush(stdout);
+		}
 		send_fs_reply(dev_fd, slot, hdr.op_id, resp, resp_num);
 		return;
 	}
@@ -1329,9 +1340,11 @@ static void dispatch_fs_message(int dev_fd, uint32_t slot,
 		resp[2].len = name_u16_len;
 		resp[2].buf = name_u16;
 		resp_num = 3;
-		fprintf(stdout, "[ccci_fsd] op=0x%04x (%s) slot=%u fh=%d -> ret=%d match=%s\n",
-			hdr.op_id, op_name(hdr.op_id), slot, fh, ret_val, matched);
-		fflush(stdout);
+		if (g_verbose) {
+			fprintf(stdout, "[ccci_fsd] op=0x%04x (%s) slot=%u fh=%d -> ret=%d match=%s\n",
+				hdr.op_id, op_name(hdr.op_id), slot, fh, ret_val, matched);
+			fflush(stdout);
+		}
 		send_fs_reply(dev_fd, slot, hdr.op_id, resp, resp_num);
 		return;
 	}
@@ -1483,12 +1496,14 @@ static void dispatch_fs_message(int dev_fd, uint32_t slot,
 		resp[3].len = actual;
 		resp[3].buf = rbuf;
 		resp_num = 4;
-		fprintf(stdout,
-			"[ccci_fsd] op=0x%04x (%s) slot=%u path=%s map=0x%x -> done=0x%x ret=%d sz=%u read=%u\n",
-			hdr.op_id, op_name(hdr.op_id), slot, dpath,
-			hdr.para_num >= 2 ? ((const struct fs_cmpt_read_in *)args[1].buf)->opid_map : 0,
-			out_pair[0], (int32_t)out_pair[1], fsize, actual);
-		fflush(stdout);
+		if (g_verbose) {
+			fprintf(stdout,
+				"[ccci_fsd] op=0x%04x (%s) slot=%u path=%s map=0x%x -> done=0x%x ret=%d sz=%u read=%u\n",
+				hdr.op_id, op_name(hdr.op_id), slot, dpath,
+				hdr.para_num >= 2 ? ((const struct fs_cmpt_read_in *)args[1].buf)->opid_map : 0,
+				out_pair[0], (int32_t)out_pair[1], fsize, actual);
+			fflush(stdout);
+		}
 		send_fs_reply(dev_fd, slot, hdr.op_id, resp, resp_num);
 		return;
 	}
@@ -1558,11 +1573,13 @@ static void dispatch_fs_message(int dev_fd, uint32_t slot,
 		resp[2].len = sizeof(written);
 		resp[2].buf = (const uint8_t *)&written;
 		resp_num = 3;
-		fprintf(stdout,
-			"[ccci_fsd] op=0x%04x (%s) slot=%u path=%s -> done=0x%x ret=%d fh=%d wr=%u\n",
-			hdr.op_id, op_name(hdr.op_id), slot, dpath,
-			out_pair[0], (int32_t)out_pair[1], i32_out, written);
-		fflush(stdout);
+		if (g_verbose) {
+			fprintf(stdout,
+				"[ccci_fsd] op=0x%04x (%s) slot=%u path=%s -> done=0x%x ret=%d fh=%d wr=%u\n",
+				hdr.op_id, op_name(hdr.op_id), slot, dpath,
+				out_pair[0], (int32_t)out_pair[1], i32_out, written);
+			fflush(stdout);
+		}
 		send_fs_reply(dev_fd, slot, hdr.op_id, resp, resp_num);
 		return;
 	}
@@ -1593,9 +1610,11 @@ static void dispatch_fs_message(int dev_fd, uint32_t slot,
 		resp[1].len = sizeof(fd_out);
 		resp[1].buf = (const uint8_t *)&fd_out;
 		resp_num = 2;
-		fprintf(stdout, "[ccci_fsd] op=0x%04x (%s) slot=%u path=%s -> ret=%d\n",
-			hdr.op_id, op_name(hdr.op_id), slot, dpath, ret_val);
-		fflush(stdout);
+		if (g_verbose) {
+			fprintf(stdout, "[ccci_fsd] op=0x%04x (%s) slot=%u path=%s -> ret=%d\n",
+				hdr.op_id, op_name(hdr.op_id), slot, dpath, ret_val);
+			fflush(stdout);
+		}
 		send_fs_reply(dev_fd, slot, hdr.op_id, resp, resp_num);
 		return;
 	}
@@ -1645,9 +1664,11 @@ static void dispatch_fs_message(int dev_fd, uint32_t slot,
 		break;
 	}
 
-	fprintf(stdout, "[ccci_fsd] op=0x%04x (%s) slot=%u path=%s -> %d\n",
-		hdr.op_id, op_name(hdr.op_id), slot, dpath[0] ? dpath : "-", ret_val);
-	fflush(stdout);
+	if (g_verbose) {
+		fprintf(stdout, "[ccci_fsd] op=0x%04x (%s) slot=%u path=%s -> %d\n",
+			hdr.op_id, op_name(hdr.op_id), slot, dpath[0] ? dpath : "-", ret_val);
+		fflush(stdout);
+	}
 	send_fs_reply(dev_fd, slot, hdr.op_id, resp, resp_num);
 }
 
@@ -1687,9 +1708,11 @@ int main(int argc, char **argv)
 			snprintf(g_root_dir, sizeof(g_root_dir), "%s", argv[++i]);
 		} else if (!strcmp(argv[i], "--boot-trigger") && i + 1 < argc) {
 			boot_trigger = argv[++i];
+		} else if (!strcmp(argv[i], "-v") || !strcmp(argv[i], "--verbose")) {
+			g_verbose = true;
 		} else {
 			fprintf(stderr,
-				"Usage: %s [--dev /dev/ccci_fs] [--root /run/ccci_fs] [--boot-trigger sysfs]\n",
+				"Usage: %s [--dev /dev/ccci_fs] [--root /run/ccci_fs] [--boot-trigger sysfs] [-v|--verbose]\n",
 				argv[0]);
 			return 2;
 		}

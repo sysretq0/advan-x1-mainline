@@ -1,0 +1,593 @@
+From 20508baaa79586dec3fac5fe84e9e1860fc8af14 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Fri, 27 Nov 2026 03:10:47 +0700
+Subject: [PATCH 63/65] net: wwan: mtk_ccci: Add ccci_aud speech bridge, system
+ RX, DPMAIF PM and shutdown
+
+Prepare the MT6789 CCCI transport for full modem bring-up (data, voice,
+SMS, and VoLTE):
+
+- Add /dev/ccci_aud (CCIF0 Q0 ch=4 RX / ch=5 TX, PORT_F_USER_HEADER) to
+  bridge Gen95 speech mailbox and payload packets between userspace and
+  MD1 while dropping boot-time speech hello frames when no daemon is open.
+- Handle CCCI_CH_SYSTEM_RX (ch=2) system notifications and quietly drain
+  CCCI_CH_IMSDC_DL (ch=59) to eliminate unhandled-channel boot warnings.
+- Add defensive DPMAIF suspend/resume hooks that save DL_L2TIMR0 and
+  restore DL/UL interrupt masks and HW UL rings if DPMAIF PD loses power.
+- Wire a platform .shutdown callback to quiesce CCIF/DPMAIF IRQs and
+  WWAN interfaces cleanly on reboot without powering off live MD MTCMOS.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+
+diff --git a/drivers/net/wwan/mtk_ccci/Makefile b/drivers/net/wwan/mtk_ccci/Makefile
+index 4b550b726..a7bff2616 100644
+--- a/drivers/net/wwan/mtk_ccci/Makefile
++++ b/drivers/net/wwan/mtk_ccci/Makefile
+@@ -3,4 +3,4 @@
+ obj-$(CONFIG_MTK_CCCI) += mtk_ccci.o
+ 
+ mtk_ccci-y := mtk_ccci_core.o mtk_ccci_ringbuf.o mtk_ccci_rpc.o mtk_ccci_fs.o \
+-	      mtk_ccci_at.o mtk_ccci_dpmaif.o
++	      mtk_ccci_aud.o mtk_ccci_at.o mtk_ccci_dpmaif.o
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci.h b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
+index 9b601e9bc..bbcfc0e55 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci.h
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
+@@ -73,6 +73,7 @@
+ #define MTK_CCIF_AP_MD_DATA_NOTIFY	(MTK_CCIF_RINGQ_SRAM + 8)
+ #define MTK_CCIF_DATA_QUEUE_MASK	0x00ff
+ #define MTK_CCIF_EXP_QUEUE_MASK		0xffff0000
++#define MTK_CCIF_AUD_QUEUE		0
+ #define MTK_CCIF_RPC_QUEUE		1
+ #define MTK_CCIF_FS_QUEUE		4
+ #define MTK_CCIF_AT_QUEUE		5
+@@ -96,6 +97,8 @@
+ #define MTK_CCCI_FS_RX_QUEUE_MAX	64U
+ #define MTK_CCCI_RPC_MAX_PKT		3476U
+ #define MTK_CCCI_RPC_RX_QUEUE_MAX	32U
++#define MTK_CCCI_AUD_MAX_PKT		3476U
++#define MTK_CCCI_AUD_RX_QUEUE_MAX	64U
+ #define MTK_CCCI_AT_MTU			3456U
+ 
+ /* CCCI logical channels */
+@@ -103,6 +106,8 @@
+ #define CCCI_CH_CONTROL_TX		1
+ #define CCCI_CH_SYSTEM_RX		2
+ #define CCCI_CH_SYSTEM_TX		3
++#define CCCI_CH_PCM_RX			4
++#define CCCI_CH_PCM_TX			5
+ #define CCCI_CH_UART2_RX		10
+ #define CCCI_CH_UART2_TX		12
+ #define CCCI_CH_FS_RX			14
+@@ -112,11 +117,21 @@
+ #define CCCI_CH_IPC_RX			34
+ #define CCCI_CH_IPC_UART_RX		38
+ #define CCCI_CH_IMSA_DL			57
++#define CCCI_CH_IMSDC_DL		59
+ #define CCCI_CH_STATUS_RX		67
+ #define CCCI_CH_STATUS_TX		68
+ #define CCCI_CH_IMSM_RX			169
+ #define CCCI_CH_WOA_RX			171
+ 
++/* System channel (CCCI_CH_SYSTEM_RX) message IDs */
++#define CCCI_SYS_MD_WDT_MONITOR		0x100U
++#define CCCI_SYS_MD_SIM_TYPE		0x107U
++#define CCCI_SYS_MD_TX_POWER		0x10cU
++#define CCCI_SYS_MD_SW_MD1_TX_POWER_REQ	0x110U
++#define CCCI_SYS_MD_RF_MAX_TEMP_SUB6	0x11cU
++#define CCCI_SYS_MD_RF_ALL_TEMP_MMW	0x11dU
++#define CCCI_SYS_MD_NR_BAND_ACTIVATE	0x120U
++
+ /* Control channel message IDs */
+ #define CCCI_MD_INIT_START_BOOT		0x0
+ #define CCCI_MD_EX			0x4
+@@ -473,6 +488,16 @@ struct mtk_ccci_dev {
+ 	atomic_t rpc_open;
+ 	bool rpc_closing;
+ 
++	struct miscdevice aud_miscdev;
++	spinlock_t aud_rx_lock; /* protects aud_rx_list and aud_rx_qlen */
++	struct list_head aud_rx_list;
++	u32 aud_rx_qlen;
++	wait_queue_head_t aud_rx_wq;
++	atomic_t aud_open;
++	bool aud_closing;
++	atomic_t aud_rx_count;
++	atomic_t aud_tx_count;
++
+ 	struct wwan_port *at_port;
+ 	spinlock_t at_lock; /* protects at_port and at_open */
+ 	bool at_open;
+@@ -512,6 +537,10 @@ int mtk_ccci_fs_register(struct mtk_ccci_dev *ccci);
+ void mtk_ccci_fs_unregister(struct mtk_ccci_dev *ccci);
+ void mtk_ccci_fs_rx(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len);
+ 
++int mtk_ccci_aud_register(struct mtk_ccci_dev *ccci);
++void mtk_ccci_aud_unregister(struct mtk_ccci_dev *ccci);
++void mtk_ccci_aud_rx(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len);
++
+ int mtk_ccci_at_register(struct mtk_ccci_dev *ccci);
+ void mtk_ccci_at_unregister(struct mtk_ccci_dev *ccci);
+ void mtk_ccci_at_rx(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len);
+@@ -524,5 +553,7 @@ int mtk_ccci_dpmaif_get_default_if_id(struct mtk_ccci_dev *ccci);
+ int mtk_ccci_dpmaif_set_default_if_id(struct mtk_ccci_dev *ccci, u32 new_id);
+ void mtk_ccci_dpmaif_smem_tx_irq(struct mtk_ccci_dev *ccci);
+ void mtk_ccci_dpmaif_set_irq_wake(struct mtk_ccci_dev *ccci, bool on);
++void mtk_ccci_dpmaif_suspend(struct mtk_ccci_dev *ccci);
++void mtk_ccci_dpmaif_resume(struct mtk_ccci_dev *ccci);
+ 
+ #endif /* __MTK_CCCI_H__ */
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_aud.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_aud.c
+new file mode 100644
+index 000000000..b3bad4e52
+--- /dev/null
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_aud.c
+@@ -0,0 +1,249 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * MediaTek MT6789 CCCI /dev/ccci_aud speech mailbox bridge
++ * (CCIF0 Q0 ch=4 RX <-> ch=5 TX).
++ *
++ * Implements PORT_F_USER_HEADER semantics matching Gen95 AudioHAL
++ * SpeechMessengerNormal: userspace reads and writes complete packets starting
++ * with the 16-byte mtk_ccci_header. On TX, hdr.data[0], hdr.data[1], and
++ * hdr.reserved are preserved verbatim so both 16-byte mailbox commands
++ * (data[0]=0xffffffff, data[1]=(msg_id << 16) | param16) and payload commands
++ * (data[0]=0, data[1]=payload_len, reserved=(msg_id << 16) | payload_len) are
++ * delivered unmodified while the kernel enforces channel=5 and sequence
++ * numbering.
++ *
++ * Copyright (c) 2026 sysretq0 <sysretq0@proton.me>
++ */
++
++#include <linux/delay.h>
++#include <linux/errno.h>
++#include <linux/fs.h>
++#include <linux/list.h>
++#include <linux/miscdevice.h>
++#include <linux/poll.h>
++#include <linux/slab.h>
++#include <linux/uaccess.h>
++
++#include "mtk_ccci.h"
++
++struct mtk_ccci_aud_pkt {
++	struct list_head node;
++	u32 len;
++	u8 data[] __counted_by(len);
++};
++
++static void mtk_ccci_aud_purge_rx(struct mtk_ccci_dev *ccci)
++{
++	struct mtk_ccci_aud_pkt *pkt, *tmp;
++	unsigned long flags;
++	LIST_HEAD(local);
++
++	spin_lock_irqsave(&ccci->aud_rx_lock, flags);
++	list_splice_init(&ccci->aud_rx_list, &local);
++	WRITE_ONCE(ccci->aud_rx_qlen, 0);
++	spin_unlock_irqrestore(&ccci->aud_rx_lock, flags);
++
++	list_for_each_entry_safe(pkt, tmp, &local, node) {
++		list_del(&pkt->node);
++		kfree(pkt);
++	}
++}
++
++void mtk_ccci_aud_rx(struct mtk_ccci_dev *ccci, const u8 *data, u32 len)
++{
++	struct mtk_ccci_aud_pkt *pkt;
++	unsigned long flags;
++
++	if (!data || len < sizeof(struct mtk_ccci_header) ||
++	    len > MTK_CCCI_AUD_MAX_PKT)
++		return;
++
++	atomic_inc(&ccci->aud_rx_count);
++
++	/* Drop MD boot-time speech hello messages when no daemon is attached */
++	if (!atomic_read(&ccci->aud_open)) {
++		dev_dbg(ccci->dev, "ccci_aud RX %u B dropped (port closed)\n",
++			len);
++		return;
++	}
++
++	pkt = kmalloc(struct_size(pkt, data, len), GFP_KERNEL);
++	if (!pkt)
++		return;
++
++	pkt->len = len;
++	memcpy(pkt->data, data, len);
++
++	spin_lock_irqsave(&ccci->aud_rx_lock, flags);
++	if (ccci->aud_rx_qlen >= MTK_CCCI_AUD_RX_QUEUE_MAX) {
++		spin_unlock_irqrestore(&ccci->aud_rx_lock, flags);
++		dev_warn_ratelimited(ccci->dev,
++				     "ccci_aud RX queue full (%u), dropping\n",
++				     MTK_CCCI_AUD_RX_QUEUE_MAX);
++		kfree(pkt);
++		return;
++	}
++	list_add_tail(&pkt->node, &ccci->aud_rx_list);
++	WRITE_ONCE(ccci->aud_rx_qlen, ccci->aud_rx_qlen + 1);
++	spin_unlock_irqrestore(&ccci->aud_rx_lock, flags);
++
++	wake_up_interruptible(&ccci->aud_rx_wq);
++}
++
++static int mtk_ccci_aud_open(struct inode *inode, struct file *filp)
++{
++	struct miscdevice *mdev = filp->private_data;
++	struct mtk_ccci_dev *ccci = container_of(mdev, struct mtk_ccci_dev,
++						 aud_miscdev);
++
++	if (atomic_cmpxchg(&ccci->aud_open, 0, 1) != 0)
++		return -EBUSY;
++
++	filp->private_data = ccci;
++	nonseekable_open(inode, filp);
++	return 0;
++}
++
++static int mtk_ccci_aud_release(struct inode *inode, struct file *filp)
++{
++	struct mtk_ccci_dev *ccci = filp->private_data;
++
++	atomic_set(&ccci->aud_open, 0);
++	mtk_ccci_aud_purge_rx(ccci);
++	return 0;
++}
++
++static ssize_t mtk_ccci_aud_read(struct file *filp, char __user *buf,
++				 size_t count, loff_t *ppos)
++{
++	struct mtk_ccci_dev *ccci = filp->private_data;
++	struct mtk_ccci_aud_pkt *pkt;
++	unsigned long flags;
++	ssize_t ret;
++
++	for (;;) {
++		spin_lock_irqsave(&ccci->aud_rx_lock, flags);
++		pkt = list_first_entry_or_null(&ccci->aud_rx_list,
++					       struct mtk_ccci_aud_pkt, node);
++		if (pkt) {
++			if (count < pkt->len) {
++				spin_unlock_irqrestore(&ccci->aud_rx_lock, flags);
++				return -EMSGSIZE;
++			}
++			list_del(&pkt->node);
++			WRITE_ONCE(ccci->aud_rx_qlen, ccci->aud_rx_qlen - 1);
++			spin_unlock_irqrestore(&ccci->aud_rx_lock, flags);
++			break;
++		}
++		spin_unlock_irqrestore(&ccci->aud_rx_lock, flags);
++
++		if (READ_ONCE(ccci->aud_closing))
++			return -ENODEV;
++
++		if (filp->f_flags & O_NONBLOCK)
++			return -EAGAIN;
++
++		ret = wait_event_interruptible(ccci->aud_rx_wq,
++					       READ_ONCE(ccci->aud_rx_qlen) > 0 ||
++					       READ_ONCE(ccci->aud_closing));
++		if (ret)
++			return ret;
++	}
++
++	if (copy_to_user(buf, pkt->data, pkt->len))
++		ret = -EFAULT;
++	else
++		ret = pkt->len;
++
++	kfree(pkt);
++	return ret;
++}
++
++static ssize_t mtk_ccci_aud_write(struct file *filp, const char __user *buf,
++				  size_t count, loff_t *ppos)
++{
++	struct mtk_ccci_dev *ccci = filp->private_data;
++	struct mtk_ccci_header *hdr;
++	u8 *kbuf;
++	int ret, tries;
++
++	if (count < sizeof(*hdr) || count > MTK_CCCI_AUD_MAX_PKT)
++		return -EINVAL;
++
++	if (READ_ONCE(ccci->state) != MTK_CCCI_STATE_READY)
++		return -ENODEV;
++
++	kbuf = memdup_user(buf, count);
++	if (IS_ERR(kbuf))
++		return PTR_ERR(kbuf);
++
++	/*
++	 * PORT_F_USER_HEADER: preserve data[0], data[1], and reserved from
++	 * userspace verbatim so both 16-byte mailbox commands and variable-size
++	 * speech payload packets match Gen95 SpeechMessengerNormal.
++	 */
++	hdr = (struct mtk_ccci_header *)kbuf;
++	hdr->channel = CCCI_CH_PCM_TX;
++
++	for (tries = 0; tries < 200; tries++) {
++		ret = mtk_ccci_tx_send(ccci, MTK_CCIF_AUD_QUEUE, kbuf, count);
++		if (ret != -ENOSPC || (filp->f_flags & O_NONBLOCK))
++			break;
++		usleep_range(500, 1000);
++	}
++
++	kfree(kbuf);
++	if (ret)
++		return ret == -ENOSPC ? -EAGAIN : ret;
++
++	atomic_inc(&ccci->aud_tx_count);
++	return count;
++}
++
++static __poll_t mtk_ccci_aud_poll(struct file *filp, poll_table *wait)
++{
++	struct mtk_ccci_dev *ccci = filp->private_data;
++	__poll_t mask = EPOLLOUT | EPOLLWRNORM;
++	unsigned long flags;
++
++	poll_wait(filp, &ccci->aud_rx_wq, wait);
++
++	spin_lock_irqsave(&ccci->aud_rx_lock, flags);
++	if (ccci->aud_rx_qlen > 0)
++		mask |= EPOLLIN | EPOLLRDNORM;
++	spin_unlock_irqrestore(&ccci->aud_rx_lock, flags);
++
++	return mask;
++}
++
++static const struct file_operations mtk_ccci_aud_fops = {
++	.owner = THIS_MODULE,
++	.open = mtk_ccci_aud_open,
++	.release = mtk_ccci_aud_release,
++	.read = mtk_ccci_aud_read,
++	.write = mtk_ccci_aud_write,
++	.poll = mtk_ccci_aud_poll,
++};
++
++int mtk_ccci_aud_register(struct mtk_ccci_dev *ccci)
++{
++	spin_lock_init(&ccci->aud_rx_lock);
++	INIT_LIST_HEAD(&ccci->aud_rx_list);
++	init_waitqueue_head(&ccci->aud_rx_wq);
++	atomic_set(&ccci->aud_open, 0);
++
++	ccci->aud_miscdev.minor = MISC_DYNAMIC_MINOR;
++	ccci->aud_miscdev.name = "ccci_aud";
++	ccci->aud_miscdev.fops = &mtk_ccci_aud_fops;
++	ccci->aud_miscdev.parent = ccci->dev;
++
++	return misc_register(&ccci->aud_miscdev);
++}
++
++void mtk_ccci_aud_unregister(struct mtk_ccci_dev *ccci)
++{
++	WRITE_ONCE(ccci->aud_closing, true);
++	wake_up_interruptible_all(&ccci->aud_rx_wq);
++	misc_deregister(&ccci->aud_miscdev);
++	mtk_ccci_aud_purge_rx(ccci);
++}
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+index 701856089..d4fa04cb6 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+@@ -818,6 +818,27 @@ static void mtk_ccci_handle_sram_rx(struct mtk_ccci_dev *ccci)
+ 	}
+ }
+ 
++static void mtk_ccci_sys_rx(struct mtk_ccci_dev *ccci,
++			    const struct mtk_ccci_header *hdr)
++{
++	switch (hdr->data[1]) {
++	case CCCI_SYS_MD_WDT_MONITOR:
++	case CCCI_SYS_MD_SIM_TYPE:
++	case CCCI_SYS_MD_TX_POWER:
++	case CCCI_SYS_MD_SW_MD1_TX_POWER_REQ:
++	case CCCI_SYS_MD_RF_MAX_TEMP_SUB6:
++	case CCCI_SYS_MD_RF_ALL_TEMP_MMW:
++	case CCCI_SYS_MD_NR_BAND_ACTIVATE:
++		dev_dbg(ccci->dev, "CCCI SYS RX msg=0x%04x rsv=0x%08x\n",
++			hdr->data[1], hdr->reserved);
++		break;
++	default:
++		dev_dbg(ccci->dev, "CCCI SYS RX unknown msg=0x%08x rsv=0x%08x\n",
++			hdr->data[1], hdr->reserved);
++		break;
++	}
++}
++
+ static void mtk_ccci_drain_queue(struct mtk_ccci_dev *ccci, u32 q)
+ {
+ 	struct mtk_ccci_header hdr;
+@@ -876,6 +897,12 @@ static void mtk_ccci_drain_queue(struct mtk_ccci_dev *ccci, u32 q)
+ 					       min_t(u32, ret, 64), true);
+ 			}
+ 			break;
++		case CCCI_CH_SYSTEM_RX:
++			mtk_ccci_sys_rx(ccci, &hdr);
++			break;
++		case CCCI_CH_PCM_RX:
++			mtk_ccci_aud_rx(ccci, ccci->rx_buf, ret);
++			break;
+ 		case CCCI_CH_RPC_RX:
+ 			mtk_ccci_rpc_handle(ccci, ccci->rx_buf, ret);
+ 			break;
+@@ -888,6 +915,7 @@ static void mtk_ccci_drain_queue(struct mtk_ccci_dev *ccci, u32 q)
+ 		case CCCI_CH_IPC_RX:
+ 		case CCCI_CH_IPC_UART_RX:
+ 		case CCCI_CH_IMSA_DL:
++		case CCCI_CH_IMSDC_DL:
+ 		case CCCI_CH_IMSM_RX:
+ 		case CCCI_CH_WOA_RX:
+ 			dev_dbg(ccci->dev, "CCIF Q%u ch=%u RX len=%d\n",
+@@ -1829,6 +1857,12 @@ static int mtk_ccci_probe(struct platform_device *pdev)
+ 		goto err_fs;
+ 	}
+ 
++	ret = mtk_ccci_aud_register(ccci);
++	if (ret) {
++		dev_err(&pdev->dev, "failed to register /dev/ccci_aud: %d\n", ret);
++		goto err_rpc;
++	}
++
+ 	ret = mtk_ccci_dpmaif_init(ccci);
+ 	if (ret)
+ 		dev_warn(&pdev->dev, "DPMAIF init failed (%d); continuing without IP data plane\n",
+@@ -1842,6 +1876,8 @@ static int mtk_ccci_probe(struct platform_device *pdev)
+ 		 mtk_ccci_state_names[READ_ONCE(ccci->state)]);
+ 	return 0;
+ 
++err_rpc:
++	mtk_ccci_rpc_unregister(ccci);
+ err_fs:
+ 	mtk_ccci_fs_unregister(ccci);
+ err_wq:
+@@ -1851,22 +1887,31 @@ static int mtk_ccci_probe(struct platform_device *pdev)
+ 	return ret;
+ }
+ 
+-static void mtk_ccci_remove(struct platform_device *pdev)
++static void mtk_ccci_quiesce(struct mtk_ccci_dev *ccci)
+ {
+-	struct mtk_ccci_dev *ccci = platform_get_drvdata(pdev);
+-	int i;
+-
+ 	cancel_work_sync(&ccci->boot_work);
+ 	if (ccci->md_running) {
+ 		disable_irq(ccci->ccif_irq0);
+ 		disable_irq(ccci->ccif_irq1);
++		if (!atomic_read(&ccci->wdt_count))
++			disable_irq(ccci->wdt_irq);
++		ccci->md_running = false;
+ 	}
+ 	mtk_ccci_dpmaif_uninit(ccci);
+ 	mtk_ccci_at_unregister(ccci);
++	mtk_ccci_aud_unregister(ccci);
+ 	mtk_ccci_rpc_unregister(ccci);
+ 	mtk_ccci_fs_unregister(ccci);
+ 	cancel_work_sync(&ccci->exp_work);
+ 	cancel_work_sync(&ccci->rx_work);
++}
++
++static void mtk_ccci_remove(struct platform_device *pdev)
++{
++	struct mtk_ccci_dev *ccci = platform_get_drvdata(pdev);
++	int i;
++
++	mtk_ccci_quiesce(ccci);
+ 	destroy_workqueue(ccci->rx_wq);
+ 
+ 	/*
+@@ -1878,11 +1923,23 @@ static void mtk_ccci_remove(struct platform_device *pdev)
+ 		clk_put(ccci->ccif_clks[i].clk);
+ }
+ 
++static void mtk_ccci_shutdown(struct platform_device *pdev)
++{
++	struct mtk_ccci_dev *ccci = platform_get_drvdata(pdev);
++
++	mtk_ccci_quiesce(ccci);
++}
++
+ static int mtk_ccci_suspend(struct device *dev)
+ {
+ 	struct mtk_ccci_dev *ccci = dev_get_drvdata(dev);
+ 
+-	if (!ccci->md_running || !device_may_wakeup(dev))
++	if (!ccci->md_running)
++		return 0;
++
++	mtk_ccci_dpmaif_suspend(ccci);
++
++	if (!device_may_wakeup(dev))
+ 		return 0;
+ 
+ 	enable_irq_wake(ccci->wdt_irq);
+@@ -1898,6 +1955,9 @@ static int mtk_ccci_resume(struct device *dev)
+ {
+ 	struct mtk_ccci_dev *ccci = dev_get_drvdata(dev);
+ 
++	if (ccci->md_running)
++		mtk_ccci_dpmaif_resume(ccci);
++
+ 	if (!ccci->irq_wake_enabled)
+ 		return 0;
+ 
+@@ -1922,6 +1982,7 @@ MODULE_DEVICE_TABLE(of, mtk_ccci_of_match);
+ static struct platform_driver mtk_ccci_driver = {
+ 	.probe = mtk_ccci_probe,
+ 	.remove = mtk_ccci_remove,
++	.shutdown = mtk_ccci_shutdown,
+ 	.driver = {
+ 		.name = "mtk-ccci",
+ 		.of_match_table = mtk_ccci_of_match,
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c
+index c379cb68d..fe1d8b974 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c
+@@ -231,6 +231,7 @@ struct mtk_ccci_dpmaif {
+ 	bool irq_enabled;
+ 	bool started;
+ 	bool wwan_registered;
++	u32 dl_imr_bak;
+ 
+ 	/* DL PIT + BAT + FRG BAT DMA rings */
+ 	struct mtk_dpmaif_pit *pit_base;
+@@ -1564,3 +1565,49 @@ void mtk_ccci_dpmaif_set_irq_wake(struct mtk_ccci_dev *ccci, bool on)
+ 
+ 	irq_set_irq_wake(dp->irq, on);
+ }
++
++void mtk_ccci_dpmaif_suspend(struct mtk_ccci_dev *ccci)
++{
++	struct mtk_ccci_dpmaif *dp = ccci->dpmaif;
++
++	if (!dp || !dp->started)
++		return;
++
++	dp->dl_imr_bak = readl(dp->pd_misc_base + DPMAIF_PD_AP_DL_L2TIMR0);
++}
++
++void mtk_ccci_dpmaif_resume(struct mtk_ccci_dev *ccci)
++{
++	struct mtk_ccci_dpmaif *dp = ccci->dpmaif;
++	u32 unmasked;
++
++	if (!dp || !dp->started)
++		return;
++
++	/*
++	 * On MT6789, DPMAIF PD registers retain state across shallow s2idle;
++	 * if DPMAIF PD lost power (UL queue 0 base register cleared), restore
++	 * interrupt masks and HW UL ring configuration cleanly.
++	 */
++	if (readl(dp->pd_ul_base + DPMAIF_PD_UL_CHNL_CON0(0)) != 0)
++		return;
++
++	dev_warn(dp->dev, "DPMAIF PD lost power during suspend; restoring registers\n");
++
++	writel(0xffffffffU, dp->pd_misc_base + DPMAIF_PD_AP_DL_L2TISAR0);
++	writel(dp->dl_imr_bak, dp->pd_misc_base + DPMAIF_PD_AP_DL_L2TIMSR0);
++	unmasked = ~dp->dl_imr_bak & DPMAIF_DL_L2INTR_EN_MSK;
++	if (unmasked)
++		writel(unmasked, dp->pd_misc_base + DPMAIF_PD_AP_DL_L2TIMCR0);
++	dpmaif_set_ao_dl_isr_mask(dp, dp->dl_imr_bak);
++
++	writel(0xffffffffU, dp->pd_misc_base + DPMAIF_PD_AP_UL_L2TISAR0);
++	writel(DPMAIF_UL_L2INTR_EN_MSK,
++	       dp->pd_misc_base + DPMAIF_PD_AP_UL_L2TICR0);
++	writel(~(u32)DPMAIF_UL_L2INTR_EN_MSK,
++	       dp->pd_misc_base + DPMAIF_PD_AP_UL_L2TISR0);
++
++	writel(0xffffffffU, dp->pd_misc_base + DPMAIF_PD_AP_IP_BUSY);
++	writel(0, dp->pd_misc_base + DPMAIF_PD_AP_DLUL_IP_BUSY_MASK);
++	dpmaif_tx_hw_init(dp);
++}
+-- 
+2.55.0
+

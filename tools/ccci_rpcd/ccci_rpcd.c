@@ -73,6 +73,7 @@ struct rpc_arg {
 };
 
 static volatile sig_atomic_t g_stop;
+static bool g_verbose;
 static int g_md1img_fd = -1;
 static uint64_t g_drdi_off;
 static uint32_t g_drdi_size;
@@ -221,10 +222,12 @@ static int32_t handle_amms_drdi(const uint8_t *req, uint32_t req_len,
 		resp_msg[0] = 0;
 		resp_msg[5] = g_drdi_copied ? 0xff : 0x00;
 		resp_msg[6] = 0;
-		fprintf(stdout,
-			"[ccci_rpcd] op=0x4014 AMMS_INIT seq=%u ver=%u sets=%u -> OK (copied=%d)\n",
-			seq_id, ver, set_num, g_drdi_copied ? 1 : 0);
-		fflush(stdout);
+		if (g_verbose) {
+			fprintf(stdout,
+				"[ccci_rpcd] op=0x4014 AMMS_INIT seq=%u ver=%u sets=%u -> OK (copied=%d)\n",
+				seq_id, ver, set_num, g_drdi_copied ? 1 : 0);
+			fflush(stdout);
+		}
 		return 0;
 	}
 
@@ -234,10 +237,12 @@ static int32_t handle_amms_drdi(const uint8_t *req, uint32_t req_len,
 		uint32_t total_copied = 0;
 
 		if (g_drdi_copied) {
-			fprintf(stdout,
-				"[ccci_rpcd] op=0x4014 AMMS_COPY seq=%u already copied -> OK\n",
-				seq_id);
-			fflush(stdout);
+			if (g_verbose) {
+				fprintf(stdout,
+					"[ccci_rpcd] op=0x4014 AMMS_COPY seq=%u already copied -> OK\n",
+					seq_id);
+				fflush(stdout);
+			}
 			resp_msg[0] = 0;
 			return 0;
 		}
@@ -289,10 +294,12 @@ static int32_t handle_amms_drdi(const uint8_t *req, uint32_t req_len,
 			g_drdi_copied = true;
 
 		resp_msg[0] = 0;
-		fprintf(stdout,
-			"[ccci_rpcd] op=0x4014 AMMS_COPY seq=%u last=%u sets=%u copied=%u B -> OK\n",
-			seq_id, last_cpy, g_set_total_num, total_copied);
-		fflush(stdout);
+		if (g_verbose) {
+			fprintf(stdout,
+				"[ccci_rpcd] op=0x4014 AMMS_COPY seq=%u last=%u sets=%u copied=%u B -> OK\n",
+				seq_id, last_cpy, g_set_total_num, total_copied);
+			fflush(stdout);
+		}
 		return 0;
 	}
 
@@ -369,9 +376,11 @@ static void dispatch_rpc(int dev_fd, const uint8_t *pkt, uint32_t len)
 			ret_val = -1;
 		}
 		vlen = (uint32_t)strlen(val) + 1U;
-		fprintf(stdout, "[ccci_rpcd] op=0x400f SYS_PROP key='%s' -> val='%s' ret=%d\n",
-			key, val, ret_val);
-		fflush(stdout);
+		if (g_verbose) {
+			fprintf(stdout, "[ccci_rpcd] op=0x400f SYS_PROP key='%s' -> val='%s' ret=%d\n",
+				key, val, ret_val);
+			fflush(stdout);
+		}
 		resp[0].len = sizeof(ret_val);
 		resp[0].buf = (const uint8_t *)&ret_val;
 		resp[1].len = vlen;
@@ -384,9 +393,11 @@ static void dispatch_rpc(int dev_fd, const uint8_t *pkt, uint32_t len)
 		uint32_t sar_idx = 0;
 
 		ret_val = 0;
-		fprintf(stdout, "[ccci_rpcd] op=0x4010 SAR_TABLE_IDX -> %u (ret=0)\n",
-			sar_idx);
-		fflush(stdout);
+		if (g_verbose) {
+			fprintf(stdout, "[ccci_rpcd] op=0x4010 SAR_TABLE_IDX -> %u (ret=0)\n",
+				sar_idx);
+			fflush(stdout);
+		}
 		resp[0].len = sizeof(ret_val);
 		resp[0].buf = (const uint8_t *)&ret_val;
 		resp[1].len = sizeof(sar_idx);
@@ -403,10 +414,12 @@ static void dispatch_rpc(int dev_fd, const uint8_t *pkt, uint32_t len)
 			memcpy(&aac, args[0].buf + 4, 4);
 		}
 		ret_val = 0;
-		fprintf(stdout,
-			"[ccci_rpcd] op=0x4015 SAVE_MD_CAPID capid=0x%x aac=0x%x -> ignored RO (ret=0)\n",
-			capid, aac);
-		fflush(stdout);
+		if (g_verbose) {
+			fprintf(stdout,
+				"[ccci_rpcd] op=0x4015 SAVE_MD_CAPID capid=0x%x aac=0x%x -> ignored RO (ret=0)\n",
+				capid, aac);
+			fflush(stdout);
+		}
 		resp[0].len = sizeof(ret_val);
 		resp[0].buf = (const uint8_t *)&ret_val;
 		resp[1].len = sizeof(out_st);
@@ -437,9 +450,11 @@ int main(int argc, char **argv)
 			md1img_path = argv[++i];
 		} else if (!strcmp(argv[i], "--ready-file") && i + 1 < argc) {
 			ready_file = argv[++i];
+		} else if (!strcmp(argv[i], "-v") || !strcmp(argv[i], "--verbose")) {
+			g_verbose = true;
 		} else {
 			fprintf(stderr,
-				"Usage: %s [--dev /dev/ccci_rpc] [--md1img path] [--ready-file path]\n",
+				"Usage: %s [--dev /dev/ccci_rpc] [--md1img path] [--ready-file path] [-v|--verbose]\n",
 				argv[0]);
 			return 2;
 		}

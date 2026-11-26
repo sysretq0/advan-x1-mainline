@@ -1,0 +1,585 @@
+From ff79dbd8cc99e23abab3b8ea79302ee0d6d7fb1d Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Fri, 27 Nov 2026 03:16:09 +0700
+Subject: [PATCH 64/65] net: wwan: mtk_ccci: Trim bring-up debug logging
+
+Demote verbose per-packet, per-RPC, and bring-up handshake dev_info and
+KERN_INFO hex dumps across mtk_ccci to dev_dbg and print_hex_dump_debug,
+and remove the temporary dpmaif_dump_init_regs() register dumper. Keep
+concise lifecycle messages (probe and MD READY) alongside all warning,
+error, and MD exception crash-decoder logs.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_at.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_at.c
+index 328ec1a55..891477fa8 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_at.c
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_at.c
+@@ -152,8 +152,8 @@ static void mtk_ccci_at_log_urc(struct mtk_ccci_dev *ccci, const u8 *payload,
+ 		out--;
+ 	preview[out] = '\0';
+ 
+-	dev_info(ccci->dev, "AT RX (%u B, port closed): %s\n",
+-		 payload_len, preview);
++	dev_dbg(ccci->dev, "AT RX (%u B, port closed): %s\n",
++		payload_len, preview);
+ }
+ 
+ void mtk_ccci_at_rx(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len)
+@@ -210,8 +210,8 @@ int mtk_ccci_at_register(struct mtk_ccci_dev *ccci)
+ 	ccci->at_port = port;
+ 	spin_unlock_irqrestore(&ccci->at_lock, flags);
+ 
+-	dev_info(ccci->dev, "registered WWAN AT port (CCIF Q%u ch %u/%u)\n",
+-		 MTK_CCIF_AT_QUEUE, CCCI_CH_UART2_RX, CCCI_CH_UART2_TX);
++	dev_dbg(ccci->dev, "registered WWAN AT port (CCIF Q%u ch %u/%u)\n",
++		MTK_CCIF_AT_QUEUE, CCCI_CH_UART2_RX, CCCI_CH_UART2_TX);
+ 	return 0;
+ }
+ 
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+index d4fa04cb6..9859a4326 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+@@ -124,8 +124,8 @@ static void mtk_ccci_peek_md1rom(struct mtk_ccci_dev *ccci)
+ 		u32 w2 = readl(md_va + 0x8);
+ 		u32 w3 = readl(md_va + 0xc);
+ 
+-		dev_info(ccci->dev, "md1rom @ %pa: %08x %08x %08x %08x\n",
+-			 &ccci->md_img_phys, w0, w1, w2, w3);
++		dev_dbg(ccci->dev, "md1rom @ %pa: %08x %08x %08x %08x\n",
++			&ccci->md_img_phys, w0, w1, w2, w3);
+ 		if (w0 == 0 || w0 == 0xffffffff)
+ 			dev_warn(ccci->dev,
+ 				 "md1rom unreadable (EMI MPU may still be locked)\n");
+@@ -134,10 +134,10 @@ static void mtk_ccci_peek_md1rom(struct mtk_ccci_dev *ccci)
+ 
+ 	md_va = ioremap_wc(dsp_phys, 0x20);
+ 	if (md_va) {
+-		dev_info(ccci->dev, "md1dsp @ %pa: %08x %08x %08x %08x\n",
+-			 &dsp_phys,
+-			 readl(md_va + 0x0), readl(md_va + 0x4),
+-			 readl(md_va + 0x8), readl(md_va + 0xc));
++		dev_dbg(ccci->dev, "md1dsp @ %pa: %08x %08x %08x %08x\n",
++			&dsp_phys,
++			readl(md_va + 0x0), readl(md_va + 0x4),
++			readl(md_va + 0x8), readl(md_va + 0xc));
+ 		iounmap(md_va);
+ 	}
+ }
+@@ -194,9 +194,9 @@ static void mtk_ccif_hw_reset(struct mtk_ccci_dev *ccci)
+ 	/* Ensure CCIF0 HW reset and SRAM footer complete before MD boot */
+ 	wmb();
+ 
+-	dev_info(ccci->dev, "CCIF0 reset: irq0_mask=0x%08x irq1_mask=0x%08x\n",
+-		 readl(ccci->ccif_ap_base + APCCIF_IRQ0_MASK),
+-		 readl(ccci->ccif_ap_base + APCCIF_IRQ1_MASK));
++	dev_dbg(ccci->dev, "CCIF0 reset: irq0_mask=0x%08x irq1_mask=0x%08x\n",
++		readl(ccci->ccif_ap_base + APCCIF_IRQ0_MASK),
++		readl(ccci->ccif_ap_base + APCCIF_IRQ1_MASK));
+ }
+ 
+ static void mtk_ccci_dump_timeout_state(struct mtk_ccci_dev *ccci)
+@@ -383,9 +383,9 @@ static void mtk_ccci_verify_lk_tags(struct mtk_ccci_dev *ccci)
+ 				char magic[16] = {};
+ 
+ 				memcpy_fromio(magic, tag_va + d_off, 12);
+-				dev_info(ccci->dev,
+-					 "LK tag md1_chk: magic=%.12s size=%u\n",
+-					 magic, d_sz);
++				dev_dbg(ccci->dev,
++					"LK tag md1_chk: magic=%.12s size=%u\n",
++					magic, d_sz);
+ 			}
+ 
+ 			if (next_off <= off || next_off >= ccci->tag_mem_size)
+@@ -398,8 +398,8 @@ static void mtk_ccci_verify_lk_tags(struct mtk_ccci_dev *ccci)
+ 
+ 	ccci->lk_tag_count = cnt;
+ 	ccci->lk_verified = found_md;
+-	dev_info(ccci->dev, "LK ccci_tag_mem @ %pa: tags=%u md1_verified=%d\n",
+-		 &ccci->tag_mem_phys, cnt, found_md);
++	dev_dbg(ccci->dev, "LK ccci_tag_mem @ %pa: tags=%u md1_verified=%d\n",
++		&ccci->tag_mem_phys, cnt, found_md);
+ }
+ 
+ static int mtk_ccci_init_smem_and_rings(struct mtk_ccci_dev *ccci)
+@@ -472,8 +472,8 @@ static int mtk_ccci_init_smem_and_rings(struct mtk_ccci_dev *ccci)
+ 
+ 	/* Ensure all SMEM ringbuffer initializations are visible to MD */
+ 	wmb();
+-	dev_info(ccci->dev, "initialized %u CCIF0 ringbufs (normal=0x%x B, exp=0x%x B)\n",
+-		 MTK_CCIF_QUEUE_NUM, normal_off, off);
++	dev_dbg(ccci->dev, "initialized %u CCIF0 ringbufs (normal=0x%x B, exp=0x%x B)\n",
++		MTK_CCIF_QUEUE_NUM, normal_off, off);
+ 	return 0;
+ }
+ 
+@@ -781,9 +781,9 @@ static int mtk_ccci_prepare_and_send_hs2(struct mtk_ccci_dev *ccci,
+ 	if (ret)
+ 		dev_err(ccci->dev, "failed to ring H2D_SRAM for HS2: %d\n", ret);
+ 	else
+-		dev_info(ccci->dev, "HS2 sent: runtime_data=%zu B nc=0x%08x/0x%zx c=0x%08x/0x%zx\n",
+-			 pos, ap_q.noncached_mpu_start_addr, ccci->nc_smem_size,
+-			 ap_q.cached_mpu_start_addr, ccci->c_smem_size);
++		dev_dbg(ccci->dev, "HS2 sent: runtime_data=%zu B nc=0x%08x/0x%zx c=0x%08x/0x%zx\n",
++			pos, ap_q.noncached_mpu_start_addr, ccci->nc_smem_size,
++			ap_q.cached_mpu_start_addr, ccci->c_smem_size);
+ 
+ out_free:
+ 	kfree(rt_buf);
+@@ -800,10 +800,10 @@ static void mtk_ccci_handle_sram_rx(struct mtk_ccci_dev *ccci)
+ 	mtk_ccif_read_sram(ccci, offsetof(struct mtk_ccci_sram_layout, md_rt_data),
+ 			   &md_q, sizeof(md_q));
+ 
+-	dev_info(ccci->dev,
+-		 "CCIF SRAM RX: ch=%u data[0]=0x%08x data[1]=0x%08x rsv=0x%08x pat=0x%08x/0x%08x\n",
+-		 dl_hdr.channel, dl_hdr.data[0], dl_hdr.data[1],
+-		 dl_hdr.reserved, md_q.head_pattern, md_q.tail_pattern);
++	dev_dbg(ccci->dev,
++		"CCIF SRAM RX: ch=%u data[0]=0x%08x data[1]=0x%08x rsv=0x%08x pat=0x%08x/0x%08x\n",
++		dl_hdr.channel, dl_hdr.data[0], dl_hdr.data[1],
++		dl_hdr.reserved, md_q.head_pattern, md_q.tail_pattern);
+ 
+ 	if (dl_hdr.channel == CCCI_CH_CONTROL_RX &&
+ 	    dl_hdr.data[1] == CCCI_MD_INIT_START_BOOT &&
+@@ -811,7 +811,7 @@ static void mtk_ccci_handle_sram_rx(struct mtk_ccci_dev *ccci)
+ 		atomic_set(&ccci->hs1_done, 1);
+ 		WRITE_ONCE(ccci->state, MTK_CCCI_STATE_HS1_DONE);
+ 		complete(&ccci->hs1_comp);
+-		dev_info(ccci->dev, "HS1 complete — negotiating runtime features\n");
++		dev_dbg(ccci->dev, "HS1 complete — negotiating runtime features\n");
+ 
+ 		if (mtk_ccci_prepare_and_send_hs2(ccci, &md_q))
+ 			WRITE_ONCE(ccci->state, MTK_CCCI_STATE_FAILED);
+@@ -853,10 +853,10 @@ static void mtk_ccci_drain_queue(struct mtk_ccci_dev *ccci, u32 q)
+ 			dev_warn(ccci->dev,
+ 				 "CCIF Q%u RX #%d truncated: len=%d > %u\n",
+ 				 q, cnt, ret, MTK_CCCI_RX_BUF_SIZE);
+-			print_hex_dump(KERN_INFO, "mtk-ccci rx: ",
+-				       DUMP_PREFIX_OFFSET, 16, 1,
+-				       ccci->rx_buf, min_t(u32, copy_len, 64),
+-				       true);
++			print_hex_dump_debug("mtk-ccci rx: ",
++					     DUMP_PREFIX_OFFSET, 16, 1,
++					     ccci->rx_buf,
++					     min_t(u32, copy_len, 64), true);
+ 			continue;
+ 		}
+ 
+@@ -864,11 +864,10 @@ static void mtk_ccci_drain_queue(struct mtk_ccci_dev *ccci, u32 q)
+ 			continue;
+ 		memcpy(&hdr, ccci->rx_buf, sizeof(hdr));
+ 
+-		if (cnt <= 32 || hdr.channel == CCCI_CH_CONTROL_RX)
+-			dev_info(ccci->dev,
+-				 "CCIF Q%u RX #%d: ch=%u len=%d d0=0x%08x d1=0x%08x seq=0x%04x rsv=0x%08x\n",
+-				 q, cnt, hdr.channel, ret, hdr.data[0],
+-				 hdr.data[1], hdr.seq_assert, hdr.reserved);
++		dev_dbg(ccci->dev,
++			"CCIF Q%u RX #%d: ch=%u len=%d d0=0x%08x d1=0x%08x seq=0x%04x rsv=0x%08x\n",
++			q, cnt, hdr.channel, ret, hdr.data[0],
++			hdr.data[1], hdr.seq_assert, hdr.reserved);
+ 
+ 		switch (hdr.channel) {
+ 		case CCCI_CH_CONTROL_RX:
+@@ -891,10 +890,10 @@ static void mtk_ccci_drain_queue(struct mtk_ccci_dev *ccci, u32 q)
+ 						       min_t(u32, ret - sizeof(hdr), 128),
+ 						       true);
+ 			} else {
+-				print_hex_dump(KERN_INFO, "mtk-ccci ctrl: ",
+-					       DUMP_PREFIX_OFFSET, 16, 1,
+-					       ccci->rx_buf,
+-					       min_t(u32, ret, 64), true);
++				print_hex_dump_debug("mtk-ccci ctrl: ",
++						     DUMP_PREFIX_OFFSET, 16, 1,
++						     ccci->rx_buf,
++						     min_t(u32, ret, 64), true);
+ 			}
+ 			break;
+ 		case CCCI_CH_SYSTEM_RX:
+@@ -927,10 +926,10 @@ static void mtk_ccci_drain_queue(struct mtk_ccci_dev *ccci, u32 q)
+ 					 "CCIF Q%u unhandled RX #%d: ch=%u len=%d d0=0x%08x d1=0x%08x seq=0x%04x rsv=0x%08x\n",
+ 					 q, cnt, hdr.channel, ret, hdr.data[0],
+ 					 hdr.data[1], hdr.seq_assert, hdr.reserved);
+-				print_hex_dump(KERN_WARNING, "mtk-ccci unh: ",
+-					       DUMP_PREFIX_OFFSET, 16, 1,
+-					       ccci->rx_buf,
+-					       min_t(u32, ret, 64), true);
++				print_hex_dump_debug("mtk-ccci unh: ",
++						     DUMP_PREFIX_OFFSET, 16, 1,
++						     ccci->rx_buf,
++						     min_t(u32, ret, 64), true);
+ 			}
+ 			break;
+ 		}
+@@ -1188,8 +1187,8 @@ static int mtk_ccci_park_md(struct mtk_ccci_dev *ccci)
+ 		WRITE_ONCE(ccci->state, MTK_CCCI_STATE_FAILED);
+ 		return ret;
+ 	}
+-	dev_info(ccci->dev, "pre-reset MD boot_status=0x%lx/0x%lx\n",
+-		 res.a1, res.a2);
++	dev_dbg(ccci->dev, "pre-reset MD boot_status=0x%lx/0x%lx\n",
++		res.a1, res.a2);
+ 
+ 	/*
+ 	 * When stock LK booted MD into BROM (boot_status != 0), poll BROM
+@@ -1210,9 +1209,9 @@ static int mtk_ccci_park_md(struct mtk_ccci_dev *ccci)
+ 
+ 		mtk_ccci_smc(MTK_CCCI_SMC_POWER_CONFIG,
+ 			     MTK_CCCI_PWR_CHECK_FLAG, 0, &res);
+-		dev_info(ccci->dev, "BROM check=%s flags=0x%lx,0x%lx,0x%lx,0x%lx\n",
+-			 brom_pass ? "PASS" : "TIMEOUT",
+-			 res.a0, res.a1, res.a2, res.a3);
++		dev_dbg(ccci->dev, "BROM check=%s flags=0x%lx,0x%lx,0x%lx,0x%lx\n",
++			brom_pass ? "PASS" : "TIMEOUT",
++			res.a0, res.a1, res.a2, res.a3);
+ 	} else {
+ 		mtk_ccci_peek_md1rom(ccci);
+ 	}
+@@ -1238,8 +1237,8 @@ static int mtk_ccci_park_md(struct mtk_ccci_dev *ccci)
+ 	ret = pm_runtime_put_sync(ccci->dev);
+ 	if (ccci->scpsys)
+ 		regmap_read(ccci->scpsys, 0x16c, &pwr_sta);
+-	dev_info(ccci->dev, "MD MTCMOS OFF (parked): ret=%d pwr_sta=0x%08x\n",
+-		 ret, pwr_sta);
++	dev_dbg(ccci->dev, "MD MTCMOS OFF (parked): ret=%d pwr_sta=0x%08x\n",
++		ret, pwr_sta);
+ 	mtk_ccci_smc(MTK_CCCI_SMC_FLIGHT_MODE_SET, 0, 0, &res);
+ 
+ 	WRITE_ONCE(ccci->state, MTK_CCCI_STATE_PARKED);
+@@ -1337,7 +1336,7 @@ static void mtk_ccci_boot_work(struct work_struct *work)
+ 	ret = pm_runtime_resume_and_get(ccci->dev);
+ 	if (ccci->scpsys)
+ 		regmap_read(ccci->scpsys, 0x16c, &pwr_sta);
+-	dev_info(ccci->dev, "MD MTCMOS ON: ret=%d pwr_sta=0x%08x\n", ret, pwr_sta);
++	dev_dbg(ccci->dev, "MD MTCMOS ON: ret=%d pwr_sta=0x%08x\n", ret, pwr_sta);
+ 	if (ret) {
+ 		dev_err(ccci->dev, "MD MTCMOS power-on failed: %d\n", ret);
+ 		WRITE_ONCE(ccci->state, MTK_CCCI_STATE_FAILED);
+@@ -1362,9 +1361,9 @@ static void mtk_ccci_boot_work(struct work_struct *work)
+ 	/* Release MD boot slave (EL3 writes 1 to 0x20000024) */
+ 	ret = mtk_ccci_smc(MTK_CCCI_SMC_POWER_CONFIG,
+ 			   MTK_CCCI_PWR_KERNEL_BOOT_UP, 0, &res);
+-	dev_info(ccci->dev,
+-		 "MD_KERNEL_BOOT_UP: ret=%lu status0=0x%lx status1=0x%lx slave=%lu\n",
+-		 res.a0, res.a1, res.a2, res.a3);
++	dev_dbg(ccci->dev,
++		"MD_KERNEL_BOOT_UP: ret=%lu status0=0x%lx status1=0x%lx slave=%lu\n",
++		res.a0, res.a1, res.a2, res.a3);
+ 	if (ret) {
+ 		dev_err(ccci->dev, "MD_KERNEL_BOOT_UP SMC failed (%d)\n", ret);
+ 		WRITE_ONCE(ccci->state, MTK_CCCI_STATE_FAILED);
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c
+index fe1d8b974..8f014e231 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c
+@@ -550,9 +550,9 @@ static void dpmaif_deliver_skb(struct mtk_ccci_dpmaif *dp, struct sk_buff *skb)
+ 
+ 	if (!nif || !netif_running(nif->ndev)) {
+ 		if (__ratelimit(&dp->err_rs))
+-			dev_info(dp->dev, "DPMAIF RX drop ch=%u len=%u (netif %s)\n",
+-				 dp->cur_chn_idx, skb->len,
+-				 nif ? "down" : "unregistered");
++			dev_dbg(dp->dev, "DPMAIF RX drop ch=%u len=%u (netif %s)\n",
++				dp->cur_chn_idx, skb->len,
++				nif ? "down" : "unregistered");
+ 		dev_kfree_skb_any(skb);
+ 		return;
+ 	}
+@@ -1084,34 +1084,6 @@ static int dpmaif_intr_hw_init(struct mtk_ccci_dpmaif *dp)
+ 	return 0;
+ }
+ 
+-static void dpmaif_dump_init_regs(struct mtk_ccci_dpmaif *dp, const char *step)
+-{
+-	u32 cg2 = 0, cg3 = 0, prot1 = 0, vdnr = 0, rst_ao = 0, rst_pd = 0, ctrl = 0;
+-
+-	if (dp->ccci->infracfg) {
+-		regmap_read(dp->ccci->infracfg, 0x00ac, &cg2);
+-		regmap_read(dp->ccci->infracfg, 0x00c8, &cg3);
+-		regmap_read(dp->ccci->infracfg, 0x0250, &prot1);
+-		regmap_read(dp->ccci->infracfg, 0x0b80, &vdnr);
+-		regmap_read(dp->ccci->infracfg, 0x0140, &rst_ao);
+-		regmap_read(dp->ccci->infracfg, 0x0150, &rst_pd);
+-		regmap_read(dp->ccci->infracfg, INFRA_DPMAIF_CTRL_REG, &ctrl);
+-	}
+-
+-	dev_err(dp->dev,
+-		"DPMAIF %s timeout: coda=0x%08x bat_init=0x%08x pit_init=0x%08x dbg1=0x%08x cg_en=0x%08x\n",
+-		step,
+-		readl(dp->pd_misc_base + DPMAIF_PD_AP_CODA_VER),
+-		readl(dp->pd_dl_base + DPMAIF_PD_DL_BAT_INIT),
+-		readl(dp->pd_dl_base + DPMAIF_PD_DL_PIT_INIT),
+-		readl(dp->pd_dl_base + DPMAIF_PD_DL_DBG_STA1),
+-		readl(dp->pd_misc_base + DPMAIF_PD_AP_CG_EN));
+-	dev_err(dp->dev,
+-		"DPMAIF %s infra: cg2=0x%08x cg3=0x%08x prot1=0x%08x vdnr=0x%08x rst=0x%08x/0x%08x ctrl=0x%08x clk=%lu bclk=%lu\n",
+-		step, cg2, cg3, prot1, vdnr, rst_ao, rst_pd, ctrl,
+-		clk_get_rate(dp->clk), clk_get_rate(dp->bclk));
+-}
+-
+ static int dpmaif_rx_hw_init(struct mtk_ccci_dpmaif *dp)
+ {
+ 	u32 val;
+@@ -1164,12 +1136,12 @@ static int dpmaif_rx_hw_init(struct mtk_ccci_dpmaif *dp)
+ 
+ 	ret = dpmaif_dl_bat_init_cmd(dp, DPMAIF_DL_BAT_INIT_ALLSET);
+ 	if (ret) {
+-		dpmaif_dump_init_regs(dp, "bat_init");
++		dev_err(dp->dev, "DPMAIF bat_init timeout: %d\n", ret);
+ 		return ret;
+ 	}
+ 	ret = dpmaif_dl_pit_init_cmd(dp, DPMAIF_DL_PIT_INIT_ALLSET);
+ 	if (ret) {
+-		dpmaif_dump_init_regs(dp, "pit_init");
++		dev_err(dp->dev, "DPMAIF pit_init timeout: %d\n", ret);
+ 		return ret;
+ 	}
+ 
+@@ -1193,7 +1165,7 @@ static int dpmaif_rx_hw_init(struct mtk_ccci_dpmaif *dp)
+ 	ret = dpmaif_dl_bat_init_cmd(dp, DPMAIF_DL_BAT_INIT_ALLSET |
+ 					 DPMAIF_DL_BAT_FRG_INIT);
+ 	if (ret) {
+-		dpmaif_dump_init_regs(dp, "frg_bat_init");
++		dev_err(dp->dev, "DPMAIF frg_bat_init timeout: %d\n", ret);
+ 		return ret;
+ 	}
+ 
+@@ -1255,8 +1227,8 @@ static void dpmaif_init_smem_ul(struct mtk_ccci_dpmaif *dp)
+ 
+ 	/* Ensure SMEM UL layout is visible to MD before handshake */
+ 	wmb();
+-	dev_info(dp->dev, "DPMAIF SMEM UL ready: used=0x%x/%u B md_pa=0x%08x\n",
+-		 pos, NC_SZ_MD_DATA, md_pa);
++	dev_dbg(dp->dev, "DPMAIF SMEM UL ready: used=0x%x/%u B md_pa=0x%08x\n",
++		pos, NC_SZ_MD_DATA, md_pa);
+ }
+ 
+ int mtk_ccci_dpmaif_start(struct mtk_ccci_dev *ccci)
+@@ -1335,9 +1307,9 @@ int mtk_ccci_dpmaif_start(struct mtk_ccci_dev *ccci)
+ 	enable_irq(dp->irq);
+ 	dp->irq_enabled = true;
+ 
+-	dev_info(dp->dev, "DPMAIF v1 started (PIT=%u BAT=%u FRG=%u SMEM_UL=3x%u)\n",
+-		 MTK_DPMAIF_PIT_CNT, MTK_DPMAIF_BAT_CNT, MTK_DPMAIF_BAT_CNT,
+-		 MTK_DPMAIF_SMEM_UL_QSIZE);
++	dev_dbg(dp->dev, "DPMAIF v1 started (PIT=%u BAT=%u FRG=%u SMEM_UL=3x%u)\n",
++		MTK_DPMAIF_PIT_CNT, MTK_DPMAIF_BAT_CNT, MTK_DPMAIF_BAT_CNT,
++		MTK_DPMAIF_SMEM_UL_QSIZE);
+ 	return 0;
+ 
+ err_bufs:
+@@ -1364,7 +1336,7 @@ int mtk_ccci_dpmaif_register_wwan(struct mtk_ccci_dev *ccci)
+ 	}
+ 
+ 	dp->wwan_registered = true;
+-	dev_info(dp->dev, "registered WWAN netdev ops (default link id=0)\n");
++	dev_dbg(dp->dev, "registered WWAN netdev ops (default link id=0)\n");
+ 	return 0;
+ }
+ 
+@@ -1403,7 +1375,7 @@ int mtk_ccci_dpmaif_init(struct mtk_ccci_dev *ccci)
+ 
+ 	np = of_parse_phandle(dev->of_node, "mediatek,dpmaif", 0);
+ 	if (!np) {
+-		dev_info(dev, "no mediatek,dpmaif phandle; DPMAIF disabled\n");
++		dev_dbg(dev, "no mediatek,dpmaif phandle; DPMAIF disabled\n");
+ 		return 0;
+ 	}
+ 
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_rpc.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_rpc.c
+index 0a3f3b318..11d4d24a4 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_rpc.c
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_rpc.c
+@@ -318,8 +318,8 @@ static void mtk_ccci_rpc_fill_gpio_adc(struct mtk_ccci_dev *ccci,
+ 		out->adc_ch_meas_sum = ADVAN_X1_MD_ADC_RAW *
+ 				       in->adc_ch_meas_count;
+ 
+-	dev_info(ccci->dev, "RPC GET_GPIO_ADC v1: mask=0x%x valid=0x%x adc_cnt=%u\n",
+-		 in->req_mask, in->gpio_valid_pin_mask, in->adc_ch_meas_count);
++	dev_dbg(ccci->dev, "RPC GET_GPIO_ADC v1: mask=0x%x valid=0x%x adc_cnt=%u\n",
++		in->req_mask, in->gpio_valid_pin_mask, in->adc_ch_meas_count);
+ }
+ 
+ static void mtk_ccci_rpc_fill_gpio_adc_v2(struct mtk_ccci_dev *ccci,
+@@ -357,8 +357,8 @@ static void mtk_ccci_rpc_fill_gpio_adc_v2(struct mtk_ccci_dev *ccci,
+ 		out->adc_ch_meas_sum = ADVAN_X1_MD_ADC_RAW *
+ 				       in->adc_ch_meas_count;
+ 
+-	dev_info(ccci->dev, "RPC GET_GPIO_ADC v2: mask=0x%x valid=0x%x adc_cnt=%u\n",
+-		 in->req_mask, in->gpio_valid_pin_mask, in->adc_ch_meas_count);
++	dev_dbg(ccci->dev, "RPC GET_GPIO_ADC v2: mask=0x%x valid=0x%x adc_cnt=%u\n",
++		in->req_mask, in->gpio_valid_pin_mask, in->adc_ch_meas_count);
+ }
+ 
+ static int mtk_ccci_rpc_send_reply(struct mtk_ccci_dev *ccci,
+@@ -434,8 +434,8 @@ void mtk_ccci_rpc_handle(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len)
+ 
+ 	if (len < sizeof(hdr) || len > MTK_CCCI_RPC_MAX_BUF) {
+ 		dev_warn(ccci->dev, "RPC bad packet length %u\n", len);
+-		print_hex_dump(KERN_INFO, "mtk-ccci rpc: ", DUMP_PREFIX_OFFSET,
+-			       16, 1, pkt, min_t(u32, len, 64), true);
++		print_hex_dump_debug("mtk-ccci rpc: ", DUMP_PREFIX_OFFSET,
++				     16, 1, pkt, min_t(u32, len, 64), true);
+ 		return;
+ 	}
+ 
+@@ -444,8 +444,8 @@ void mtk_ccci_rpc_handle(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len)
+ 	    hdr.para_num > MTK_CCCI_RPC_MAX_ARG) {
+ 		dev_warn(ccci->dev, "RPC invalid rsv=%u para_num=%u op=0x%08x\n",
+ 			 hdr.ccci.reserved, hdr.para_num, hdr.op_id);
+-		print_hex_dump(KERN_INFO, "mtk-ccci rpc: ", DUMP_PREFIX_OFFSET,
+-			       16, 1, pkt, min_t(u32, len, 64), true);
++		print_hex_dump_debug("mtk-ccci rpc: ", DUMP_PREFIX_OFFSET,
++				     16, 1, pkt, min_t(u32, len, 64), true);
+ 		return;
+ 	}
+ 
+@@ -483,10 +483,10 @@ void mtk_ccci_rpc_handle(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len)
+ 			status = err;
+ 			if (err)
+ 				val = err;
+-			dev_info(ccci->dev,
+-				 "RPC GET_EINT_ATTR: name=%.*s type=%u -> err=%d val=%d\n",
+-				 (int)strnlen(args[0].buf, args[0].len),
+-				 (const char *)args[0].buf, type, err, val);
++			dev_dbg(ccci->dev,
++				"RPC GET_EINT_ATTR: name=%.*s type=%u -> err=%d val=%d\n",
++				(int)strnlen(args[0].buf, args[0].len),
++				(const char *)args[0].buf, type, err, val);
+ 		}
+ 		resp[0].len = sizeof(status);
+ 		resp[0].buf = &status;
+@@ -510,10 +510,10 @@ void mtk_ccci_rpc_handle(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len)
+ 		} else {
+ 			val = ADVAN_X1_MD_ADC_CH;
+ 		}
+-		dev_info(ccci->dev, "RPC op=0x%04x name=%.*s -> %d\n",
+-			 hdr.op_id,
+-			 hdr.para_num >= 1 ? (int)strnlen(args[0].buf, args[0].len) : 0,
+-			 hdr.para_num >= 1 ? (const char *)args[0].buf : "", val);
++		dev_dbg(ccci->dev, "RPC op=0x%04x name=%.*s -> %d\n",
++			hdr.op_id,
++			hdr.para_num >= 1 ? (int)strnlen(args[0].buf, args[0].len) : 0,
++			hdr.para_num >= 1 ? (const char *)args[0].buf : "", val);
+ 		resp[0].len = sizeof(val);
+ 		resp[0].buf = &val;
+ 		resp[1].len = sizeof(val);
+@@ -525,7 +525,7 @@ void mtk_ccci_rpc_handle(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len)
+ 	case IPC_RPC_GET_EMI_CLK_TYPE_OP: {
+ 		val = (hdr.para_num == 0) ? MTK_CCCI_RPC_FUNC_FAIL :
+ 					    MTK_CCCI_RPC_PARAM_ERR;
+-		dev_info(ccci->dev, "RPC GET_EMI_CLK_TYPE -> %d\n", val);
++		dev_dbg(ccci->dev, "RPC GET_EMI_CLK_TYPE -> %d\n", val);
+ 		resp[0].len = sizeof(val);
+ 		resp[0].buf = &val;
+ 		resp[1].len = sizeof(val);
+@@ -547,8 +547,8 @@ void mtk_ccci_rpc_handle(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len)
+ 			val = (hdr.op_id == IPC_RPC_GET_ADC_VAL_OP) ?
+ 			      ADVAN_X1_MD_ADC_RAW : 0;
+ 		}
+-		dev_info(ccci->dev, "RPC op=0x%04x num=%u -> %d\n",
+-			 hdr.op_id, num, val);
++		dev_dbg(ccci->dev, "RPC op=0x%04x num=%u -> %d\n",
++			hdr.op_id, num, val);
+ 		resp[0].len = sizeof(val);
+ 		resp[0].buf = &val;
+ 		resp[1].len = sizeof(val);
+@@ -610,9 +610,9 @@ void mtk_ccci_rpc_handle(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len)
+ 			struct mtk_ccci_rpc_lhif_map map;
+ 
+ 			memcpy(&map, args[0].buf, sizeof(map));
+-			dev_info(ccci->dev,
+-				 "RPC LHIF_MAPPING: net_if=%u lhif_q=%u\n",
+-				 map.net_if, map.lhif_q);
++			dev_dbg(ccci->dev,
++				"RPC LHIF_MAPPING: net_if=%u lhif_q=%u\n",
++				map.net_if, map.lhif_q);
+ 			status = MTK_CCCI_RPC_OK;
+ 		} else {
+ 			status = MTK_CCCI_RPC_PARAM_ERR;
+@@ -639,11 +639,11 @@ void mtk_ccci_rpc_handle(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len)
+ 						     sizeof(in.str_name),
+ 						     &prop_val))
+ 				out.ret_value = prop_val;
+-			dev_info(ccci->dev,
+-				 "RPC DTSI_QUERY: req=%u name=%.*s -> 0x%08x\n",
+-				 in.req,
+-				 (int)strnlen(in.str_name, sizeof(in.str_name)),
+-				 in.str_name, out.ret_value);
++			dev_dbg(ccci->dev,
++				"RPC DTSI_QUERY: req=%u name=%.*s -> 0x%08x\n",
++				in.req,
++				(int)strnlen(in.str_name, sizeof(in.str_name)),
++				in.str_name, out.ret_value);
+ 			status = MTK_CCCI_RPC_OK;
+ 			resp[0].len = sizeof(status);
+ 			resp[0].buf = &status;
+@@ -668,7 +668,7 @@ void mtk_ccci_rpc_handle(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len)
+ 		} else {
+ 			status = MTK_CCCI_RPC_OK;
+ 			u32_val = get_random_u32();
+-			dev_info(ccci->dev, "RPC TRNG -> 0x%08x\n", u32_val);
++			dev_dbg(ccci->dev, "RPC TRNG -> 0x%08x\n", u32_val);
+ 		}
+ 		resp[0].len = sizeof(status);
+ 		resp[0].buf = &status;
+@@ -679,8 +679,8 @@ void mtk_ccci_rpc_handle(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len)
+ 	}
+ 
+ 	case IPC_RPC_QUERY_CARD_TYPE: {
+-		dev_info(ccci->dev, "RPC QUERY_CARD_TYPE: para=%u\n",
+-			 hdr.para_num);
++		dev_dbg(ccci->dev, "RPC QUERY_CARD_TYPE: para=%u\n",
++			hdr.para_num);
+ 		for (i = 0; i < hdr.para_num; i++)
+ 			resp[i] = args[i];
+ 		resp_num = hdr.para_num;
+@@ -690,7 +690,7 @@ void mtk_ccci_rpc_handle(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len)
+ 	case IPC_RPC_IT_OP: {
+ 		status = 1;
+ 		u32_val = 0xa5a5U;
+-		dev_info(ccci->dev, "RPC IT_OP -> (1, 0xa5a5)\n");
++		dev_dbg(ccci->dev, "RPC IT_OP -> (1, 0xa5a5)\n");
+ 		resp[0].len = sizeof(status);
+ 		resp[0].buf = &status;
+ 		resp[1].len = sizeof(u32_val);
+@@ -703,9 +703,9 @@ void mtk_ccci_rpc_handle(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len)
+ 	case IPC_RPC_SAR_TABLE_IDX_QUERY_OP:
+ 	case IPC_RPC_AMMS_DRDI_CONTROL:
+ 	case IPC_RPC_SAVE_MD_CAPID:
+-		dev_info(ccci->dev,
+-			 "RPC user-forward op=0x%04x para=%u len=%u rsv=%u\n",
+-			 hdr.op_id, hdr.para_num, len, hdr.ccci.reserved);
++		dev_dbg(ccci->dev,
++			"RPC user-forward op=0x%04x para=%u len=%u rsv=%u\n",
++			hdr.op_id, hdr.para_num, len, hdr.ccci.reserved);
+ 		mtk_ccci_rpc_user_rx(ccci, pkt, len);
+ 		return;
+ 
+@@ -713,8 +713,8 @@ void mtk_ccci_rpc_handle(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len)
+ 		dev_warn(ccci->dev,
+ 			 "RPC unhandled op=0x%08x para=%u len=%u rsv=0x%08x\n",
+ 			 hdr.op_id, hdr.para_num, len, hdr.ccci.reserved);
+-		print_hex_dump(KERN_INFO, "mtk-ccci rpc: ", DUMP_PREFIX_OFFSET,
+-			       16, 1, pkt, min_t(u32, len, 64), true);
++		print_hex_dump_debug("mtk-ccci rpc: ", DUMP_PREFIX_OFFSET,
++				     16, 1, pkt, min_t(u32, len, 64), true);
+ 		return;
+ 	}
+ 
+@@ -725,8 +725,8 @@ void mtk_ccci_rpc_handle(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len)
+ 	dev_warn(ccci->dev,
+ 		 "RPC malformed packet op=0x%08x para=%u len=%u\n",
+ 		 hdr.op_id, hdr.para_num, len);
+-	print_hex_dump(KERN_INFO, "mtk-ccci rpc: ", DUMP_PREFIX_OFFSET,
+-		       16, 1, pkt, min_t(u32, len, 64), true);
++	print_hex_dump_debug("mtk-ccci rpc: ", DUMP_PREFIX_OFFSET,
++			     16, 1, pkt, min_t(u32, len, 64), true);
+ }
+ 
+ struct mtk_ccci_rpc_pkt {
+-- 
+2.55.0
+
