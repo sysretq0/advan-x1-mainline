@@ -1,0 +1,53 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Thu, 26 Nov 2026 10:45:00 +0000
+Subject: [PATCH] Input: chipone-icnl9922c - avoid ABBA deadlock in panel_unpreparing
+
+icnl9922c_panel_unpreparing() previously held ts->lock while calling
+synchronous disable_irq(ts->spi->irq), while the threaded IRQ handler
+icnl9922c_irq_handler() acquires ts->lock. When a touch IRQ fires right
+as drm_panel_unprepare() runs during system suspend (dpm_prepare), both
+threads deadlock permanently and hang suspend before GFP mask restrict.
+
+Clear ts->running and ts->irq_enabled under ts->lock, drop ts->lock
+before calling disable_irq(), then re-acquire ts->lock to release any
+active touch slots.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ drivers/input/touchscreen/chipone_icnl9922c.c | 15 ++++++++++++++-
+ 1 file changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/input/touchscreen/chipone_icnl9922c.c b/drivers/input/touchscreen/chipone_icnl9922c.c
+index 6a5f5f6f9..d960b66bd 100644
+--- a/drivers/input/touchscreen/chipone_icnl9922c.c
++++ b/drivers/input/touchscreen/chipone_icnl9922c.c
+@@ -730,14 +730,27 @@ static int icnl9922c_panel_unpreparing(struct drm_panel_follower *follower)
+ {
+ 	struct icnl9922c_ts *ts = container_of(follower, struct icnl9922c_ts,
+ 					       panel_follower);
++	bool disable = false;
+ 
+ 	cancel_work_sync(&ts->fw_work);
++
+ 	mutex_lock(&ts->lock);
+ 	ts->running = false;
+ 	if (ts->irq_enabled) {
+-		disable_irq(ts->spi->irq);
+ 		ts->irq_enabled = false;
++		disable = true;
+ 	}
++	mutex_unlock(&ts->lock);
++
++	/*
++	 * disable_irq() synchronizes with the threaded IRQ handler, which
++	 * acquires ts->lock; never call it while holding ts->lock or an
++	 * in-flight touch IRQ during panel unprepare deadlocks suspend.
++	 */
++	if (disable)
++		disable_irq(ts->spi->irq);
++
++	mutex_lock(&ts->lock);
+ 	if (ts->input) {
+ 		input_mt_sync_frame(ts->input);
+ 		input_sync(ts->input);

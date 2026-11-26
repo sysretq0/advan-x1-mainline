@@ -280,6 +280,56 @@ echo "== 1. Cloning mutter-mobile ($MUTTER_TAG) & gnome-shell-mobile ($SHELL_TAG
 clone_tag "$MUTTER_REPO" "$MUTTER_TAG" "$WORK_DIR/mutter-mobile"
 clone_tag "$SHELL_REPO" "$SHELL_TAG" "$WORK_DIR/gnome-shell-mobile"
 
+echo "== 1b. Patching gnome-shell-mobile lock/wake & DSI brightness bugs =="
+python3 - "$WORK_DIR/gnome-shell-mobile" <<'PYEOF'
+import pathlib, sys
+
+root = pathlib.Path(sys.argv[1])
+
+# 1) screenShield.js:
+#    - Mutter 51 does not export Meta.PowerSaveMode in Meta-51.typelib
+#      (power_save_mode is raw gint, META_POWER_SAVE_ON == 0).
+#    - Mobile UnlockDialog implements cancelUnlock(), not cancel().
+ss_path = root / "js/ui/screenShield.js"
+ss = ss_path.read_text()
+orig_ss = ss
+ss = ss.replace(
+    "Meta.PowerSaveMode.ON",
+    "(Meta.PowerSaveMode?.ON ?? 0)",
+)
+ss = ss.replace(
+    "this._dialog.cancel();",
+    "(this._dialog.cancel ?? this._dialog.cancelUnlock)?.call(this._dialog);",
+)
+ss = ss.replace(
+    "this._dialog?.cancel();",
+    "(this._dialog?.cancel ?? this._dialog?.cancelUnlock)?.call(this._dialog);",
+)
+assert ss != orig_ss, "screenShield.js patch matched nothing"
+assert "Meta.PowerSaveMode.ON" not in ss, "Meta.PowerSaveMode.ON still present"
+assert "this._dialog.cancel()" not in ss and "this._dialog?.cancel()" not in ss, "unguarded _dialog.cancel() still present in screenShield.js"
+ss_path.write_text(ss)
+
+# 2) brightnessManager.js:
+#    - DSI panels without EDID return null for vendor/product/serial, which
+#      makes GLib.Variant('a(sssssd)', ...) throw Argument string may not be null.
+bm_path = root / "js/misc/brightnessManager.js"
+bm = bm_path.read_text()
+orig_bm = bm
+for prop, expr in [
+    ("vendor: monitor.get_vendor(),", "vendor: monitor.get_vendor() ?? '',"),
+    ("product: monitor.get_product(),", "product: monitor.get_product() ?? '',"),
+    ("serial: monitor.get_serial(),", "serial: monitor.get_serial() ?? '',"),
+    ("colorMode: monitor.get_color_mode_string(),", "colorMode: monitor.get_color_mode_string() ?? '',"),
+    ("connector: monitor.get_connector(),", "connector: monitor.get_connector() ?? '',"),
+]:
+    assert prop in bm, f"expected {prop!r} in brightnessManager.js"
+    bm = bm.replace(prop, expr, 1)
+assert bm != orig_bm
+bm_path.write_text(bm)
+print("Patched screenShield.js and brightnessManager.js cleanly")
+PYEOF
+
 echo "== 2. Building mutter-mobile ($MUTTER_TAG) with Google Clang =="
 rm -rf "$WORK_DIR/build-mutter"
 meson setup "$WORK_DIR/build-mutter" "$WORK_DIR/mutter-mobile" \

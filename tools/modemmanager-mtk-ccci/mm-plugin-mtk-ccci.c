@@ -254,6 +254,15 @@ wait_eif (GTask *task)
     return G_SOURCE_REMOVE;
 }
 
+static gboolean
+bind_wwan0_if_id (guint net_if)
+{
+    static const gchar *const path = "/sys/bus/platform/devices/d0cf000.modem/wwan0_if_id";
+    g_autofree gchar *val = g_strdup_printf ("%u\n", net_if);
+
+    return g_file_set_contents (path, val, -1, NULL);
+}
+
 static void
 connect_command_ready (MMBaseModem *modem, GAsyncResult *res, GTask *task)
 {
@@ -263,6 +272,8 @@ connect_command_ready (MMBaseModem *modem, GAsyncResult *res, GTask *task)
 
     response = mm_base_modem_at_command_full_finish (modem, res, &error);
     if (!response) {
+        if (ctx->step == CONNECT_ACTIVATE && !ctx->have_eif)
+            ctx->activated = FALSE;
         g_prefix_error (&error, "CCCI connect step %u: ", ctx->step);
         connect_fail (task, error);
         return;
@@ -333,7 +344,16 @@ connect_step (GTask *task)
             ctx->wait_id = g_timeout_add_seconds (1, (GSourceFunc) wait_eif, task);
             return;
         }
-        command = g_strdup_printf ("wwan%u", ctx->eif.id % 100);
+        {
+            guint net_if = ctx->eif.id % 100;
+
+            if (bind_wwan0_if_id (net_if)) {
+                mm_obj_msg (self, "bound wwan0 to DPMAIF net_if %u (EIF %u)", net_if, ctx->eif.id);
+                command = g_strdup ("wwan0");
+            } else {
+                command = g_strdup_printf ("wwan%u", net_if);
+            }
+        }
         ctx->data = mm_base_modem_get_port (ctx->modem, command);
         if (!ctx->data || mm_port_get_port_type (ctx->data) != MM_PORT_TYPE_NET ||
             mm_port_get_connected (ctx->data)) {

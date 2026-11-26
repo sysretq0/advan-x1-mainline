@@ -1,0 +1,209 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Thu, 26 Nov 2026 10:45:01 +0000
+Subject: [PATCH] net: wwan: mtk_ccci: support all 21 DPMAIF net_if IDs and wwan0 rebinding
+
+MT6789 MOLY Gen95 dynamically assigns net_if IDs across 0..20 (matching
+stock ccmni0..ccmni20) as PDNs are activated, deactivated, and reconnected
+across suspend/resume cycles. Raise MTK_DPMAIF_MAX_NETIF from 8 to 21 and
+add a sysfs attribute wwan0_if_id on the modem device so ModemManager can
+atomically rebind wwan0's DPMAIF TX/RX channel to whichever net_if (0..20)
+MOLY assigns in +EIF without creating 21 static WWAN netdevs.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ drivers/net/wwan/mtk_ccci/mtk_ccci.h        |  2 +
+ drivers/net/wwan/mtk_ccci/mtk_ccci_core.c   | 30 ++++++++++++
+ drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c | 75 ++++++++++++++++++++++++++---
+ 3 files changed, 101 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci.h b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
+index c30afc9fc..b6ed482b4 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci.h
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
+@@ -515,6 +515,8 @@ int mtk_ccci_dpmaif_init(struct mtk_ccci_dev *ccci);
+ void mtk_ccci_dpmaif_uninit(struct mtk_ccci_dev *ccci);
+ int mtk_ccci_dpmaif_start(struct mtk_ccci_dev *ccci);
+ int mtk_ccci_dpmaif_register_wwan(struct mtk_ccci_dev *ccci);
++int mtk_ccci_dpmaif_get_default_if_id(struct mtk_ccci_dev *ccci);
++int mtk_ccci_dpmaif_set_default_if_id(struct mtk_ccci_dev *ccci, u32 new_id);
+ void mtk_ccci_dpmaif_smem_tx_irq(struct mtk_ccci_dev *ccci);
+ void mtk_ccci_dpmaif_set_irq_wake(struct mtk_ccci_dev *ccci, bool on);
+ 
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+index 81f0a0bda..e586b0679 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+@@ -1509,9 +1509,39 @@ static ssize_t boot_store(struct device *dev, struct device_attribute *attr,
+ }
+ static DEVICE_ATTR_RW(boot);
+ 
++static ssize_t wwan0_if_id_show(struct device *dev,
++				struct device_attribute *attr, char *buf)
++{
++	struct mtk_ccci_dev *ccci = dev_get_drvdata(dev);
++	int id = mtk_ccci_dpmaif_get_default_if_id(ccci);
++
++	if (id < 0)
++		return id;
++
++	return sysfs_emit(buf, "%d\n", id);
++}
++
++static ssize_t wwan0_if_id_store(struct device *dev,
++				 struct device_attribute *attr,
++				 const char *buf, size_t count)
++{
++	struct mtk_ccci_dev *ccci = dev_get_drvdata(dev);
++	u32 id;
++	int ret;
++
++	ret = kstrtou32(buf, 10, &id);
++	if (ret)
++		return ret;
++
++	ret = mtk_ccci_dpmaif_set_default_if_id(ccci, id);
++	return ret ? ret : count;
++}
++static DEVICE_ATTR_RW(wwan0_if_id);
++
+ static struct attribute *mtk_ccci_attrs[] = {
+ 	&dev_attr_state.attr,
+ 	&dev_attr_boot.attr,
++	&dev_attr_wwan0_if_id.attr,
+ 	&dev_attr_hs1_done.attr,
+ 	&dev_attr_hs2_done.attr,
+ 	&dev_attr_wdt_count.attr,
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c
+index 5e47e8605..3089538c3 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c
+@@ -28,6 +28,7 @@
+ #include <linux/of_address.h>
+ #include <linux/of_irq.h>
+ #include <linux/regmap.h>
++#include <linux/rtnetlink.h>
+ #include <linux/skbuff.h>
+ #include <linux/slab.h>
+ #include <linux/spinlock.h>
+@@ -131,7 +132,7 @@
+ #define DPMAIF_DL_L2INTR_EN_MSK		(DPMAIF_DL_INT_QDONE_BIT | DPMAIF_DL_L2INTR_ERR_MSK)
+ 
+ /* MT6789 DPMAIF v1 ring dimensions */
+-#define MTK_DPMAIF_MAX_NETIF		8
++#define MTK_DPMAIF_MAX_NETIF		21
+ #define MTK_DPMAIF_HW_TXQ_NUM		4
+ #define MTK_DPMAIF_HW_DRB_CNT		2048U
+ #define MTK_DPMAIF_BAT_CNT		1024U
+@@ -269,6 +270,7 @@ struct mtk_ccci_dpmaif {
+ 	/* NAPI + WWAN netdevs */
+ 	struct net_device *dummy_dev;
+ 	struct napi_struct napi;
++	struct mtk_dpmaif_netif *default_nif;
+ 	struct mtk_dpmaif_netif *netifs[MTK_DPMAIF_MAX_NETIF];
+ 	struct ratelimit_state err_rs;
+ };
+@@ -874,7 +876,8 @@ static netdev_tx_t mtk_dpmaif_start_xmit(struct sk_buff *skb,
+ 	msg_drb.w0 = cpu_to_le32(FIELD_PREP(DPMAIF_DRB_DTYP_MASK, DPMAIF_DRB_DTYP_MSG) |
+ 				 FIELD_PREP(DPMAIF_DRB_CBIT_MASK, 1) |
+ 				 FIELD_PREP(DPMAIF_DRB_LEN_MASK, pkt_len));
+-	msg_drb.w1 = cpu_to_le32(FIELD_PREP(DPMAIF_DRB_MSG_CH_MASK, nif->if_id));
++	msg_drb.w1 = cpu_to_le32(FIELD_PREP(DPMAIF_DRB_MSG_CH_MASK,
++					    READ_ONCE(nif->if_id)));
+ 	memcpy_toio(drb_base + wr * sizeof(msg_drb), &msg_drb, sizeof(msg_drb));
+ 
+ 	next_idx = dp_ring_next(sz, wr, 1);
+@@ -953,7 +956,7 @@ static int mtk_dpmaif_wwan_newlink(void *ctxt, struct net_device *ndev,
+ 	nif = wwan_netdev_drvpriv(ndev);
+ 	nif->dp = dp;
+ 	nif->ndev = ndev;
+-	nif->if_id = if_id;
++	WRITE_ONCE(nif->if_id, if_id);
+ 	WRITE_ONCE(dp->netifs[if_id], nif);
+ 
+ 	ret = register_netdevice(ndev);
+@@ -962,6 +965,9 @@ static int mtk_dpmaif_wwan_newlink(void *ctxt, struct net_device *ndev,
+ 		return ret;
+ 	}
+ 
++	if (if_id == 0 && !dp->default_nif)
++		dp->default_nif = nif;
++
+ 	netif_device_attach(ndev);
+ 	return 0;
+ }
+@@ -971,14 +977,71 @@ static void mtk_dpmaif_wwan_dellink(void *ctxt, struct net_device *ndev,
+ {
+ 	struct mtk_dpmaif_netif *nif = wwan_netdev_drvpriv(ndev);
+ 	struct mtk_ccci_dpmaif *dp = ctxt;
++	u32 if_id = READ_ONCE(nif->if_id);
+ 
+-	if (nif->if_id < MTK_DPMAIF_MAX_NETIF &&
+-	    READ_ONCE(dp->netifs[nif->if_id]) == nif)
+-		WRITE_ONCE(dp->netifs[nif->if_id], NULL);
++	if (dp->default_nif == nif)
++		dp->default_nif = NULL;
++	if (if_id < MTK_DPMAIF_MAX_NETIF &&
++	    READ_ONCE(dp->netifs[if_id]) == nif)
++		WRITE_ONCE(dp->netifs[if_id], NULL);
+ 
+ 	unregister_netdevice_queue(ndev, head);
+ }
+ 
++int mtk_ccci_dpmaif_get_default_if_id(struct mtk_ccci_dev *ccci)
++{
++	struct mtk_ccci_dpmaif *dp = ccci->dpmaif;
++	int ret;
++
++	if (!dp)
++		return -ENODEV;
++
++	rtnl_lock();
++	ret = dp->default_nif ? (int)READ_ONCE(dp->default_nif->if_id) : -ENODEV;
++	rtnl_unlock();
++
++	return ret;
++}
++
++int mtk_ccci_dpmaif_set_default_if_id(struct mtk_ccci_dev *ccci, u32 new_id)
++{
++	struct mtk_ccci_dpmaif *dp = ccci->dpmaif;
++	struct mtk_dpmaif_netif *nif;
++	u32 old_id;
++
++	if (!dp)
++		return -ENODEV;
++	if (new_id >= MTK_DPMAIF_MAX_NETIF)
++		return -EINVAL;
++
++	rtnl_lock();
++	nif = dp->default_nif;
++	if (!nif) {
++		rtnl_unlock();
++		return -ENODEV;
++	}
++
++	old_id = READ_ONCE(nif->if_id);
++	if (old_id == new_id) {
++		rtnl_unlock();
++		return 0;
++	}
++
++	if (READ_ONCE(dp->netifs[new_id])) {
++		rtnl_unlock();
++		return -EBUSY;
++	}
++
++	if (old_id < MTK_DPMAIF_MAX_NETIF &&
++	    READ_ONCE(dp->netifs[old_id]) == nif)
++		WRITE_ONCE(dp->netifs[old_id], NULL);
++	WRITE_ONCE(nif->if_id, new_id);
++	WRITE_ONCE(dp->netifs[new_id], nif);
++	rtnl_unlock();
++
++	return 0;
++}
++
+ static const struct wwan_ops mtk_dpmaif_wwan_ops = {
+ 	.priv_size = sizeof(struct mtk_dpmaif_netif),
+ 	.setup = mtk_dpmaif_wwan_setup,
