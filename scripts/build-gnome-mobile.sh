@@ -126,10 +126,20 @@ EOF
 cat > "$WRAP_DIR/qemu-arm64-exec" <<EOF
 #!/bin/sh
 export QEMU_LD_PREFIX="$SYSROOT"
-export LD_LIBRARY_PATH="$STAGE_DIR/usr/lib/aarch64-linux-gnu:$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51:$STAGE_DIR/usr/lib/aarch64-linux-gnu/gnome-shell:$SYSROOT/usr/lib/aarch64-linux-gnu:$SYSROOT/lib/aarch64-linux-gnu\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
-export GI_TYPELIB_PATH="$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51:$STAGE_DIR/usr/lib/aarch64-linux-gnu/girepository-1.0:$SYSROOT/usr/lib/aarch64-linux-gnu/girepository-1.0\${GI_TYPELIB_PATH:+:\$GI_TYPELIB_PATH}"
+export LD_LIBRARY_PATH="\${LD_LIBRARY_PATH:+\$LD_LIBRARY_PATH:}$STAGE_DIR/usr/lib/aarch64-linux-gnu:$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51:$STAGE_DIR/usr/lib/aarch64-linux-gnu/gnome-shell:$SYSROOT/usr/lib/aarch64-linux-gnu:$SYSROOT/lib/aarch64-linux-gnu"
+export GI_TYPELIB_PATH="\${GI_TYPELIB_PATH:+\$GI_TYPELIB_PATH:}$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51:$STAGE_DIR/usr/lib/aarch64-linux-gnu/girepository-1.0:$SYSROOT/usr/lib/aarch64-linux-gnu/girepository-1.0"
 exec "$QEMU_AARCH64" -L "$SYSROOT" "\$@"
 EOF
+
+# Target-aware ldd wrapper so g-ir-scanner's resolve_shlibs() resolves arm64 ELF
+# binaries cleanly via the sysroot's aarch64 dynamic loader instead of host x86_64 ldd.
+cat > "$WRAP_DIR/ldd" <<EOF
+#!/bin/sh
+export QEMU_LD_PREFIX="$SYSROOT"
+export LD_LIBRARY_PATH="\${LD_LIBRARY_PATH:+\$LD_LIBRARY_PATH:}$STAGE_DIR/usr/lib/aarch64-linux-gnu:$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51:$STAGE_DIR/usr/lib/aarch64-linux-gnu/gnome-shell:$SYSROOT/usr/lib/aarch64-linux-gnu:$SYSROOT/lib/aarch64-linux-gnu"
+exec "$QEMU_AARCH64" -L "$SYSROOT" "$SYSROOT/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1" --list "\$@"
+EOF
+chmod +x "$WRAP_DIR/ldd"
 
 # Wrapper for sysroot Python/ELF codegen and GIR tools so host Ubuntu never
 # clashes with Debian sid GLib/GI/Wayland versions.
@@ -143,10 +153,11 @@ wrap_sysroot_bin() {
     if [ "$name" = "g-ir-scanner" ]; then
         cat > "$WRAP_DIR/$name" <<EOF
 #!/bin/sh
+export PATH="$WRAP_DIR:\$PATH"
 export QEMU_LD_PREFIX="$SYSROOT"
-export LD_LIBRARY_PATH="$STAGE_DIR/usr/lib/aarch64-linux-gnu:$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51:$SYSROOT/usr/lib/aarch64-linux-gnu:$SYSROOT/lib/aarch64-linux-gnu\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
-export GI_TYPELIB_PATH="$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51:$STAGE_DIR/usr/lib/aarch64-linux-gnu/girepository-1.0:$SYSROOT/usr/lib/aarch64-linux-gnu/girepository-1.0\${GI_TYPELIB_PATH:+:\$GI_TYPELIB_PATH}"
-export GI_GIR_PATH="$STAGE_DIR/usr/share/gir-1.0:$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51:$SYSROOT/usr/share/gir-1.0\${GI_GIR_PATH:+:\$GI_GIR_PATH}"
+export LD_LIBRARY_PATH="\${LD_LIBRARY_PATH:+\$LD_LIBRARY_PATH:}$STAGE_DIR/usr/lib/aarch64-linux-gnu:$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51:$SYSROOT/usr/lib/aarch64-linux-gnu:$SYSROOT/lib/aarch64-linux-gnu"
+export GI_TYPELIB_PATH="\${GI_TYPELIB_PATH:+\$GI_TYPELIB_PATH:}$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51:$STAGE_DIR/usr/lib/aarch64-linux-gnu/girepository-1.0:$SYSROOT/usr/lib/aarch64-linux-gnu/girepository-1.0"
+export GI_GIR_PATH="\${GI_GIR_PATH:+\$GI_GIR_PATH:}$STAGE_DIR/usr/share/gir-1.0:$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51:$SYSROOT/usr/share/gir-1.0"
 export XDG_DATA_DIRS="$STAGE_DIR/usr/share:$SYSROOT/usr/share"
 export PYTHONPATH="$SYSROOT/usr/lib/aarch64-linux-gnu/gobject-introspection:$SYSROOT/usr/lib/python3/dist-packages\${PYTHONPATH:+:\$PYTHONPATH}"
 export CC="$WRAP_DIR/aarch64-clang"
