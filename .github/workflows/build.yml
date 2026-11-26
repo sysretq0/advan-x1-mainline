@@ -47,6 +47,10 @@ on:
         required: true
         type: boolean
         default: true
+      extra_configfrags:
+        description: 'Optional space-separated extra config fragments (e.g. config/extra/devmem-debug.configfrag)'
+        required: false
+        default: ''
 
 concurrency:
   group: build-${{ github.ref }}
@@ -209,10 +213,21 @@ jobs:
 
       - name: Configure kernel
         timeout-minutes: 5
+        env:
+          EXTRA_CONFIGFRAGS: ${{ inputs.extra_configfrags }}
         run: |
           cd "$GITHUB_WORKSPACE/linux"
           make ARCH=arm64 defconfig
-          scripts/kconfig/merge_config.sh -m -O . .config "$GITHUB_WORKSPACE"/config/*.configfrag
+          EXTRA_FRAGS=()
+          if [ -n "${EXTRA_CONFIGFRAGS:-}" ]; then
+            for f in $EXTRA_CONFIGFRAGS; do
+              case "$f" in
+                /*) EXTRA_FRAGS+=("$f") ;;
+                *)  EXTRA_FRAGS+=("$GITHUB_WORKSPACE/$f") ;;
+              esac
+            done
+          fi
+          scripts/kconfig/merge_config.sh -m -O . .config "$GITHUB_WORKSPACE"/config/*.configfrag "${EXTRA_FRAGS[@]}"
           make ARCH=arm64 olddefconfig LLVM=1 CC="${CC_LAUNCHER}clang" HOSTCC="${CC_LAUNCHER}clang"
 
       - name: Compile kernel Image
