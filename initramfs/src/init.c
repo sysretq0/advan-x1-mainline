@@ -1383,13 +1383,15 @@ static int part_cmp(const void *a, const void *b)
 }
 
 /*
- * Option A: Attach xnu_data to a loop device once using the kernel's native
- * GPT partition parser (BLKSSZGET + LOOP_CONFIGURE with LO_FLAGS_PARTSCAN).
+ * Option A: Attach a container partition (default PARTLABEL=rootfs, fallback
+ * PARTLABEL=xnu_data) to a loop device once using the kernel's native GPT
+ * partition parser (BLKSSZGET + LOOP_CONFIGURE with LO_FLAGS_PARTSCAN).
  * Zero hardcoded byte offsets.
  */
-static bool attach_xnu_data_loop(char *loop_disk_out, size_t loop_disk_sz)
+static bool attach_nested_gpt_loop(const char *part_spec, const char *fallback_dev,
+				   char *loop_disk_out, size_t loop_disk_sz)
 {
-	char xnu_dev[256] = { 0 };
+	char cont_dev[256] = { 0 };
 	int backing_fd = -1, ctrl_fd = -1, loop_fd = -1;
 	int loop_num = -1;
 	int hw_blksize = 4096;
@@ -1397,19 +1399,20 @@ static bool attach_xnu_data_loop(char *loop_disk_out, size_t loop_disk_sz)
 	char loop_dev[64];
 	char loop_disk[32];
 
-	if (!resolve_root_spec("PARTLABEL=xnu_data", NULL, xnu_dev, sizeof(xnu_dev), NULL)) {
+	if (!resolve_root_spec(part_spec, NULL, cont_dev, sizeof(cont_dev), NULL) &&
+	    fallback_dev && fallback_dev[0]) {
 		struct stat st;
-		if (stat("/dev/sdc72", &st) == 0 && S_ISBLK(st.st_mode))
-			copy_str(xnu_dev, sizeof(xnu_dev), "/dev/sdc72");
+		if (stat(fallback_dev, &st) == 0 && S_ISBLK(st.st_mode))
+			copy_str(cont_dev, sizeof(cont_dev), fallback_dev);
 	}
-	if (!xnu_dev[0])
+	if (!cont_dev[0])
 		return false;
 
-	backing_fd = open(xnu_dev, O_RDWR | O_CLOEXEC);
+	backing_fd = open(cont_dev, O_RDWR | O_CLOEXEC);
 	if (backing_fd < 0)
-		backing_fd = open(xnu_dev, O_RDONLY | O_CLOEXEC);
+		backing_fd = open(cont_dev, O_RDONLY | O_CLOEXEC);
 	if (backing_fd < 0) {
-		init_log("WARN: open(%s) failed: %s", xnu_dev, strerror(errno));
+		init_log("WARN: open(%s) failed: %s", cont_dev, strerror(errno));
 		return false;
 	}
 
@@ -1418,7 +1421,7 @@ static bool attach_xnu_data_loop(char *loop_disk_out, size_t loop_disk_sz)
 
 	gpt_blksize = detect_gpt_sector_size_fd(backing_fd, (uint32_t)hw_blksize);
 	if (gpt_blksize == 0) {
-		init_log("WARN: no nested GPT on %s (blksize=%d)", xnu_dev, hw_blksize);
+		init_log("WARN: no nested GPT on %s (blksize=%d)", cont_dev, hw_blksize);
 		close(backing_fd);
 		return false;
 	}
@@ -1451,11 +1454,11 @@ static bool attach_xnu_data_loop(char *loop_disk_out, size_t loop_disk_sz)
 	cfg.fd = (uint32_t)backing_fd;
 	cfg.block_size = gpt_blksize;
 	cfg.info.lo_flags = LO_FLAGS_PARTSCAN;
-	copy_str((char *)cfg.info.lo_file_name, LO_NAME_SIZE, xnu_dev);
+	copy_str((char *)cfg.info.lo_file_name, LO_NAME_SIZE, cont_dev);
 
 	if (ioctl(loop_fd, LOOP_CONFIGURE, &cfg) < 0) {
 		if (ioctl(loop_fd, LOOP_SET_FD, backing_fd) < 0) {
-			init_log("WARN: loop attach %s failed: %s", xnu_dev, strerror(errno));
+			init_log("WARN: loop attach %s failed: %s", cont_dev, strerror(errno));
 			close(loop_fd);
 			close(backing_fd);
 			return false;
@@ -1464,14 +1467,14 @@ static bool attach_xnu_data_loop(char *loop_disk_out, size_t loop_disk_sz)
 		struct loop_info64 li;
 		memset(&li, 0, sizeof(li));
 		li.lo_flags = LO_FLAGS_PARTSCAN;
-		copy_str((char *)li.lo_file_name, LO_NAME_SIZE, xnu_dev);
+		copy_str((char *)li.lo_file_name, LO_NAME_SIZE, cont_dev);
 		(void)ioctl(loop_fd, LOOP_SET_STATUS64, &li);
 		(void)ioctl(loop_fd, BLKRRPART);
 	}
 	close(backing_fd);
 
 	init_log("loop attached: %s -> %s (blksize=%u, LO_FLAGS_PARTSCAN)",
-		 xnu_dev, loop_dev, gpt_blksize);
+		 cont_dev, loop_dev, gpt_blksize);
 
 	char sys_loop[PATH_MAX];
 	snprintf(sys_loop, sizeof(sys_loop), "/sys/block/%s", loop_disk);
@@ -1870,7 +1873,9 @@ int main(void)
 	struct fs_info probed_fs;
 	char cmdline[4096] = { 0 };
 	char root_dev[256] = { 0 };
+	char rootfs_loop_disk[32] = { 0 };
 	char xnu_loop_disk[32] = { 0 };
+	bool rootfs_attached = false;
 	bool xnu_attached = false;
 
 	memset(&probed_fs, 0, sizeof(probed_fs));
@@ -1906,23 +1911,93 @@ int main(void)
 		emergency_shell(&cfg, "rd.break=pre-mount");
 
 	/*
-	 * Interleave explicit root= scans with Option A nested-GPT attach on
-	 * xnu_data so root= targeting a partition inside xnu_data resolves
-	 * immediately instead of stalling for the full rootdelay first.
+	 * Root resolution order:
+	 *  1. Explicit root= from kernel cmdline (direct filesystem, or nested
+	 *     GPT container if root= points at a GPT-wrapped partition).
+	 *  2. Default primary target: PARTLABEL=rootfs (direct filesystem or
+	 *     Option A nested GPT loop on PARTLABEL=rootfs / /dev/sdc64).
+	 *  3. Legacy fallback only if PARTLABEL=rootfs is absent: Option A
+	 *     nested GPT loop on PARTLABEL=xnu_data (/dev/sdc72).
 	 */
 	int max_polls = cfg.rootdelay * 5;
 	if (max_polls < 1)
 		max_polls = 1;
 	for (int i = 0; i < max_polls && !root_dev[0]; i++) {
-		if (cfg.root[0] &&
-		    resolve_root_spec(cfg.root, NULL, root_dev, sizeof(root_dev), &probed_fs))
-			break;
-		if (!xnu_attached && attach_xnu_data_loop(xnu_loop_disk, sizeof(xnu_loop_disk)))
-			xnu_attached = true;
-		if (xnu_attached &&
-		    select_nested_gpt_root(xnu_loop_disk, cfg.root,
-					   root_dev, sizeof(root_dev), &probed_fs))
-			break;
+		if (cfg.root[0]) {
+			char cand[256] = { 0 };
+			struct fs_info fi;
+			memset(&fi, 0, sizeof(fi));
+			if (resolve_root_spec(cfg.root, NULL, cand, sizeof(cand), &fi)) {
+				if (fi.fstype[0]) {
+					copy_str(root_dev, sizeof(root_dev), cand);
+					probed_fs = fi;
+					break;
+				}
+				if (!rootfs_attached &&
+				    attach_nested_gpt_loop(cand, NULL,
+							   rootfs_loop_disk,
+							   sizeof(rootfs_loop_disk))) {
+					rootfs_attached = true;
+					if (select_nested_gpt_root(rootfs_loop_disk, NULL,
+								   root_dev, sizeof(root_dev),
+								   &probed_fs))
+						break;
+				} else {
+					copy_str(root_dev, sizeof(root_dev), cand);
+					break;
+				}
+			}
+			if (!rootfs_attached &&
+			    attach_nested_gpt_loop("PARTLABEL=rootfs", "/dev/sdc64",
+						   rootfs_loop_disk,
+						   sizeof(rootfs_loop_disk)))
+				rootfs_attached = true;
+			if (rootfs_attached &&
+			    select_nested_gpt_root(rootfs_loop_disk, cfg.root,
+						   root_dev, sizeof(root_dev), &probed_fs))
+				break;
+			if (!xnu_attached &&
+			    attach_nested_gpt_loop("PARTLABEL=xnu_data", "/dev/sdc72",
+						   xnu_loop_disk, sizeof(xnu_loop_disk)))
+				xnu_attached = true;
+			if (xnu_attached &&
+			    select_nested_gpt_root(xnu_loop_disk, cfg.root,
+						   root_dev, sizeof(root_dev), &probed_fs))
+				break;
+		} else {
+			char cand[256] = { 0 };
+			struct fs_info fi;
+			memset(&fi, 0, sizeof(fi));
+			if (resolve_root_spec("PARTLABEL=rootfs", NULL,
+					      cand, sizeof(cand), &fi) &&
+			    fi.fstype[0]) {
+				copy_str(root_dev, sizeof(root_dev), cand);
+				probed_fs = fi;
+				break;
+			}
+			if (!rootfs_attached &&
+			    attach_nested_gpt_loop("PARTLABEL=rootfs", "/dev/sdc64",
+						   rootfs_loop_disk,
+						   sizeof(rootfs_loop_disk)))
+				rootfs_attached = true;
+			if (rootfs_attached &&
+			    select_nested_gpt_root(rootfs_loop_disk, NULL,
+						   root_dev, sizeof(root_dev), &probed_fs))
+				break;
+			/* Fall back to legacy xnu_data only after rootfs had time to appear */
+			if (!rootfs_attached && i >= 2) {
+				if (!xnu_attached &&
+				    attach_nested_gpt_loop("PARTLABEL=xnu_data", "/dev/sdc72",
+							   xnu_loop_disk,
+							   sizeof(xnu_loop_disk)))
+					xnu_attached = true;
+				if (xnu_attached &&
+				    select_nested_gpt_root(xnu_loop_disk, NULL,
+							   root_dev, sizeof(root_dev),
+							   &probed_fs))
+					break;
+			}
+		}
 		if (i + 1 < max_polls)
 			usleep(200000);
 	}

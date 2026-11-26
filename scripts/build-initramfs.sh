@@ -157,12 +157,17 @@ if [ -f "$KCFG" ] && [ -f "$MOD_MANIFEST" ]; then
         if [ "${#KO_TARGETS[@]}" -gt 0 ]; then
             echo "== curated kmods for $KVER (${#KO_TARGETS[@]} modules) =="
             kmake -j"$JOBS" "${KO_TARGETS[@]}"
+        fi
+
+        STAGED_ORDER=()
+        if [ "${#KO_TARGETS[@]}" -gt 0 ]; then
             for _ko_rel in "${KO_TARGETS[@]}"; do
                 _src="$KOBJ_ROOT/$_ko_rel"
                 [ -f "$_src" ] || { echo "FATAL: expected $_src not built" >&2; exit 1; }
                 _base=$(basename "$_src")
                 cp -f "$_src" "$MOD_DEST/$_base"
                 strip_ko "$MOD_DEST/$_base"
+                STAGED_ORDER+=("extra/$_base")
                 echo "  staged $_base ($(du -h "$MOD_DEST/$_base" | cut -f1))"
             done
         fi
@@ -175,6 +180,7 @@ if [ -f "$KCFG" ] && [ -f "$MOD_MANIFEST" ]; then
                 _base=$(basename "$_ko")
                 cp -f "$_ko" "$MOD_DEST/$_base"
                 strip_ko "$MOD_DEST/$_base"
+                STAGED_ORDER+=("extra/$_base")
                 echo "  staged $_base ($(du -h "$MOD_DEST/$_base" | cut -f1))"
             done < <(find "$MOD_OUT" -maxdepth 2 -name '*.ko' -print0)
         done
@@ -188,8 +194,28 @@ if [ -f "$KCFG" ] && [ -f "$MOD_MANIFEST" ]; then
                   "$ROOTFS/lib/modules/extra/$(basename "$_ko")"
         done
 
+        # Populate kmod metadata files required by depmod so modules.dep and
+        # modules.alias build cleanly without missing-file warnings.
+        MOD_ROOT="$ROOTFS/lib/modules/$KVER"
+        if [ "${#STAGED_ORDER[@]}" -gt 0 ]; then
+            printf '%s\n' "${STAGED_ORDER[@]}" > "$MOD_ROOT/modules.order"
+        else
+            : > "$MOD_ROOT/modules.order"
+        fi
+        for _meta in modules.builtin modules.builtin.modinfo; do
+            if [ -f "$KOBJ_ROOT/$_meta" ]; then
+                cp -f "$KOBJ_ROOT/$_meta" "$MOD_ROOT/$_meta"
+            else
+                : > "$MOD_ROOT/$_meta"
+            fi
+        done
+
         if command -v depmod >/dev/null 2>&1; then
-            depmod -a -b "$ROOTFS" "$KVER" && echo "  modules.dep generated"
+            DEPMOD_ARGS=(-a -b "$ROOTFS")
+            [ -f "$KOBJ_ROOT/System.map" ] && DEPMOD_ARGS+=(-F "$KOBJ_ROOT/System.map")
+            depmod "${DEPMOD_ARGS[@]}" "$KVER"
+            [ -s "$MOD_ROOT/modules.dep" ] || { echo "FATAL: depmod produced empty modules.dep" >&2; exit 1; }
+            echo "  modules.dep generated ($(wc -l < "$MOD_ROOT/modules.dep") entries)"
         else
             echo "  WARN: no host depmod; /init uses /etc/modules explicit order" >&2
         fi
