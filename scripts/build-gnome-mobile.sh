@@ -558,18 +558,17 @@ apt-get install -y --no-install-recommends \
     gnome-console nautilus gnome-text-editor loupe gnome-calculator gnome-control-center \
     fonts-cantarell adwaita-icon-theme
 
-echo "=== 2. Configure GDM3 Wayland autologin, graphical.target, and user groups ==="
+echo "=== 2. Configure GDM3 Wayland, graphical.target, and user groups ==="
 mkdir -p /etc/gdm3
-cat > /etc/gdm3/daemon.conf << GDC
+cat > /etc/gdm3/daemon.conf << 'GDC'
 [daemon]
 WaylandEnable=true
-AutomaticLoginEnable=true
-AutomaticLogin=${TARGET_USER}
 
 [security]
 
 [debug]
 GDC
+chmod 0644 /etc/gdm3/daemon.conf
 
 ln -sf /usr/lib/systemd/system/graphical.target /etc/systemd/system/default.target
 ln -sf /usr/lib/systemd/system/gdm.service /etc/systemd/system/display-manager.service
