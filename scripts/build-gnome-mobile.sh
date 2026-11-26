@@ -131,13 +131,36 @@ export GI_TYPELIB_PATH="$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51:$STAGE_DI
 exec "$QEMU_AARCH64" -L "$SYSROOT" "\$@"
 EOF
 
-# Wrapper for sysroot Python/ELF codegen and GIR tools so host Ubuntu 24.04
-# never clashes with Debian sid GLib/GI/Wayland versions.
+# Wrapper for sysroot Python/ELF codegen and GIR tools so host Ubuntu never
+# clashes with Debian sid GLib/GI/Wayland versions.
+# Note: qemu-aarch64 only executes ELF binaries, never #! scripts, so detect
+# shebang scripts explicitly: run pure-Python GLib codegen natively on host
+# python3 and run g-ir-scanner via sysroot's arm64 python3 under qemu-aarch64.
 wrap_sysroot_bin() {
     local name="$1"
     local target="$SYSROOT/usr/bin/$name"
     [ -e "$target" ] || return 0
-    cat > "$WRAP_DIR/$name" <<EOF
+    if [ "$name" = "g-ir-scanner" ]; then
+        cat > "$WRAP_DIR/$name" <<EOF
+#!/bin/sh
+export QEMU_LD_PREFIX="$SYSROOT"
+export LD_LIBRARY_PATH="$STAGE_DIR/usr/lib/aarch64-linux-gnu:$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51:$SYSROOT/usr/lib/aarch64-linux-gnu:$SYSROOT/lib/aarch64-linux-gnu\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
+export GI_TYPELIB_PATH="$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51:$STAGE_DIR/usr/lib/aarch64-linux-gnu/girepository-1.0:$SYSROOT/usr/lib/aarch64-linux-gnu/girepository-1.0\${GI_TYPELIB_PATH:+:\$GI_TYPELIB_PATH}"
+export GI_GIR_PATH="$STAGE_DIR/usr/share/gir-1.0:$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51:$SYSROOT/usr/share/gir-1.0\${GI_GIR_PATH:+:\$GI_GIR_PATH}"
+export XDG_DATA_DIRS="$STAGE_DIR/usr/share:$SYSROOT/usr/share"
+export PYTHONPATH="$SYSROOT/usr/lib/aarch64-linux-gnu/gobject-introspection:$SYSROOT/usr/lib/python3/dist-packages\${PYTHONPATH:+:\$PYTHONPATH}"
+export CC="$WRAP_DIR/aarch64-clang"
+export PKG_CONFIG="$WRAP_DIR/aarch64-pkg-config"
+exec "$QEMU_AARCH64" -L "$SYSROOT" "$SYSROOT/usr/bin/python3" "$target" "\$@"
+EOF
+    elif head -c 2 "$target" 2>/dev/null | grep -q '^#!'; then
+        cat > "$WRAP_DIR/$name" <<EOF
+#!/bin/sh
+export PYTHONPATH="$SYSROOT/usr/share/glib-2.0:$SYSROOT/usr/lib/python3/dist-packages\${PYTHONPATH:+:\$PYTHONPATH}"
+exec python3 "$target" "\$@"
+EOF
+    else
+        cat > "$WRAP_DIR/$name" <<EOF
 #!/bin/sh
 export QEMU_LD_PREFIX="$SYSROOT"
 export LD_LIBRARY_PATH="$STAGE_DIR/usr/lib/aarch64-linux-gnu:$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51:$SYSROOT/usr/lib/aarch64-linux-gnu:$SYSROOT/lib/aarch64-linux-gnu\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
@@ -148,6 +171,7 @@ export CC="$WRAP_DIR/aarch64-clang"
 export PKG_CONFIG="$WRAP_DIR/aarch64-pkg-config"
 exec "$QEMU_AARCH64" -L "$SYSROOT" "$target" "\$@"
 EOF
+    fi
     chmod +x "$WRAP_DIR/$name"
 }
 

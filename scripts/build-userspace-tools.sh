@@ -101,8 +101,7 @@ cat > "$MM_WORK/gen/config.h" << 'EOF'
 #define WITH_QRTR 1
 EOF
 
-QEMU_LD_PREFIX="$SYSROOT" "$QEMU_AARCH64" -L "$SYSROOT" \
-    "$SYSROOT/usr/bin/glib-mkenums" \
+python3 "$SYSROOT/usr/bin/glib-mkenums" \
     --template "$MM_SRC/build-aux/mm-enums-template.h" \
     --fhead "#ifndef __MM_DAEMON_ENUMS_TYPES_H__\n#define __MM_DAEMON_ENUMS_TYPES_H__\n#include <glib-object.h>\nG_BEGIN_DECLS\n" \
     --ftail "G_END_DECLS\n#endif\n" \
