@@ -1,0 +1,78 @@
+From 173a9a3885b4e644718f361882602ffa36017a7d Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 01:19:07 +0700
+Subject: [PATCH] usb: musb: gadget: Preserve active host session when binding
+ gadget
+
+In dual-role OTG configurations where userspace binds a ConfigFS gadget
+while the controller is already active in USB_ROLE_HOST (for example at
+boot with a USB-C device attached), musb_gadget_start() unconditionally
+overwrites otg->state with OTG_STATE_B_IDLE and calls musb_start()
+(clearing MUSB_DEVCTL_SESSION), and musb_pullup() asserts
+MUSB_POWER_SOFTCONN. Conversely, unbinding the gadget while in host
+mode calls musb_stop(), masking all interrupts and tearing down host
+operation.
+
+When is_host_active(musb) is true:
+- musb_pullup() skips asserting MUSB_POWER_SOFTCONN while preserving
+  musb->softconnect so the role switch restores it upon entering device
+  mode;
+- musb_gadget_start() registers the gadget driver and OTG peripheral
+  pointer without resetting OTG state or calling musb_start();
+- musb_gadget_stop() detaches the gadget driver without calling
+  musb_stop().
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/usb/musb/musb_gadget.c | 21 +++++++++++++++++++++
+ 1 file changed, 21 insertions(+)
+
+diff --git a/drivers/usb/musb/musb_gadget.c b/drivers/usb/musb/musb_gadget.c
+index 016d3f3..1b2df12 100644
+--- a/drivers/usb/musb/musb_gadget.c
++++ b/drivers/usb/musb/musb_gadget.c
+@@ -1597,6 +1597,9 @@ static void musb_pullup(struct musb *musb, int is_on)
+ {
+ 	u8 power;
+ 
++	if (is_on && is_host_active(musb))
++		return;
++
+ 	power = musb_readb(musb->mregs, MUSB_POWER);
+ 	if (is_on)
+ 		power |= MUSB_POWER_SOFTCONN;
+@@ -1841,6 +1844,14 @@ static int musb_gadget_start(struct usb_gadget *g,
+ 	musb->gadget_driver = driver;
+ 
+ 	spin_lock_irqsave(&musb->lock, flags);
++	if (is_host_active(musb)) {
++		if (musb->xceiv)
++			otg_set_peripheral(musb->xceiv->otg, &musb->g);
++		spin_unlock_irqrestore(&musb->lock, flags);
++		pm_runtime_put_autosuspend(musb->controller);
++		return 0;
++	}
++
+ 	musb->is_active = 1;
+ 
+ 	if (musb->xceiv)
+@@ -1888,6 +1899,16 @@ static int musb_gadget_stop(struct usb_gadget *g)
+ 
+ 	spin_lock_irqsave(&musb->lock, flags);
+ 
++	if (is_host_active(musb)) {
++		if (musb->xceiv)
++			otg_set_peripheral(musb->xceiv->otg, NULL);
++		musb->gadget_driver = NULL;
++		spin_unlock_irqrestore(&musb->lock, flags);
++		usb_gadget_set_state(g, USB_STATE_NOTATTACHED);
++		pm_runtime_put_autosuspend(musb->controller);
++		return 0;
++	}
++
+ 	musb_hnp_stop(musb);
+ 
+ 	(void) musb_gadget_vbus_draw(&musb->g, 0);
+-- 
+2.55.0
+
