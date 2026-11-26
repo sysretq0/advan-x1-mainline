@@ -39,6 +39,10 @@ drivers/input/misc/regulator-haptic.ko                 CONFIG_INPUT_REGULATOR_HA
 fs/overlayfs/overlay.ko                                CONFIG_OVERLAY_FS
 fs/fuse/fuse.ko                                        CONFIG_FUSE_FS
 
+# Compressed RAM swap (zsmalloc allocator -> zram multi-comp LZ4/ZSTD)
+mm/zsmalloc.ko                                         CONFIG_ZSMALLOC
+drivers/block/zram/zram.ko                             CONFIG_ZRAM
+
 # Tier 1: DMA-BUF heaps and optional CPUFreq governors
 drivers/dma-buf/heaps/system_heap.ko                   CONFIG_DMABUF_HEAPS_SYSTEM
 drivers/dma-buf/heaps/cma_heap.ko                      CONFIG_DMABUF_HEAPS_CMA

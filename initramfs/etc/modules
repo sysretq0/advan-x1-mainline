@@ -39,6 +39,10 @@ regulator-haptic
 overlay
 fuse
 
+# Compressed RAM swap (zsmalloc -> zram multi-comp LZ4/ZSTD)
+zsmalloc
+zram
+
 # Tier 1: DMA-BUF heaps and optional CPUFreq governors
 system_heap
 cma_heap

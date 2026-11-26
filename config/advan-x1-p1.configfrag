@@ -270,14 +270,16 @@ CONFIG_GNSS=y
 CONFIG_WWAN=y
 CONFIG_MTK_CCCI=y
 
-# Compressed RAM swap (built-in to match packaged rootfs/advan-x1-support/etc/systemd/zram-generator.conf)
+# Compressed RAM swap (loadable module + multi-comp LZ4/ZSTD to match packaged zram-generator.conf)
 CONFIG_SWAP=y
-CONFIG_ZSMALLOC=y
-CONFIG_ZRAM=y
-CONFIG_ZRAM_BACKEND_ZSTD=y
+CONFIG_ZSMALLOC=m
+CONFIG_ZRAM=m
 CONFIG_ZRAM_BACKEND_LZ4=y
-CONFIG_ZRAM_DEF_COMP_ZSTD=y
+CONFIG_ZRAM_BACKEND_ZSTD=y
+CONFIG_ZRAM_DEF_COMP_LZ4=y
+CONFIG_ZRAM_MULTI_COMP=y
 CONFIG_ZRAM_WRITEBACK=y
+CONFIG_ZRAM_TRACK_ENTRY_ACTIME=y
 CONFIG_ZRAM_MEMORY_TRACKING=y
 
 
