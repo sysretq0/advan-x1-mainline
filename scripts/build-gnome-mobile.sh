@@ -40,46 +40,78 @@ rm -rf "$WRAP_DIR" "$STAGE_DIR"
 mkdir -p "$WRAP_DIR" "$STAGE_DIR"
 
 # Host x86_64 Google Clang targeting aarch64-linux-gnu Debian sid sysroot.
-# Include staged headers/libs ahead of sysroot so gnome-shell links against
-# the freshly compiled mutter-mobile libraries.
+# Only pass linker flags (-fuse-ld=lld, -L, -Wl,-rpath-link) when linking so
+# Meson compile-only probes (-c -Werror=unused-command-line-argument) succeed.
 cat > "$WRAP_DIR/aarch64-clang" <<EOF
 #!/bin/sh
-exec "$CLANG_DIR/bin/clang" \\
-  --target=aarch64-linux-gnu \\
-  --sysroot="$SYSROOT" \\
-  --gcc-install-dir="$GCC_DIR" \\
-  -fuse-ld=lld \\
-  -Wno-unused-command-line-argument \\
-  -isystem "$STAGE_DIR/usr/include" \\
-  -L"$STAGE_DIR/usr/lib/aarch64-linux-gnu" \\
-  -L"$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51" \\
-  -L"$SYSROOT/usr/lib/aarch64-linux-gnu" \\
-  -L"$GCC_DIR" \\
-  -Wl,-rpath-link,"$STAGE_DIR/usr/lib/aarch64-linux-gnu" \\
-  -Wl,-rpath-link,"$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51" \\
-  -Wl,-rpath-link,"$SYSROOT/usr/lib/aarch64-linux-gnu" \\
-  -Wl,-rpath-link,"$SYSROOT/lib/aarch64-linux-gnu" \\
-  "\$@"
+linking=1
+for arg in "\$@"; do
+  case "\$arg" in
+    -c|-E|-S|-M|-MM) linking=0; break ;;
+  esac
+done
+if [ "\$linking" = "1" ]; then
+  exec "$CLANG_DIR/bin/clang" \\
+    --target=aarch64-linux-gnu \\
+    --sysroot="$SYSROOT" \\
+    --gcc-install-dir="$GCC_DIR" \\
+    -fuse-ld=lld \\
+    -isystem "$STAGE_DIR/usr/include" \\
+    -L"$STAGE_DIR/usr/lib/aarch64-linux-gnu" \\
+    -L"$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51" \\
+    -L"$SYSROOT/usr/lib/aarch64-linux-gnu" \\
+    -L"$GCC_DIR" \\
+    -Wl,-rpath-link,"$STAGE_DIR/usr/lib/aarch64-linux-gnu" \\
+    -Wl,-rpath-link,"$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51" \\
+    -Wl,-rpath-link,"$SYSROOT/usr/lib/aarch64-linux-gnu" \\
+    -Wl,-rpath-link,"$SYSROOT/lib/aarch64-linux-gnu" \\
+    "\$@" \\
+    -Wno-unused-command-line-argument
+else
+  exec "$CLANG_DIR/bin/clang" \\
+    --target=aarch64-linux-gnu \\
+    --sysroot="$SYSROOT" \\
+    --gcc-install-dir="$GCC_DIR" \\
+    -isystem "$STAGE_DIR/usr/include" \\
+    "\$@" \\
+    -Wno-unused-command-line-argument
+fi
 EOF
 
 cat > "$WRAP_DIR/aarch64-clang++" <<EOF
 #!/bin/sh
-exec "$CLANG_DIR/bin/clang++" \\
-  --target=aarch64-linux-gnu \\
-  --sysroot="$SYSROOT" \\
-  --gcc-install-dir="$GCC_DIR" \\
-  -fuse-ld=lld \\
-  -Wno-unused-command-line-argument \\
-  -isystem "$STAGE_DIR/usr/include" \\
-  -L"$STAGE_DIR/usr/lib/aarch64-linux-gnu" \\
-  -L"$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51" \\
-  -L"$SYSROOT/usr/lib/aarch64-linux-gnu" \\
-  -L"$GCC_DIR" \\
-  -Wl,-rpath-link,"$STAGE_DIR/usr/lib/aarch64-linux-gnu" \\
-  -Wl,-rpath-link,"$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51" \\
-  -Wl,-rpath-link,"$SYSROOT/usr/lib/aarch64-linux-gnu" \\
-  -Wl,-rpath-link,"$SYSROOT/lib/aarch64-linux-gnu" \\
-  "\$@"
+linking=1
+for arg in "\$@"; do
+  case "\$arg" in
+    -c|-E|-S|-M|-MM) linking=0; break ;;
+  esac
+done
+if [ "\$linking" = "1" ]; then
+  exec "$CLANG_DIR/bin/clang++" \\
+    --target=aarch64-linux-gnu \\
+    --sysroot="$SYSROOT" \\
+    --gcc-install-dir="$GCC_DIR" \\
+    -fuse-ld=lld \\
+    -isystem "$STAGE_DIR/usr/include" \\
+    -L"$STAGE_DIR/usr/lib/aarch64-linux-gnu" \\
+    -L"$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51" \\
+    -L"$SYSROOT/usr/lib/aarch64-linux-gnu" \\
+    -L"$GCC_DIR" \\
+    -Wl,-rpath-link,"$STAGE_DIR/usr/lib/aarch64-linux-gnu" \\
+    -Wl,-rpath-link,"$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51" \\
+    -Wl,-rpath-link,"$SYSROOT/usr/lib/aarch64-linux-gnu" \\
+    -Wl,-rpath-link,"$SYSROOT/lib/aarch64-linux-gnu" \\
+    "\$@" \\
+    -Wno-unused-command-line-argument
+else
+  exec "$CLANG_DIR/bin/clang++" \\
+    --target=aarch64-linux-gnu \\
+    --sysroot="$SYSROOT" \\
+    --gcc-install-dir="$GCC_DIR" \\
+    -isystem "$STAGE_DIR/usr/include" \\
+    "\$@" \\
+    -Wno-unused-command-line-argument
+fi
 EOF
 
 cat > "$WRAP_DIR/aarch64-pkg-config" <<EOF

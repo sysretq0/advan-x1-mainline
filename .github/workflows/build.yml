@@ -3,8 +3,31 @@ name: Build Mainline Kernel & U-Boot FIT Bundle
 on:
   push:
     branches: [ main, master ]
+    paths:
+      - 'patches/**'
+      - 'dts/**'
+      - 'config/**'
+      - 'initramfs/**'
+      - 'boot/**'
+      - 'tools/pack_*.py'
+      - 'scripts/build.sh'
+      - 'scripts/build-initramfs.sh'
+      - 'scripts/setup-google-clang.sh'
+      - 'scripts/toolchain-env.sh'
+      - '.github/workflows/build.yml'
   pull_request:
     branches: [ main, master ]
+    paths:
+      - 'patches/**'
+      - 'dts/**'
+      - 'config/**'
+      - 'initramfs/**'
+      - 'boot/**'
+      - 'tools/pack_*.py'
+      - 'scripts/build.sh'
+      - 'scripts/build-initramfs.sh'
+      - 'scripts/setup-google-clang.sh'
+      - '.github/workflows/build.yml'
   workflow_dispatch:
     inputs:
       linux_ref:
@@ -21,11 +44,6 @@ on:
         default: 'auto'
       use_ccache:
         description: 'Enable ccache compiler cache (uncheck for completely clean build)'
-        required: true
-        type: boolean
-        default: true
-      build_gnome_mobile:
-        description: 'Compile GNOME Mobile (mutter-mobile + gnome-shell-mobile) with Google Clang after kmod repack'
         required: true
         type: boolean
         default: true
@@ -307,151 +325,5 @@ jobs:
         with:
           name: advan-x1-mainline-uboot
           path: uboot-bundle.tar.xz
-          if-no-files-found: error
-          retention-days: 5
-
-  userspace:
-    name: Build Userspace (CCCI, MM Plugin, UCM2 & GNOME Mobile — arm64, Google Clang)
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_gnome_mobile == true }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    permissions:
-      contents: read
-      actions: write
-    env:
-      CLANG_VERSION: r614150
-      TOOLCHAIN_ROOT: ${{ github.workspace }}/toolchain
-      SYSROOT: ${{ github.workspace }}/debian-sid-arm64-sysroot
-      MUTTER_TAG: 51.1.mobile.23
-      SHELL_TAG: 51.1.mobile.23
-
-    steps:
-      - name: Checkout port repository
-        uses: actions/checkout@v6
-
-      - name: Install cross-build & sysroot host tools
-        timeout-minutes: 5
-        run: |
-          sudo apt-get -o Acquire::Retries="3" update -qq
-          sudo apt-get -o Acquire::Retries="3" install -y --no-install-recommends \
-            mmdebstrap arch-test debian-archive-keyring qemu-user qemu-user-binfmt binfmt-support \
-            ninja-build pkg-config file python3-pip python3-venv xz-utils curl git zstd
-          command -v qemu-aarch64-static || command -v qemu-aarch64
-          arch-test arm64
-          python3 -m venv "$RUNNER_TEMP/meson-venv"
-          "$RUNNER_TEMP/meson-venv/bin/pip" install --quiet 'meson>=1.5.0'
-          echo "$RUNNER_TEMP/meson-venv/bin" >> "$GITHUB_PATH"
-          "$RUNNER_TEMP/meson-venv/bin/meson" --version
-
-      - name: Restore full Google Clang cache (userspace cross-compile)
-        id: clang-userspace-cache
-        uses: actions/cache/restore@v6
-        with:
-          path: toolchain/clang-${{ env.CLANG_VERSION }}
-          key: aosp-clang-${{ env.CLANG_VERSION }}-userspace-${{ runner.os }}
-
-      - name: Setup Google Clang (userspace-capable)
-        timeout-minutes: 10
-        run: |
-          CLANG_DIR="$(PRUNE_FOR_KERNEL=0 ./scripts/setup-google-clang.sh)"
-          echo "$CLANG_DIR/bin" >> "$GITHUB_PATH"
-          echo "CLANG_DIR=$CLANG_DIR" >> "$GITHUB_ENV"
-          "$CLANG_DIR/bin/clang" --version | head -n 2
-
-      - name: Save full Google Clang cache
-        if: ${{ steps.clang-userspace-cache.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v6
-        with:
-          path: toolchain/clang-${{ env.CLANG_VERSION }}
-          key: aosp-clang-${{ env.CLANG_VERSION }}-userspace-${{ runner.os }}
-
-      - name: Restore Debian sid arm64 userspace sysroot cache
-        id: sysroot-cache
-        uses: actions/cache/restore@v6
-        with:
-          path: ${{ github.workspace }}/sysroot-cache
-          key: debian-sid-arm64-userspace-v1-${{ runner.os }}
-
-      - name: Prepare Debian sid arm64 sysroot
-        timeout-minutes: 25
-        run: |
-          mkdir -p "$GITHUB_WORKSPACE/sysroot-cache" "$SYSROOT"
-          SYSROOT_TAR="$GITHUB_WORKSPACE/sysroot-cache/debian-sid-arm64-userspace.tar.zst"
-          if [ -f "$SYSROOT_TAR" ]; then
-            echo "== Unpacking cached Debian sid arm64 sysroot =="
-            sudo tar --zstd -xf "$SYSROOT_TAR" -C "$SYSROOT"
-          else
-            echo "== Bootstrapping Debian sid arm64 sysroot with mmdebstrap =="
-            sudo mmdebstrap --arch=arm64 --variant=minbase \
-              --components=main \
-              --aptopt='Acquire::Retries "3"' \
-              --include=ca-certificates,dpkg-dev,xz-utils,gcc,g++,libc6-dev,pkg-config,gobject-introspection,libgirepository-2.0-dev,libadwaita-1-dev,sassc,gettext,python3,wayland-protocols,libwayland-bin,libglib2.0-dev-bin,gjs,libgjs-dev,x11-xkb-utils,xcvt,modemmanager-dev,libmm-glib-dev,libqmi-glib-dev,libmbim-glib-dev,libqrtr-glib-dev,libgudev-1.0-dev \
-              sid "$SYSROOT" http://deb.debian.org/debian
-            printf 'deb http://deb.debian.org/debian sid main\ndeb-src http://deb.debian.org/debian sid main\n' \
-              | sudo tee "$SYSROOT/etc/apt/sources.list" >/dev/null
-            sudo cp -L /etc/resolv.conf "$SYSROOT/etc/resolv.conf"
-            if [ -x /usr/bin/qemu-aarch64-static ]; then
-              sudo cp /usr/bin/qemu-aarch64-static "$SYSROOT/usr/bin/"
-            fi
-            sudo chroot "$SYSROOT" /bin/bash -c '
-              set -e
-              export DEBIAN_FRONTEND=noninteractive
-              apt-get -o Acquire::Retries=3 update -qq
-              apt-get -o Acquire::Retries=3 build-dep -y --no-install-recommends mutter gnome-shell
-              apt-get clean
-              rm -rf /var/lib/apt/lists/*
-            '
-            sudo tar --zstd -cf "$SYSROOT_TAR" -C "$SYSROOT" .
-            ls -lh "$SYSROOT_TAR"
-          fi
-          sudo chown -R "$(id -u):$(id -g)" "$SYSROOT/usr"
-
-      - name: Save Debian sid arm64 userspace sysroot cache
-        if: ${{ steps.sysroot-cache.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v6
-        with:
-          path: ${{ github.workspace }}/sysroot-cache
-          key: debian-sid-arm64-userspace-v1-${{ runner.os }}
-
-      - name: Compile CCCI daemons, ModemManager plugin & stage UCM2/WWAN tools (Google Clang)
-        timeout-minutes: 15
-        run: |
-          chmod +x ./scripts/build-userspace-tools.sh
-          CLANG_DIR="$CLANG_DIR" \
-          SYSROOT="$SYSROOT" \
-          OUT_DIR="$GITHUB_WORKSPACE/userspace-tools-out" \
-          ./scripts/build-userspace-tools.sh
-
-      - name: Upload advan-x1-userspace-tools artifact
-        timeout-minutes: 10
-        uses: actions/upload-artifact@v6
-        with:
-          name: advan-x1-userspace-tools
-          path: |
-            userspace-tools-out/advan-x1-userspace-tools-arm64.tar.xz
-            userspace-tools-out/install-userspace-tools.sh
-            userspace-tools-out/sha256sums.txt
-          if-no-files-found: error
-          retention-days: 5
-
-      - name: Compile mutter-mobile & gnome-shell-mobile (Google Clang)
-        timeout-minutes: 30
-        run: |
-          chmod +x ./scripts/build-gnome-mobile.sh
-          CLANG_DIR="$CLANG_DIR" \
-          SYSROOT="$SYSROOT" \
-          OUT_DIR="$GITHUB_WORKSPACE/gnome-mobile-out" \
-          JOBS="$(nproc)" \
-          ./scripts/build-gnome-mobile.sh
-
-      - name: Upload advan-x1-gnome-mobile artifact
-        timeout-minutes: 10
-        uses: actions/upload-artifact@v6
-        with:
-          name: advan-x1-gnome-mobile
-          path: |
-            gnome-mobile-out/gnome-mobile-*-arm64.tar.xz
-            gnome-mobile-out/install-gnome-mobile.sh
-            gnome-mobile-out/sha256sums.txt
           if-no-files-found: error
           retention-days: 5

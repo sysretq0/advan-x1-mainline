@@ -1,0 +1,5 @@
+# Allow video group members (e.g. gsd-backlight-helper / desktop session) to adjust LCD backlight
+ACTION=="add", SUBSYSTEM=="backlight", RUN+="/bin/chgrp video /sys/class/backlight/%k/brightness", RUN+="/bin/chmod g+w /sys/class/backlight/%k/brightness"
+# Ensure Panfrost render node and input devices have standard permissions
+KERNEL=="renderD*", GROUP="render", MODE="0660"
+SUBSYSTEM=="wwan", GROUP="netdev", MODE="0660"

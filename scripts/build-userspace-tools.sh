@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # Build all Advan X1 MT6789 userspace tools for arm64 Debian sid/forky using
-# Google's pinned AOSP Clang + lld against a Debian sid arm64 sysroot:
-#   - ccci_fsd + ccci-fsd-launch.sh + ccci-fsd.service
-#   - ccci_rpcd
-#   - libmm-plugin-mtk-ccci.so + udev rules + ModemManager systemd drop-in
-#   - mtk-wwan-connect + mtk-wwan-connect.service
-#   - ALSA UCM2 profiles (mt6789-mt6366)
+# Google's pinned AOSP Clang + lld against a Debian sid arm64 sysroot, and
+# package them with all device-specific systemd/udev/UCM2/network/GNOME
+# defaults into a real Debian package: advan-x1-support_<ver>_arm64.deb.
+#
+# Compiled with Google Clang:
+#   - /usr/local/sbin/ccci_fsd
+#   - /usr/local/sbin/ccci_rpcd
+#   - /usr/lib/aarch64-linux-gnu/ModemManager/libmm-plugin-mtk-ccci.so
 #
 # Output in $OUT_DIR:
+#   advan-x1-support_<ver>_arm64.deb
 #   advan-x1-userspace-tools-arm64.tar.xz
 #   install-userspace-tools.sh
 #   sha256sums.txt
@@ -19,6 +22,7 @@ SYSROOT="${SYSROOT:?SYSROOT must point to Debian sid arm64 sysroot}"
 WORK_DIR="${WORK_DIR:-$REPO/build-userspace-tools}"
 STAGE_DIR="${STAGE_DIR:-$WORK_DIR/stage}"
 OUT_DIR="${OUT_DIR:-$WORK_DIR/out}"
+PKG_VER="${PKG_VER:-1.0.$(git -C "$REPO" rev-parse --short=7 HEAD 2>/dev/null || echo dev)}"
 
 [ -x "$CLANG_DIR/bin/clang" ] || { echo "FATAL: missing $CLANG_DIR/bin/clang" >&2; exit 1; }
 [ -x "$CLANG_DIR/bin/ld.lld" ] || { echo "FATAL: missing $CLANG_DIR/bin/ld.lld" >&2; exit 1; }
@@ -31,7 +35,9 @@ QEMU_AARCH64="$(command -v qemu-aarch64-static || command -v qemu-aarch64 || tru
 
 rm -rf "$STAGE_DIR" "$OUT_DIR"
 mkdir -p "$WORK_DIR" "$STAGE_DIR" "$OUT_DIR" \
+    "$STAGE_DIR/DEBIAN" \
     "$STAGE_DIR/usr/local/sbin" \
+    "$STAGE_DIR/usr/local/bin" \
     "$STAGE_DIR/etc/systemd/system" \
     "$STAGE_DIR/etc/systemd/system/ModemManager.service.d" \
     "$STAGE_DIR/etc/udev/rules.d" \
@@ -71,7 +77,6 @@ MM_WORK="$WORK_DIR/mm-src"
 rm -rf "$MM_WORK"
 mkdir -p "$MM_WORK/gen"
 
-# Extract Debian sid modemmanager source headers via apt-get source inside sysroot
 MM_SRC_HOST="$SYSROOT/tmp/mm-src-extract"
 sudo rm -rf "$MM_SRC_HOST"
 sudo mkdir -p "$MM_SRC_HOST"
@@ -96,7 +101,6 @@ cat > "$MM_WORK/gen/config.h" << 'EOF'
 #define WITH_QRTR 1
 EOF
 
-# Generate mm-daemon-enums-types.h using sysroot glib-mkenums
 QEMU_LD_PREFIX="$SYSROOT" "$QEMU_AARCH64" -L "$SYSROOT" \
     "$SYSROOT/usr/bin/glib-mkenums" \
     --template "$MM_SRC/build-aux/mm-enums-template.h" \
@@ -148,7 +152,7 @@ install -m 0644 "$REPO/tools/modemmanager-mtk-ccci/ModemManager-mtk-ccci.conf" \
     "$STAGE_DIR/etc/systemd/system/ModemManager.service.d/10-mtk-ccci.conf"
 sudo rm -rf "$MM_SRC_HOST"
 
-echo "== 4. Staging mtk-wwan-connect & ALSA UCM2 profiles =="
+echo "== 4. Staging mtk-wwan-connect, ALSA UCM2, and rootfs/advan-x1-support configs =="
 install -m 0755 "$REPO/tools/mtk-wwan-connect/mtk-wwan-connect.py" \
     "$STAGE_DIR/usr/local/sbin/mtk-wwan-connect"
 install -m 0644 "$REPO/tools/mtk-wwan-connect/mtk-wwan-connect.service" \
@@ -161,52 +165,126 @@ install -m 0644 "$REPO/tools/ucm2/MediaTek/mt6789-mt6366/HiFi.conf" \
 ln -sf ../../MediaTek/mt6789-mt6366/mt6789-mt6366.conf \
     "$STAGE_DIR/usr/share/alsa/ucm2/conf.d/mt6789-mt6366/mt6789-mt6366.conf"
 
-echo "== 5. Generating host-direct installer script =="
-cat > "$OUT_DIR/install-userspace-tools.sh" <<'EOF'
-#!/usr/bin/env bash
-# Install CI-built Advan X1 CCCI, ModemManager plugin, WWAN helper, and ALSA UCM2
-# profiles directly onto the live Debian arm64 rootfs (host /) with sudo.
-set -euo pipefail
-
-if [ "$(id -u)" -ne 0 ]; then
-    exec sudo -E "$0" "$@"
+if [ -d "$REPO/rootfs/advan-x1-support" ]; then
+    cp -a "$REPO/rootfs/advan-x1-support/." "$STAGE_DIR/"
 fi
 
-TARBALL="${1:-$(dirname "$0")/advan-x1-userspace-tools-arm64.tar.xz}"
-[ -f "$TARBALL" ] || { echo "FATAL: tarball not found: $TARBALL" >&2; exit 1; }
+# Enforce strict clean permissions across all packaged /etc files and scripts
+find "$STAGE_DIR/etc" -type d -exec chmod 0755 {} +
+find "$STAGE_DIR/etc" -type f -exec chmod 0644 {} +
+chmod 0755 "$STAGE_DIR/usr/local/bin/"* "$STAGE_DIR/usr/local/sbin/"* 2>/dev/null || true
 
-echo "=== 1. Extract Advan X1 userspace tools onto / ==="
-tar -xJf "$TARBALL" -C /
-
-echo "=== 2. Verify binaries & shared library linkage ==="
-file /usr/local/sbin/ccci_fsd /usr/local/sbin/ccci_rpcd \
-     /usr/lib/aarch64-linux-gnu/ModemManager/libmm-plugin-mtk-ccci.so || true
-MISSING=$(ldd /usr/local/sbin/ccci_fsd /usr/local/sbin/ccci_rpcd 2>/dev/null | grep "not found" || true)
-if [ -n "$MISSING" ]; then
-    echo "ERROR: Missing shared libs:" >&2
-    echo "$MISSING" >&2
+echo "== 5. Static verification gates =="
+# Gate A: Ensure legacy advan-power-screen.service is NEVER packaged
+if find "$STAGE_DIR" -name '*advan-power-screen*' | grep -q .; then
+    echo "FATAL: forbidden legacy advan-power-screen found in stage!" >&2
     exit 1
 fi
+# Gate B: Ensure no world-writable files under /etc
+if find "$STAGE_DIR/etc" -perm -0002 | grep -q .; then
+    echo "FATAL: world-writable file under /etc!" >&2
+    exit 1
+fi
+# Gate C: Verify dynamic library resolution against target Debian sid arm64 sysroot
+for bin in \
+    "$STAGE_DIR/usr/local/sbin/ccci_fsd" \
+    "$STAGE_DIR/usr/local/sbin/ccci_rpcd" \
+    "$STAGE_DIR/usr/lib/aarch64-linux-gnu/ModemManager/libmm-plugin-mtk-ccci.so"; do
+    echo "  ldd check: $(basename "$bin")"
+    LDD_OUT="$(QEMU_LD_PREFIX="$SYSROOT" "$QEMU_AARCH64" -L "$SYSROOT" \
+        "$SYSROOT/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1" --list "$bin")"
+    echo "$LDD_OUT"
+    if echo "$LDD_OUT" | grep -q "not found"; then
+        echo "FATAL: unresolved shared library in $bin" >&2
+        exit 1
+    fi
+done
 
-echo "=== 3. Enable ccci-fsd.service & reload udev/systemd if running ==="
+echo "== 6. Building Debian package advan-x1-support_${PKG_VER}_arm64.deb =="
+cat > "$STAGE_DIR/DEBIAN/control" <<EOF
+Package: advan-x1-support
+Version: ${PKG_VER}
+Section: admin
+Priority: optional
+Architecture: arm64
+Maintainer: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Depends: libc6, libglib2.0-0t64 | libglib2.0-0, libmm-glib0, util-linux, python3, alsa-ucm-conf
+Recommends: modemmanager, network-manager, pipewire-audio | pipewire
+Description: Advan X1 (MediaTek MT6789) mainline Linux userspace support
+ Self-contained device support package built with Google Clang:
+  - ccci_fsd & ccci_rpcd read-only NVRAM overlay modem daemons
+  - ModemManager mtk-ccci plugin + udev rules + service drop-in
+  - mtk-wwan-connect standalone helper
+  - ALSA UCM2 audio profiles for mt6789-mt6366 (FS1599 + MT6366)
+  - Clean 0644 systemd journald/logind/usb0/udev and GNOME Mobile defaults
+EOF
+
+cat > "$STAGE_DIR/DEBIAN/postinst" <<'EOF'
+#!/bin/sh
+set -e
+# Remove legacy advan-power-screen conflicts if upgrading an older rootfs
+rm -f /etc/systemd/system/multi-user.target.wants/advan-power-screen.service \
+      /etc/systemd/system/advan-power-screen.service \
+      /usr/local/bin/advan-power-screen.py \
+      /etc/systemd/network/20-usb0.network
+
 mkdir -p /etc/systemd/system/multi-user.target.wants
 ln -sf /etc/systemd/system/ccci-fsd.service \
        /etc/systemd/system/multi-user.target.wants/ccci-fsd.service
+ln -sf /etc/systemd/system/boot-diag-dump.service \
+       /etc/systemd/system/multi-user.target.wants/boot-diag-dump.service
+
+if command -v glib-compile-schemas >/dev/null 2>&1 && [ -d /usr/share/glib-2.0/schemas ]; then
+    glib-compile-schemas --strict /usr/share/glib-2.0/schemas || true
+fi
 if [ -d /run/systemd/system ]; then
     systemctl daemon-reload || true
     udevadm control --reload-rules || true
 fi
+exit 0
+EOF
+chmod 0755 "$STAGE_DIR/DEBIAN/postinst"
+
+DEB_NAME="advan-x1-support_${PKG_VER}_arm64.deb"
+dpkg-deb --build --root-owner-group "$STAGE_DIR" "$OUT_DIR/$DEB_NAME"
+dpkg-deb --info "$OUT_DIR/$DEB_NAME"
+dpkg-deb --contents "$OUT_DIR/$DEB_NAME"
+
+# Gate D: Verify the .deb installs cleanly inside the Debian sid arm64 sysroot!
+echo "== 7. Testing .deb installation inside Debian sid arm64 sysroot =="
+sudo cp "$OUT_DIR/$DEB_NAME" "$SYSROOT/tmp/$DEB_NAME"
+sudo chroot "$SYSROOT" /bin/bash -c "
+    set -e
+    dpkg --unpack '/tmp/$DEB_NAME'
+    dpkg --audit || true
+    dpkg --purge advan-x1-support
+    rm -f '/tmp/$DEB_NAME'
+"
+
+echo "== 8. Generating host-direct installer script & tarball =="
+cat > "$OUT_DIR/install-userspace-tools.sh" <<EOF
+#!/usr/bin/env bash
+# Install CI-built advan-x1-support Debian package directly onto host / (rootfs).
+set -euo pipefail
+if [ "\$(id -u)" -ne 0 ]; then
+    exec sudo -E "\$0" "\$@"
+fi
+DIR="\$(cd "\$(dirname "\$0")" && pwd)"
+DEB="\${1:-\$(ls -1 "\$DIR"/advan-x1-support_*_arm64.deb | head -n 1)}"
+[ -f "\$DEB" ] || { echo "FATAL: advan-x1-support .deb not found" >&2; exit 1; }
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y --reinstall "\$DEB"
 echo "USERSPACE_TOOLS_INSTALL_OK"
 EOF
 chmod +x "$OUT_DIR/install-userspace-tools.sh"
 
 TARBALL="advan-x1-userspace-tools-arm64.tar.xz"
-echo "== 6. Packing $OUT_DIR/$TARBALL =="
-XZ_OPT="-9e -T0" tar -C "$STAGE_DIR" -cJf "$OUT_DIR/$TARBALL" etc usr
+XZ_OPT="-9e -T0" tar -C "$STAGE_DIR" --exclude='./DEBIAN' -cJf "$OUT_DIR/$TARBALL" etc usr
 (
     cd "$OUT_DIR"
-    sha256sum "$TARBALL" install-userspace-tools.sh > sha256sums.txt
-    ls -lh "$TARBALL" install-userspace-tools.sh
+    sha256sum "$DEB_NAME" "$TARBALL" install-userspace-tools.sh > sha256sums.txt
+    ls -lh "$DEB_NAME" "$TARBALL" install-userspace-tools.sh
     cat sha256sums.txt
 )
-echo "== Advan X1 userspace tools build complete =="
+echo "== Advan X1 userspace support package build complete =="
