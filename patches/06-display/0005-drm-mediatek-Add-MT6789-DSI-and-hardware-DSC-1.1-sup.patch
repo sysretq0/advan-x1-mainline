@@ -1,6 +1,6 @@
-From 04c350ccd88b2024be020906134ec0f8adb65168 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: sysretq0 <sysretq0@proton.me>
-Date: Tue, 24 Nov 2026 14:05:54 +0000
+Date: Fri, 27 Nov 2026 04:25:38 +0700
 Subject: [PATCH] drm/mediatek: Add MT6789 DSI and hardware DSC 1.1 support
 
 Add MediaTek MT6789 MIPI-DSI controller support (N6/N4 D-PHY timing,
@@ -12,16 +12,17 @@ mtk_crtc_ddp_hw_init() so OVL0 uses its internal background color
 rather than stalling on a clock-gated bootloader OVL0_2L.
 
 Signed-off-by: sysretq0 <sysretq0@proton.me>
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  drivers/gpu/drm/mediatek/mtk_crtc.c     |  13 +-
- drivers/gpu/drm/mediatek/mtk_ddp_comp.c | 206 +++++++++++-
+ drivers/gpu/drm/mediatek/mtk_ddp_comp.c | 217 ++++++++++++-
  drivers/gpu/drm/mediatek/mtk_ddp_comp.h |  17 +
  drivers/gpu/drm/mediatek/mtk_disp_drv.h |   3 +
  drivers/gpu/drm/mediatek/mtk_dsi.c      | 405 +++++++++++++++++++-----
- 5 files changed, 563 insertions(+), 81 deletions(-)
+ 5 files changed, 573 insertions(+), 82 deletions(-)
 
 diff --git a/drivers/gpu/drm/mediatek/mtk_crtc.c b/drivers/gpu/drm/mediatek/mtk_crtc.c
-index 1941222..52dd02b 100644
+index 1941222a9..52dd02b20 100644
 --- a/drivers/gpu/drm/mediatek/mtk_crtc.c
 +++ b/drivers/gpu/drm/mediatek/mtk_crtc.c
 @@ -343,6 +343,7 @@ static int mtk_crtc_ddp_hw_init(struct mtk_crtc *mtk_crtc)
@@ -55,10 +56,10 @@ index 1941222..52dd02b 100644
  
  		mtk_ddp_comp_config(comp, width, height, vrefresh, bpc, NULL);
 diff --git a/drivers/gpu/drm/mediatek/mtk_ddp_comp.c b/drivers/gpu/drm/mediatek/mtk_ddp_comp.c
-index 2826145..3e59654 100644
+index 5c8dbd367..93c9477f4 100644
 --- a/drivers/gpu/drm/mediatek/mtk_ddp_comp.c
 +++ b/drivers/gpu/drm/mediatek/mtk_ddp_comp.c
-@@ -12,6 +12,7 @@
+@@ -14,6 +14,7 @@
  #include <linux/of_platform.h>
  #include <linux/platform_device.h>
  #include <linux/soc/mediatek/mtk-cmdq.h>
@@ -66,7 +67,7 @@ index 2826145..3e59654 100644
  #include <drm/drm_print.h>
  
  #include "mtk_crtc.h"
-@@ -45,6 +46,36 @@
+@@ -47,6 +48,36 @@
  #define DSC_DUAL_INOUT				BIT(2)
  #define DSC_BYPASS				BIT(4)
  #define DSC_UFOE_SEL				BIT(16)
@@ -103,16 +104,24 @@ index 2826145..3e59654 100644
  
  #define DISP_REG_OD_EN				0x0000
  #define DISP_REG_OD_CFG				0x0020
-@@ -64,6 +95,8 @@ struct mtk_ddp_comp_dev {
+@@ -62,10 +93,16 @@
+ #define DISP_REG_UFO_START			0x0000
+ #define UFO_BYPASS				BIT(2)
+ 
++struct mtk_ddp_comp_data {
++	bool need_obuf_sw;
++};
++
+ struct mtk_ddp_comp_dev {
  	struct clk *clk;
  	void __iomem *regs;
  	struct cmdq_client_reg cmdq_reg;
 +	const struct drm_dsc_config *dsc;
-+	bool need_obuf_sw;
++	const struct mtk_ddp_comp_data *data;
  };
  
  void mtk_ddp_write(struct cmdq_pkt *cmdq_pkt, unsigned int value,
-@@ -187,25 +220,179 @@ static void mtk_dither_set(struct device *dev, unsigned int bpc,
+@@ -189,25 +226,179 @@ static void mtk_dither_set(struct device *dev, unsigned int bpc,
  			      DISP_DITHERING, cmdq_pkt);
  }
  
@@ -141,7 +150,14 @@ index 2826145..3e59654 100644
 +	unsigned int pic_height_ext_num, chunk_size, pad_num;
 +	u32 dsc_con, reg_val;
 +	int i;
-+
+ 
+-	/* dsc bypass mode */
+-	mtk_ddp_write_mask(cmdq_pkt, DSC_BYPASS, &priv->cmdq_reg, priv->regs,
+-			   DISP_REG_DSC_CON, DSC_BYPASS);
+-	mtk_ddp_write_mask(cmdq_pkt, DSC_UFOE_SEL, &priv->cmdq_reg, priv->regs,
+-			   DISP_REG_DSC_CON, DSC_UFOE_SEL);
+-	mtk_ddp_write_mask(cmdq_pkt, DSC_DUAL_INOUT, &priv->cmdq_reg, priv->regs,
+-			   DISP_REG_DSC_CON, DSC_DUAL_INOUT);
 +	if (!dsc) {
 +		/* dsc bypass mode */
 +		mtk_ddp_write_mask(cmdq_pkt, DSC_BYPASS, &priv->cmdq_reg, priv->regs,
@@ -152,14 +168,7 @@ index 2826145..3e59654 100644
 +				   DISP_REG_DSC_CON, DSC_DUAL_INOUT);
 +		return;
 +	}
- 
--	/* dsc bypass mode */
--	mtk_ddp_write_mask(cmdq_pkt, DSC_BYPASS, &priv->cmdq_reg, priv->regs,
--			   DISP_REG_DSC_CON, DSC_BYPASS);
--	mtk_ddp_write_mask(cmdq_pkt, DSC_UFOE_SEL, &priv->cmdq_reg, priv->regs,
--			   DISP_REG_DSC_CON, DSC_UFOE_SEL);
--	mtk_ddp_write_mask(cmdq_pkt, DSC_DUAL_INOUT, &priv->cmdq_reg, priv->regs,
--			   DISP_REG_DSC_CON, DSC_DUAL_INOUT);
++
 +	slice_count = dsc->slice_count ? dsc->slice_count : 1;
 +	slice_width = dsc->slice_width;
 +	slice_height = dsc->slice_height;
@@ -175,7 +184,7 @@ index 2826145..3e59654 100644
 +	mtk_ddp_write_relaxed(cmdq_pkt, 0x0, &priv->cmdq_reg, priv->regs,
 +			      DISP_REG_DSC_SPR);
 +
-+	if (priv->need_obuf_sw && pic_width < 1440)
++	if (priv->data && priv->data->need_obuf_sw && pic_width < 1440)
 +		mtk_ddp_write_relaxed(cmdq_pkt, DSC_OBUF_SW_VAL, &priv->cmdq_reg,
 +				      priv->regs, DISP_REG_DSC_OBUF);
 +
@@ -299,7 +308,7 @@ index 2826145..3e59654 100644
  	/* write with mask to reserve the value set in mtk_dsc_config */
  	mtk_ddp_write_mask(NULL, DSC_EN, &priv->cmdq_reg, priv->regs, DISP_REG_DSC_CON, DSC_EN);
  }
-@@ -215,6 +402,7 @@ static void mtk_dsc_stop(struct device *dev)
+@@ -217,6 +408,7 @@ static void mtk_dsc_stop(struct device *dev)
  	struct mtk_ddp_comp_dev *priv = dev_get_drvdata(dev);
  
  	writel_relaxed(0x0, priv->regs + DISP_REG_DSC_CON);
@@ -307,7 +316,7 @@ index 2826145..3e59654 100644
  }
  
  static void mtk_od_config(struct device *dev, unsigned int w,
-@@ -314,12 +502,14 @@ static const struct mtk_ddp_comp_funcs ddp_dsc = {
+@@ -316,12 +508,14 @@ static const struct mtk_ddp_comp_funcs ddp_dsc = {
  	.config = mtk_dsc_config,
  	.start = mtk_dsc_start,
  	.stop = mtk_dsc_stop,
@@ -322,17 +331,32 @@ index 2826145..3e59654 100644
  };
  
  static const struct mtk_ddp_comp_funcs ddp_gamma = {
-@@ -704,6 +894,8 @@ int mtk_ddp_comp_init(struct device *dev, struct device_node *node, struct mtk_d
- 		dev_dbg(comp->dev, "get mediatek,gce-client-reg fail!\n");
+@@ -754,6 +948,7 @@ static int mtk_ddp_comp_drv_probe(struct platform_device *pdev)
+ 		dev_dbg(dev, "get mediatek,gce-client-reg fail!\n");
  #endif
  
-+	priv->need_obuf_sw = of_device_is_compatible(node, "mediatek,mt6789-disp-dsc");
-+
- 	platform_set_drvdata(comp_pdev, priv);
++	priv->data = of_device_get_match_data(dev);
+ 	platform_set_drvdata(pdev, priv);
  
- 	return 0;
+ 	ret = component_add(dev, &mtk_ddp_comp_component_ops);
+@@ -768,9 +963,14 @@ static void mtk_ddp_comp_drv_remove(struct platform_device *pdev)
+ 	component_del(&pdev->dev, &mtk_ddp_comp_component_ops);
+ }
+ 
++static const struct mtk_ddp_comp_data mt6789_dsc_driver_data = {
++	.need_obuf_sw = true,
++};
++
+ static const struct of_device_id mtk_ddp_comp_driver_dt_match[] = {
+ 	{ .compatible = "mediatek,mt6789-disp-dither" },
+-	{ .compatible = "mediatek,mt6789-disp-dsc" },
++	{ .compatible = "mediatek,mt6789-disp-dsc",
++	  .data = &mt6789_dsc_driver_data },
+ 	{ .compatible = "mediatek,mt6789-disp-postmask" },
+ 	{ /* sentinel */ }
+ };
 diff --git a/drivers/gpu/drm/mediatek/mtk_ddp_comp.h b/drivers/gpu/drm/mediatek/mtk_ddp_comp.h
-index 3f3d43f..36b9284 100644
+index 465247212..5a711cd76 100644
 --- a/drivers/gpu/drm/mediatek/mtk_ddp_comp.h
 +++ b/drivers/gpu/drm/mediatek/mtk_ddp_comp.h
 @@ -18,6 +18,7 @@ struct device;
@@ -374,7 +398,7 @@ index 3f3d43f..36b9284 100644
  			enum mtk_ddp_comp_type comp_type);
  int mtk_find_possible_crtcs(struct drm_device *drm, struct device *dev);
 diff --git a/drivers/gpu/drm/mediatek/mtk_disp_drv.h b/drivers/gpu/drm/mediatek/mtk_disp_drv.h
-index 679d413..9270d82 100644
+index 679d413bf..9270d823b 100644
 --- a/drivers/gpu/drm/mediatek/mtk_disp_drv.h
 +++ b/drivers/gpu/drm/mediatek/mtk_disp_drv.h
 @@ -12,6 +12,8 @@
@@ -395,7 +419,7 @@ index 679d413..9270d82 100644
  int mtk_gamma_clk_enable(struct device *dev);
  void mtk_gamma_clk_disable(struct device *dev);
 diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_dsi.c
-index f82506e..527092e 100644
+index f82506e10..527092ed1 100644
 --- a/drivers/gpu/drm/mediatek/mtk_dsi.c
 +++ b/drivers/gpu/drm/mediatek/mtk_dsi.c
 @@ -18,6 +18,7 @@

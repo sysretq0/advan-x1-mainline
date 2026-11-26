@@ -1,6 +1,6 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: sysretq0 <sysretq0@proton.me>
-Date: Wed, 25 Nov 2026 19:06:00 +0000
+Date: Fri, 27 Nov 2026 04:25:41 +0700
 Subject: [PATCH] drm/mediatek: Restore MT6789 OVL, COLOR, POSTMASK, and DSI
  cold-start registers
 
@@ -18,26 +18,28 @@ mediatek_v2 drivers:
   path and never completes its first frame / OVL_FME_CPL_INT vblank.
 - mtk_disp_color: in mtk_color_start(), clear CM1_EN/CM2_EN and write
   COLOR_START | COLOR_OUT_SEL (0x3) to DISP_COLOR_START in bypass mode.
-- mtk_ddp_comp (postmask): in mtk_postmask_config(), restore
-  DISP_POSTMASK_BLEND_CFG (A_EN), ROI_BGCLR/MASK_CLR (0xff000000), and
-  DISP_POSTMASK_CFG (RELAY_MODE | DRAM_MODE | BGCLR_IN_SEL | GCLAST_EN
-  | STALL_CG_ON = 0x147) for mediatek,mt6789-disp-postmask.
+- mtk_ddp_comp (postmask): add mt6789_postmask_driver_data with
+  postmask_ext_cfg and restore DISP_POSTMASK_BLEND_CFG (A_EN),
+  ROI_BGCLR/MASK_CLR (0xff000000), and DISP_POSTMASK_CFG (RELAY_MODE |
+  DRAM_MODE | BGCLR_IN_SEL | GCLAST_EN | STALL_CG_ON = 0x147) in
+  mtk_postmask_config().
 - mtk_dsi: set DSI_CM_WAIT_FIFO_FULL_EN (BIT(27)) in DSI_CON_CTRL when
   enabling MT6789 DSI0, matching downstream need_wait_fifo = true.
 
 Signed-off-by: sysretq0 <sysretq0@proton.me>
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- drivers/gpu/drm/mediatek/mtk_ddp_comp.c   | 29 +++++++++++++++++++++++++++++
- drivers/gpu/drm/mediatek/mtk_disp_color.c | 13 ++++++++++++-
- drivers/gpu/drm/mediatek/mtk_disp_ovl.c   | 23 +++++++++++++++++++++++
- drivers/gpu/drm/mediatek/mtk_dsi.c        |  4 ++++
- 4 files changed, 68 insertions(+), 1 deletion(-)
+ drivers/gpu/drm/mediatek/mtk_ddp_comp.c   | 35 ++++++++++++++++++++++-
+ drivers/gpu/drm/mediatek/mtk_disp_color.c | 13 ++++++++-
+ drivers/gpu/drm/mediatek/mtk_disp_ovl.c   | 23 +++++++++++++++
+ drivers/gpu/drm/mediatek/mtk_dsi.c        |  4 +++
+ 4 files changed, 73 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/gpu/drm/mediatek/mtk_ddp_comp.c b/drivers/gpu/drm/mediatek/mtk_ddp_comp.c
-index e87c344dc..8aef9994c 100644
+index e37e072e4..c208b1e27 100644
 --- a/drivers/gpu/drm/mediatek/mtk_ddp_comp.c
 +++ b/drivers/gpu/drm/mediatek/mtk_ddp_comp.c
-@@ -88,7 +88,15 @@
+@@ -90,7 +90,15 @@
  #define POSTMASK_EN					BIT(0)
  #define DISP_REG_POSTMASK_CFG			0x0020
  #define POSTMASK_RELAY_MODE				BIT(0)
@@ -53,19 +55,19 @@ index e87c344dc..8aef9994c 100644
  
  #define DISP_REG_UFO_START			0x0000
  #define UFO_BYPASS				BIT(2)
-@@ -100,6 +108,7 @@ struct mtk_ddp_comp_dev {
- 	const struct drm_dsc_config *dsc;
+@@ -98,6 +106,7 @@
+ struct mtk_ddp_comp_data {
  	bool need_obuf_sw;
  	bool bypass_shadow;
 +	bool postmask_ext_cfg;
  };
  
- void mtk_ddp_write(struct cmdq_pkt *cmdq_pkt, unsigned int value,
-@@ -438,6 +447,25 @@ static void mtk_postmask_config(struct device *dev, unsigned int w,
+ struct mtk_ddp_comp_dev {
+@@ -444,6 +453,25 @@ static void mtk_postmask_config(struct device *dev, unsigned int w,
  {
  	struct mtk_ddp_comp_dev *priv = dev_get_drvdata(dev);
  
-+	if (priv->postmask_ext_cfg) {
++	if (priv->data && priv->data->postmask_ext_cfg) {
 +		mtk_ddp_write_relaxed(cmdq_pkt, POSTMASK_BLEND_A_EN,
 +				      &priv->cmdq_reg, priv->regs,
 +				      DISP_REG_POSTMASK_BLEND_CFG);
@@ -87,14 +89,25 @@ index e87c344dc..8aef9994c 100644
  	mtk_ddp_write(cmdq_pkt, w << 16 | h, &priv->cmdq_reg, priv->regs,
  		      DISP_REG_POSTMASK_SIZE);
  	mtk_ddp_write(cmdq_pkt, POSTMASK_RELAY_MODE, &priv->cmdq_reg,
-@@ -905,6 +933,7 @@ int mtk_ddp_comp_init(struct device *dev, struct device_node *node, struct mtk_d
+@@ -981,12 +1009,17 @@ static const struct mtk_ddp_comp_data mt6789_dsc_driver_data = {
+ 	.need_obuf_sw = true,
+ };
  
- 	priv->need_obuf_sw = of_device_is_compatible(node, "mediatek,mt6789-disp-dsc");
- 	priv->bypass_shadow = of_device_is_compatible(node, "mediatek,mt6789-disp-dither");
-+	priv->postmask_ext_cfg = of_device_is_compatible(node, "mediatek,mt6789-disp-postmask");
- 
- 	platform_set_drvdata(comp_pdev, priv);
- 
++static const struct mtk_ddp_comp_data mt6789_postmask_driver_data = {
++	.postmask_ext_cfg = true,
++};
++
+ static const struct of_device_id mtk_ddp_comp_driver_dt_match[] = {
+ 	{ .compatible = "mediatek,mt6789-disp-dither",
+ 	  .data = &mt6789_dither_driver_data },
+ 	{ .compatible = "mediatek,mt6789-disp-dsc",
+ 	  .data = &mt6789_dsc_driver_data },
+-	{ .compatible = "mediatek,mt6789-disp-postmask" },
++	{ .compatible = "mediatek,mt6789-disp-postmask",
++	  .data = &mt6789_postmask_driver_data },
+ 	{ /* sentinel */ }
+ };
+ MODULE_DEVICE_TABLE(of, mtk_ddp_comp_driver_dt_match);
 diff --git a/drivers/gpu/drm/mediatek/mtk_disp_color.c b/drivers/gpu/drm/mediatek/mtk_disp_color.c
 index 872855531..a13e49b39 100644
 --- a/drivers/gpu/drm/mediatek/mtk_disp_color.c
@@ -218,4 +231,5 @@ index 83e17c82d..ebd863709 100644
  
  static void mtk_dsi_disable(struct mtk_dsi *dsi)
 -- 
-2.47.2
+2.55.0
+

@@ -45,7 +45,7 @@ has been remediated and verified:
 
 ## 3. Remaining Pre-Upstream Items (Deferred Tech Debt)
 
-Only three structural items remain before splitting the series for LKML
+Only two structural items remain before splitting the series for LKML
 submission:
 
 1. **`M8` — Multimedia / Connectivity Power Domains (8 deferred):**
@@ -53,22 +53,12 @@ submission:
    omitted from `mt6789-pm-domains` until their corresponding clock controllers
    (`camsys`, `imgsys1`, `ipesys`, `vdecsys`, `vencsys`) are implemented in
    `mt6789.dtsi`.
-2. **`B2-02` — `mtk_disp_ddp_comp_driver` No-Op Probe Stub:**
-   `patches/06-display/0004` binds `dither`, `dsc`, and `postmask` via a
-   minimal no-op component stub so SCPSYS `sync_state()` completes cleanly.
-   Before upstreaming `mediatek-drm`, split these into proper upstream
-   `mtk_ddp_comp` sub-drivers.
-3. **`M2b` — CCCI Driver Subsystem Boundary:**
+2. **`M2b` — CCCI Driver Subsystem Boundary:**
    `drivers/net/wwan/mtk_ccci/` stays under `drivers/net/wwan/` while full
    modem bring-up (data, CS voice, SMS, VoLTE) matures. Before LKML submission,
    split the SoC modem boot + CCIF0 transport into `drivers/soc/mediatek/` (or
    `drivers/remoteproc/`) and keep `drivers/net/wwan/` strictly for the WWAN
    port/netdev layer (see [`docs/ccci-sip-abi.md`](ccci-sip-abi.md)).
-4. **Upstream SMI `larb` sleep-ctrl reset TODO:**
-   `patches/03-soc-power/0019` carries the upstream `mtk-smi.c` comment
-   `/* TODO: Reset this larb if it fails here */` in
-   `mtk_smi_larb_sleep_ctrl_enable()`; `06-display/0011` avoids the stall path
-   on MT6789.
 
 ---
 

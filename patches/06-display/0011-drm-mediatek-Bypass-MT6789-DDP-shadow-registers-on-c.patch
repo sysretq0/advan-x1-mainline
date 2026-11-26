@@ -1,6 +1,6 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: sysretq0 <sysretq0@proton.me>
-Date: Wed, 25 Nov 2026 16:08:00 +0000
+Date: Fri, 27 Nov 2026 04:25:40 +0700
 Subject: [PATCH] drm/mediatek: Bypass MT6789 DDP shadow registers on cold
  power-on
 
@@ -9,7 +9,7 @@ shadow-register mode after MT6789_POWER_DOMAIN_DISP powers off during
 s2idle system suspend (unlike runtime DPMS, where DISP remains powered
 because non-pm_runtime DDP sub-blocks stay active).
 
-Without setting each block's BYPASS_SHADOW control bit ahead of its size
+Without setting each block BYPASS_SHADOW control bit ahead of its size
 and configuration writes (matching downstream platform/mtk_drm_6789.c
 need_bypass_shadow = true), working frame dimensions remain 0x0 after
 DISP power-domain resume. The DDP pipeline stalls on the first frame,
@@ -29,24 +29,25 @@ permanent ovl0 runtime resume failure (-EINVAL) on subsequent enables.
   mtk_aal_config().
 - mtk_disp_gamma: select GAMMA_RELAY_MODE in mtk_gamma_config() when
   dither-in-gamma is absent (cleared by mtk_gamma_set() if a LUT loads).
-- mtk_ddp_comp: set DITHER_BYPASS_SHADOW (BIT(0) in 0x0100) for
-  mediatek,mt6789-disp-dither in mtk_dither_config().
+- mtk_ddp_comp: add mt6789_dither_driver_data with bypass_shadow and set
+  DITHER_BYPASS_SHADOW (BIT(0) in 0x0100) in mtk_dither_config().
 
 Signed-off-by: sysretq0 <sysretq0@proton.me>
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- drivers/gpu/drm/mediatek/mtk_ddp_comp.c   | 10 ++++++++++
- drivers/gpu/drm/mediatek/mtk_disp_aal.c   | 18 +++++++++++++++++-
- drivers/gpu/drm/mediatek/mtk_disp_ccorr.c | 30 ++++++++++++++++++++++++++----
- drivers/gpu/drm/mediatek/mtk_disp_color.c | 15 ++++++++++++++-
+ drivers/gpu/drm/mediatek/mtk_ddp_comp.c   | 16 +++++++++++-
+ drivers/gpu/drm/mediatek/mtk_disp_aal.c   | 18 +++++++++++++-
+ drivers/gpu/drm/mediatek/mtk_disp_ccorr.c | 30 ++++++++++++++++++++---
+ drivers/gpu/drm/mediatek/mtk_disp_color.c | 15 +++++++++++-
  drivers/gpu/drm/mediatek/mtk_disp_gamma.c |  3 +++
- drivers/gpu/drm/mediatek/mtk_disp_ovl.c   |  5 +++++
- 6 files changed, 75 insertions(+), 6 deletions(-)
+ drivers/gpu/drm/mediatek/mtk_disp_ovl.c   |  5 ++++
+ 6 files changed, 80 insertions(+), 7 deletions(-)
 
 diff --git a/drivers/gpu/drm/mediatek/mtk_ddp_comp.c b/drivers/gpu/drm/mediatek/mtk_ddp_comp.c
-index 3e5965463..e87c344dc 100644
+index 93c9477f4..e37e072e4 100644
 --- a/drivers/gpu/drm/mediatek/mtk_ddp_comp.c
 +++ b/drivers/gpu/drm/mediatek/mtk_ddp_comp.c
-@@ -29,6 +29,8 @@
+@@ -31,6 +31,8 @@
  #define DITHER_ENGINE_EN			BIT(1)
  #define DISP_DITHERING				BIT(2)
  #define DISP_REG_DITHER_SIZE			0x0030
@@ -55,19 +56,19 @@ index 3e5965463..e87c344dc 100644
  #define DISP_REG_DITHER_5			0x0114
  #define DISP_REG_DITHER_7			0x011c
  #define DISP_REG_DITHER_15			0x013c
-@@ -97,6 +99,7 @@ struct mtk_ddp_comp_dev {
- 	struct cmdq_client_reg cmdq_reg;
- 	const struct drm_dsc_config *dsc;
+@@ -95,6 +97,7 @@
+ 
+ struct mtk_ddp_comp_data {
  	bool need_obuf_sw;
 +	bool bypass_shadow;
  };
  
- void mtk_ddp_write(struct cmdq_pkt *cmdq_pkt, unsigned int value,
-@@ -190,6 +193,12 @@ static void mtk_dither_config(struct device *dev, unsigned int w,
+ struct mtk_ddp_comp_dev {
+@@ -196,6 +199,12 @@ static void mtk_dither_config(struct device *dev, unsigned int w,
  {
  	struct mtk_ddp_comp_dev *priv = dev_get_drvdata(dev);
  
-+	if (priv->bypass_shadow)
++	if (priv->data && priv->data->bypass_shadow)
 +		mtk_ddp_write_mask(cmdq_pkt, DITHER_BYPASS_SHADOW,
 +				   &priv->cmdq_reg, priv->regs,
 +				   DISP_REG_DITHER_SHADOW,
@@ -76,14 +77,25 @@ index 3e5965463..e87c344dc 100644
  	mtk_ddp_write(cmdq_pkt, w << 16 | h, &priv->cmdq_reg, priv->regs, DISP_REG_DITHER_SIZE);
  	mtk_ddp_write(cmdq_pkt, DITHER_RELAY_MODE, &priv->cmdq_reg, priv->regs,
  		      DISP_REG_DITHER_CFG);
-@@ -895,6 +904,7 @@ int mtk_ddp_comp_init(struct device *dev, struct device_node *node, struct mtk_d
- #endif
+@@ -964,12 +973,17 @@ static void mtk_ddp_comp_remove(struct platform_device *pdev)
+ 	component_del(&pdev->dev, &mtk_ddp_comp_component_ops);
+ }
  
- 	priv->need_obuf_sw = of_device_is_compatible(node, "mediatek,mt6789-disp-dsc");
-+	priv->bypass_shadow = of_device_is_compatible(node, "mediatek,mt6789-disp-dither");
++static const struct mtk_ddp_comp_data mt6789_dither_driver_data = {
++	.bypass_shadow = true,
++};
++
+ static const struct mtk_ddp_comp_data mt6789_dsc_driver_data = {
+ 	.need_obuf_sw = true,
+ };
  
- 	platform_set_drvdata(comp_pdev, priv);
- 
+ static const struct of_device_id mtk_ddp_comp_driver_dt_match[] = {
+-	{ .compatible = "mediatek,mt6789-disp-dither" },
++	{ .compatible = "mediatek,mt6789-disp-dither",
++	  .data = &mt6789_dither_driver_data },
+ 	{ .compatible = "mediatek,mt6789-disp-dsc",
+ 	  .data = &mt6789_dsc_driver_data },
+ 	{ .compatible = "mediatek,mt6789-disp-postmask" },
 diff --git a/drivers/gpu/drm/mediatek/mtk_disp_aal.c b/drivers/gpu/drm/mediatek/mtk_disp_aal.c
 index 6790d747a..e983835cf 100644
 --- a/drivers/gpu/drm/mediatek/mtk_disp_aal.c
@@ -306,3 +318,4 @@ index 35153e0e5..b3eb67dbc 100644
  				      DISP_REG_OVL_ROI_SIZE);
 -- 
 2.55.0
+

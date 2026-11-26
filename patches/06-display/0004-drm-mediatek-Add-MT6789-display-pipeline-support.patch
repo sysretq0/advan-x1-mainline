@@ -1,10 +1,13 @@
-From 2a1f961f5b72d129625f8f008f9db9ab50ba0fd1 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: sysretq0 <sysretq0@proton.me>
-Date: Tue, 24 Nov 2026 13:41:31 +0000
+Date: Fri, 27 Nov 2026 04:24:50 +0700
 Subject: [PATCH] drm/mediatek: Add MT6789 display pipeline support
 
 Add MediaTek MT6789 display subsystem match data across mtk_drm_drv
-and the DDP subdrivers (OVL, RDMA, COLOR, CCORR, AAL, GAMMA).
+and the DDP subdrivers (OVL, RDMA, COLOR, CCORR, AAL, GAMMA), plus a
+component platform driver in mtk_ddp_comp for MT6789 DITHER0, DSC0,
+and POSTMASK0 so each block owns its MMIO, clock, CMDQ client register,
+and power-domain lifecycle cleanly.
 
 MT6789 OVL0 and RDMA0 require shadow-register bypass
 (DISP_OVL_BYPASS_SHADOW in DISP_REG_OVL_EN and
@@ -14,18 +17,139 @@ output valid threshold (0x8bf60000), and a clean RDMA0 soft-reset when
 handing over from an active bootloader pipeline.
 
 Signed-off-by: sysretq0 <sysretq0@proton.me>
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
+ drivers/gpu/drm/mediatek/mtk_ddp_comp.c   | 83 ++++++++++++++++++++++-
+ drivers/gpu/drm/mediatek/mtk_ddp_comp.h   |  1 +
  drivers/gpu/drm/mediatek/mtk_disp_aal.c   |  1 +
  drivers/gpu/drm/mediatek/mtk_disp_ccorr.c |  2 +
  drivers/gpu/drm/mediatek/mtk_disp_color.c |  2 +
  drivers/gpu/drm/mediatek/mtk_disp_gamma.c |  2 +
- drivers/gpu/drm/mediatek/mtk_disp_ovl.c   | 42 ++++++++++++++-
- drivers/gpu/drm/mediatek/mtk_disp_rdma.c  | 33 +++++++++++-
- drivers/gpu/drm/mediatek/mtk_drm_drv.c    | 66 +++++++++++++++++++++++
- 7 files changed, 145 insertions(+), 3 deletions(-)
+ drivers/gpu/drm/mediatek/mtk_disp_ovl.c   | 42 +++++++++++-
+ drivers/gpu/drm/mediatek/mtk_disp_rdma.c  | 33 ++++++++-
+ drivers/gpu/drm/mediatek/mtk_drm_drv.c    | 49 ++++++++++++-
+ drivers/gpu/drm/mediatek/mtk_drm_drv.h    |  1 +
+ 10 files changed, 211 insertions(+), 5 deletions(-)
 
+diff --git a/drivers/gpu/drm/mediatek/mtk_ddp_comp.c b/drivers/gpu/drm/mediatek/mtk_ddp_comp.c
+index 282614507..5c8dbd367 100644
+--- a/drivers/gpu/drm/mediatek/mtk_ddp_comp.c
++++ b/drivers/gpu/drm/mediatek/mtk_ddp_comp.c
+@@ -7,6 +7,8 @@
+  */
+ 
+ #include <linux/clk.h>
++#include <linux/component.h>
++#include <linux/module.h>
+ #include <linux/of.h>
+ #include <linux/of_address.h>
+ #include <linux/of_platform.h>
+@@ -679,7 +681,8 @@ int mtk_ddp_comp_init(struct device *dev, struct device_node *node, struct mtk_d
+ 	    type == MTK_DISP_RDMA ||
+ 	    type == MTK_DPI ||
+ 	    type == MTK_DP_INTF ||
+-	    type == MTK_DSI)
++	    type == MTK_DSI ||
++	    mtk_ddp_comp_is_component(node))
+ 		return 0;
+ 
+ 	priv = devm_kzalloc_obj(dev, *priv);
+@@ -708,3 +711,81 @@ int mtk_ddp_comp_init(struct device *dev, struct device_node *node, struct mtk_d
+ 
+ 	return 0;
+ }
++
++static int mtk_ddp_comp_bind(struct device *dev, struct device *master,
++			     void *data)
++{
++	return 0;
++}
++
++static void mtk_ddp_comp_unbind(struct device *dev, struct device *master,
++				void *data)
++{
++}
++
++static const struct component_ops mtk_ddp_comp_component_ops = {
++	.bind	= mtk_ddp_comp_bind,
++	.unbind	= mtk_ddp_comp_unbind,
++};
++
++static int mtk_ddp_comp_drv_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct mtk_ddp_comp_dev *priv;
++	int ret;
++
++	priv = devm_kzalloc_obj(dev, *priv);
++	if (!priv)
++		return -ENOMEM;
++
++	priv->clk = devm_clk_get(dev, NULL);
++	if (IS_ERR(priv->clk))
++		return dev_err_probe(dev, PTR_ERR(priv->clk),
++				     "failed to get ddp comp clk\n");
++
++	priv->regs = devm_platform_ioremap_resource(pdev, 0);
++	if (IS_ERR(priv->regs))
++		return dev_err_probe(dev, PTR_ERR(priv->regs),
++				     "failed to ioremap ddp comp\n");
++
++#if IS_REACHABLE(CONFIG_MTK_CMDQ)
++	ret = cmdq_dev_get_client_reg(dev, &priv->cmdq_reg, 0);
++	if (ret)
++		dev_dbg(dev, "get mediatek,gce-client-reg fail!\n");
++#endif
++
++	platform_set_drvdata(pdev, priv);
++
++	ret = component_add(dev, &mtk_ddp_comp_component_ops);
++	if (ret)
++		return dev_err_probe(dev, ret, "Failed to add component\n");
++
++	return 0;
++}
++
++static void mtk_ddp_comp_drv_remove(struct platform_device *pdev)
++{
++	component_del(&pdev->dev, &mtk_ddp_comp_component_ops);
++}
++
++static const struct of_device_id mtk_ddp_comp_driver_dt_match[] = {
++	{ .compatible = "mediatek,mt6789-disp-dither" },
++	{ .compatible = "mediatek,mt6789-disp-dsc" },
++	{ .compatible = "mediatek,mt6789-disp-postmask" },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(of, mtk_ddp_comp_driver_dt_match);
++
++bool mtk_ddp_comp_is_component(struct device_node *node)
++{
++	return !!of_match_node(mtk_ddp_comp_driver_dt_match, node);
++}
++
++struct platform_driver mtk_ddp_comp_driver = {
++	.probe	= mtk_ddp_comp_drv_probe,
++	.remove	= mtk_ddp_comp_drv_remove,
++	.driver	= {
++		.name	= "mediatek-disp-ddp-comp",
++		.of_match_table = mtk_ddp_comp_driver_dt_match,
++	},
++};
+diff --git a/drivers/gpu/drm/mediatek/mtk_ddp_comp.h b/drivers/gpu/drm/mediatek/mtk_ddp_comp.h
+index 3f3d43f43..465247212 100644
+--- a/drivers/gpu/drm/mediatek/mtk_ddp_comp.h
++++ b/drivers/gpu/drm/mediatek/mtk_ddp_comp.h
+@@ -350,6 +350,7 @@ static inline void mtk_ddp_comp_encoder_index_set(struct mtk_ddp_comp *comp)
+ int mtk_ddp_comp_get_id(struct device_node *node,
+ 			enum mtk_ddp_comp_type comp_type);
+ int mtk_find_possible_crtcs(struct drm_device *drm, struct device *dev);
++bool mtk_ddp_comp_is_component(struct device_node *node);
+ int mtk_ddp_comp_init(struct device *dev, struct device_node *comp_node, struct mtk_ddp_comp *comp,
+ 		      unsigned int comp_id);
+ enum mtk_ddp_comp_type mtk_ddp_comp_get_type(unsigned int comp_id);
 diff --git a/drivers/gpu/drm/mediatek/mtk_disp_aal.c b/drivers/gpu/drm/mediatek/mtk_disp_aal.c
-index 192c1a7..6790d74 100644
+index 192c1a7d5..6790d747a 100644
 --- a/drivers/gpu/drm/mediatek/mtk_disp_aal.c
 +++ b/drivers/gpu/drm/mediatek/mtk_disp_aal.c
 @@ -210,6 +210,7 @@ static const struct mtk_disp_aal_data mt8173_aal_driver_data = {
@@ -37,7 +161,7 @@ index 192c1a7..6790d74 100644
  	{ .compatible = "mediatek,mt8183-disp-aal" },
  	{ /* sentinel */ }
 diff --git a/drivers/gpu/drm/mediatek/mtk_disp_ccorr.c b/drivers/gpu/drm/mediatek/mtk_disp_ccorr.c
-index 5f64a0a..631c8bb 100644
+index 5f64a0a6e..631c8bbcc 100644
 --- a/drivers/gpu/drm/mediatek/mtk_disp_ccorr.c
 +++ b/drivers/gpu/drm/mediatek/mtk_disp_ccorr.c
 @@ -178,6 +178,8 @@ static const struct mtk_disp_ccorr_data mt8192_ccorr_driver_data = {
@@ -50,7 +174,7 @@ index 5f64a0a..631c8bb 100644
  	  .data = &mt8183_ccorr_driver_data},
  	{ .compatible = "mediatek,mt8192-disp-ccorr",
 diff --git a/drivers/gpu/drm/mediatek/mtk_disp_color.c b/drivers/gpu/drm/mediatek/mtk_disp_color.c
-index 7af9966..5d3ca9f 100644
+index 7af9966c0..5d3ca9fc7 100644
 --- a/drivers/gpu/drm/mediatek/mtk_disp_color.c
 +++ b/drivers/gpu/drm/mediatek/mtk_disp_color.c
 @@ -147,6 +147,8 @@ static const struct mtk_disp_color_data mt8173_color_driver_data = {
@@ -63,7 +187,7 @@ index 7af9966..5d3ca9f 100644
  	  .data = &mt8167_color_driver_data},
  	{ .compatible = "mediatek,mt8173-disp-color",
 diff --git a/drivers/gpu/drm/mediatek/mtk_disp_gamma.c b/drivers/gpu/drm/mediatek/mtk_disp_gamma.c
-index 787f68e..739f263 100644
+index 787f68e7d..739f263dd 100644
 --- a/drivers/gpu/drm/mediatek/mtk_disp_gamma.c
 +++ b/drivers/gpu/drm/mediatek/mtk_disp_gamma.c
 @@ -315,6 +315,8 @@ static const struct mtk_disp_gamma_data mt8195_gamma_driver_data = {
@@ -76,7 +200,7 @@ index 787f68e..739f263 100644
  	  .data = &mt8173_gamma_driver_data},
  	{ .compatible = "mediatek,mt8183-disp-gamma",
 diff --git a/drivers/gpu/drm/mediatek/mtk_disp_ovl.c b/drivers/gpu/drm/mediatek/mtk_disp_ovl.c
-index 5445870..35153e0 100644
+index 544587071..35153e0e5 100644
 --- a/drivers/gpu/drm/mediatek/mtk_disp_ovl.c
 +++ b/drivers/gpu/drm/mediatek/mtk_disp_ovl.c
 @@ -24,6 +24,7 @@
@@ -173,7 +297,7 @@ index 5445870..35153e0 100644
  	  .data = &mt8167_ovl_driver_data},
  	{ .compatible = "mediatek,mt8173-disp-ovl",
 diff --git a/drivers/gpu/drm/mediatek/mtk_disp_rdma.c b/drivers/gpu/drm/mediatek/mtk_disp_rdma.c
-index 67bd9e1..09343a4 100644
+index 67bd9e1ca..09343a4e9 100644
 --- a/drivers/gpu/drm/mediatek/mtk_disp_rdma.c
 +++ b/drivers/gpu/drm/mediatek/mtk_disp_rdma.c
 @@ -29,6 +29,7 @@
@@ -259,7 +383,7 @@ index 67bd9e1..09343a4 100644
  	  .data = &mt8173_rdma_driver_data},
  	{ .compatible = "mediatek,mt8183-disp-rdma",
 diff --git a/drivers/gpu/drm/mediatek/mtk_drm_drv.c b/drivers/gpu/drm/mediatek/mtk_drm_drv.c
-index a8bf069..5b1a067 100644
+index a8bf06907..089b3c833 100644
 --- a/drivers/gpu/drm/mediatek/mtk_drm_drv.c
 +++ b/drivers/gpu/drm/mediatek/mtk_drm_drv.c
 @@ -159,6 +159,19 @@ static const unsigned int mt8183_mtk_ddp_ext[] = {
@@ -397,38 +521,36 @@ index a8bf069..5b1a067 100644
  	{ .compatible = "mediatek,mt8173-dsi",
  	  .data = (void *)MTK_DSI },
  	{ .compatible = "mediatek,mt8183-dsi",
-@@ -1281,10 +1326,31 @@ static struct platform_driver mtk_drm_platform_driver = {
- 	},
- };
- 
-+static int mtk_disp_ddp_comp_probe(struct platform_device *pdev)
-+{
-+	return 0;
-+}
-+
-+static const struct of_device_id mtk_disp_ddp_comp_dt_match[] = {
-+	{ .compatible = "mediatek,mt6789-disp-dither" },
-+	{ .compatible = "mediatek,mt6789-disp-dsc" },
-+	{ .compatible = "mediatek,mt6789-disp-postmask" },
-+	{ /* sentinel */ }
-+};
-+
-+static struct platform_driver mtk_disp_ddp_comp_driver = {
-+	.probe = mtk_disp_ddp_comp_probe,
-+	.driver = {
-+		.name = "mediatek-disp-ddp-comp",
-+		.of_match_table = mtk_disp_ddp_comp_dt_match,
-+	},
-+};
-+
+@@ -1177,7 +1222,8 @@ static int mtk_drm_probe(struct platform_device *pdev)
+ 		    comp_type == MTK_DISP_RDMA ||
+ 		    comp_type == MTK_DP_INTF ||
+ 		    comp_type == MTK_DPI ||
+-		    comp_type == MTK_DSI) {
++		    comp_type == MTK_DSI ||
++		    mtk_ddp_comp_is_component(node)) {
+ 			dev_info(dev, "Adding component match for %pOF\n",
+ 				 node);
+ 			drm_of_component_match_add(dev, &match, component_compare_of,
+@@ -1284,6 +1330,7 @@ static struct platform_driver mtk_drm_platform_driver = {
  static struct platform_driver * const mtk_drm_drivers[] = {
  	&mtk_disp_aal_driver,
  	&mtk_disp_ccorr_driver,
++	&mtk_ddp_comp_driver,
  	&mtk_disp_color_driver,
-+	&mtk_disp_ddp_comp_driver,
  	&mtk_disp_gamma_driver,
  	&mtk_disp_merge_driver,
- 	&mtk_disp_ovl_adaptor_driver,
+diff --git a/drivers/gpu/drm/mediatek/mtk_drm_drv.h b/drivers/gpu/drm/mediatek/mtk_drm_drv.h
+index d48da019a..8abb381fc 100644
+--- a/drivers/gpu/drm/mediatek/mtk_drm_drv.h
++++ b/drivers/gpu/drm/mediatek/mtk_drm_drv.h
+@@ -68,6 +68,7 @@ struct mtk_drm_private {
+ 	struct mtk_drm_private **all_drm_private;
+ };
+ 
++extern struct platform_driver mtk_ddp_comp_driver;
+ extern struct platform_driver mtk_disp_aal_driver;
+ extern struct platform_driver mtk_disp_ccorr_driver;
+ extern struct platform_driver mtk_disp_color_driver;
 -- 
 2.55.0
 
