@@ -1,0 +1,83 @@
+From ce157db673f7e4aa0b83f875b67c01041c9604e2 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 01:52:26 +0700
+Subject: [PATCH] clk: mediatek: mt6789: Use Linux 7.4 alloc and cleanup
+ helpers
+
+Modernize clk-mt6789-topckgen.c to use scoped_guard(spinlock_irqsave)
+and devm_kzalloc_obj().
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/clk/mediatek/clk-mt6789-topckgen.c | 32 +++++++++++-----------
+ 1 file changed, 16 insertions(+), 16 deletions(-)
+
+diff --git a/drivers/clk/mediatek/clk-mt6789-topckgen.c b/drivers/clk/mediatek/clk-mt6789-topckgen.c
+index 45929ee..926fda9 100644
+--- a/drivers/clk/mediatek/clk-mt6789-topckgen.c
++++ b/drivers/clk/mediatek/clk-mt6789-topckgen.c
+@@ -4,6 +4,7 @@
+ // Author: Owen Chen <owen.chen@mediatek.com>
+ 
+ #include <linux/clk.h>
++#include <linux/cleanup.h>
+ #include <linux/clk-provider.h>
+ #include <linux/delay.h>
+ #include <linux/io.h>
+@@ -717,33 +718,32 @@ static int mt6789_mfg_mux_notifier_cb(struct notifier_block *nb,
+ {
+ 	struct mt6789_mfg_mux_nb *mfg_nb =
+ 		container_of(nb, struct mt6789_mfg_mux_nb, nb);
+-	unsigned long flags;
+ 	u32 val;
+ 	int i;
+ 
+ 	switch (event) {
+ 	case PRE_RATE_CHANGE:
+-		spin_lock_irqsave(&mt6789_clk_lock, flags);
+-		val = readl(mfg_nb->base + MT6789_CLK_CFG_4);
+-		if (val & MT6789_MFG_PLL_SEL_BIT) {
+-			writel(MT6789_MFG_PLL_SEL_BIT,
+-			       mfg_nb->base + MT6789_CLK_CFG_4_CLR);
+-			mfg_nb->parked = true;
+-		} else {
+-			mfg_nb->parked = false;
++		scoped_guard(spinlock_irqsave, &mt6789_clk_lock) {
++			val = readl(mfg_nb->base + MT6789_CLK_CFG_4);
++			if (val & MT6789_MFG_PLL_SEL_BIT) {
++				writel(MT6789_MFG_PLL_SEL_BIT,
++				       mfg_nb->base + MT6789_CLK_CFG_4_CLR);
++				mfg_nb->parked = true;
++			} else {
++				mfg_nb->parked = false;
++			}
+ 		}
+-		spin_unlock_irqrestore(&mt6789_clk_lock, flags);
+ 		break;
+ 	case POST_RATE_CHANGE:
+ 	case ABORT_RATE_CHANGE:
+ 		if (!mfg_nb->parked)
+ 			break;
+ 		for (i = 0; i < 6; i++) {
+-			spin_lock_irqsave(&mt6789_clk_lock, flags);
+-			writel(MT6789_MFG_PLL_SEL_BIT,
+-			       mfg_nb->base + MT6789_CLK_CFG_4_SET);
+-			val = readl(mfg_nb->base + MT6789_CLK_CFG_4);
+-			spin_unlock_irqrestore(&mt6789_clk_lock, flags);
++			scoped_guard(spinlock_irqsave, &mt6789_clk_lock) {
++				writel(MT6789_MFG_PLL_SEL_BIT,
++				       mfg_nb->base + MT6789_CLK_CFG_4_SET);
++				val = readl(mfg_nb->base + MT6789_CLK_CFG_4);
++			}
+ 			if (val & MT6789_MFG_PLL_SEL_BIT)
+ 				break;
+ 			udelay(10);
+@@ -789,7 +789,7 @@ static int clk_mt6789_topck_probe(struct platform_device *pdev)
+ 	if (r)
+ 		goto unregister_muxes;
+ 
+-	mfg_nb = devm_kzalloc(&pdev->dev, sizeof(*mfg_nb), GFP_KERNEL);
++	mfg_nb = devm_kzalloc_obj(&pdev->dev, *mfg_nb);
+ 	if (!mfg_nb) {
+ 		r = -ENOMEM;
+ 		goto unregister_composites;

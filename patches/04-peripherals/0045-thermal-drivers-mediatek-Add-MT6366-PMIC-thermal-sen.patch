@@ -1,6 +1,6 @@
-From 945499a3a4a6ad72b48d616613445fbcc2f65c17 Mon Sep 17 00:00:00 2001
-From: sysretq0 <sysretq0@proton.me>
-Date: Wed, 25 Nov 2026 13:04:18 +0000
+From e4c2d7d37825e5d03f6bfee5be82bfb14d3f5c3d Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 01:52:28 +0700
 Subject: [PATCH] thermal/drivers/mediatek: Add MT6366 PMIC thermal sensor
  driver
 
@@ -9,16 +9,16 @@ the MediaTek MT6366 PMIC (PMU die, VCORE, VPROC, and VGPU bucks). Reads
 12-bit raw counts from mt6359-auxadc and converts them using per-unit
 eFuse slope/intercept parameters from mt6366_e_data.
 
-Signed-off-by: sysretq0 <sysretq0@proton.me>
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- drivers/thermal/mediatek/Kconfig          |   8 +
+ drivers/thermal/mediatek/Kconfig          |   9 +
  drivers/thermal/mediatek/Makefile         |   1 +
- drivers/thermal/mediatek/mt6366_thermal.c | 234 ++++++++++++++++++++++
- 3 files changed, 243 insertions(+)
+ drivers/thermal/mediatek/mt6366_thermal.c | 232 ++++++++++++++++++++++
+ 3 files changed, 242 insertions(+)
  create mode 100644 drivers/thermal/mediatek/mt6366_thermal.c
 
 diff --git a/drivers/thermal/mediatek/Kconfig b/drivers/thermal/mediatek/Kconfig
-index d82c86d9b..9b515aa88 100644
+index d82c86d..8100e03 100644
 --- a/drivers/thermal/mediatek/Kconfig
 +++ b/drivers/thermal/mediatek/Kconfig
 @@ -34,4 +34,13 @@ config MTK_LVTS_THERMAL_DEBUGFS
@@ -36,7 +36,7 @@ index d82c86d9b..9b515aa88 100644
 +
  endif
 diff --git a/drivers/thermal/mediatek/Makefile b/drivers/thermal/mediatek/Makefile
-index 1c6daa1e6..88ab05200 100644
+index 1c6daa1..88ab052 100644
 --- a/drivers/thermal/mediatek/Makefile
 +++ b/drivers/thermal/mediatek/Makefile
 @@ -1,2 +1,3 @@
@@ -45,10 +45,10 @@ index 1c6daa1e6..88ab05200 100644
 +obj-$(CONFIG_MTK_MT6366_THERMAL)	+= mt6366_thermal.o
 diff --git a/drivers/thermal/mediatek/mt6366_thermal.c b/drivers/thermal/mediatek/mt6366_thermal.c
 new file mode 100644
-index 000000000..3360ff704
+index 0000000..e15186b
 --- /dev/null
 +++ b/drivers/thermal/mediatek/mt6366_thermal.c
-@@ -0,0 +1,234 @@
+@@ -0,0 +1,232 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * MediaTek MT6366 PMIC 4-channel thermal sensor driver.
@@ -62,6 +62,7 @@ index 000000000..3360ff704
 + */
 +
 +#include <linux/bits.h>
++#include <linux/cleanup.h>
 +#include <linux/iio/consumer.h>
 +#include <linux/module.h>
 +#include <linux/nvmem-consumer.h>
@@ -132,7 +133,6 @@ index 000000000..3360ff704
 +{
 +	struct nvmem_cell *cell;
 +	size_t len = 0;
-+	u16 *buf;
 +
 +	priv->degc_cali = 50;
 +	priv->o_slope = 0;
@@ -151,13 +151,12 @@ index 000000000..3360ff704
 +		return 0;
 +	}
 +
-+	buf = nvmem_cell_read(cell, &len);
++	u16 *buf __free(kfree) = nvmem_cell_read(cell, &len);
 +	nvmem_cell_put(cell);
 +	if (IS_ERR(buf))
 +		return PTR_ERR(buf);
 +
 +	if (len != MT6366_EFUSE_LEN) {
-+		kfree(buf);
 +		dev_warn(priv->dev, "unexpected eFuse size %zu (expected %d)\n",
 +			 len, MT6366_EFUSE_LEN);
 +		return 0;
@@ -181,7 +180,6 @@ index 000000000..3360ff704
 +			priv->degc_cali = 53;
 +	}
 +
-+	kfree(buf);
 +	dev_info(priv->dev,
 +		 "MT6366 thermal cali: en=%d degc=%d slope=%d sign=%d o_vts=%u/%u/%u/%u\n",
 +		 priv->adc_cali_en, priv->degc_cali, priv->o_slope,
@@ -222,7 +220,7 @@ index 000000000..3360ff704
 +	struct mt6366_thermal *priv;
 +	int i, ret;
 +
-+	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
++	priv = devm_kzalloc_obj(dev, *priv);
 +	if (!priv)
 +		return -ENOMEM;
 +
@@ -283,6 +281,3 @@ index 000000000..3360ff704
 +MODULE_AUTHOR("sysretq0 <sysretq0@proton.me>");
 +MODULE_DESCRIPTION("MediaTek MT6366 PMIC thermal sensor driver");
 +MODULE_LICENSE("GPL");
--- 
-2.55.0
-

@@ -1,0 +1,151 @@
+From 987b549691e36218779a2bfe247ebc60a355d970 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 01:52:29 +0700
+Subject: [PATCH] ASoC: codecs: mt6358-accdet: Modernize with Linux 7.4 devm
+ and cleanup helpers
+
+Convert mt6358-accdet.c to devm_kzalloc_obj(), devm_mutex_init(),
+guard/scoped_guard(mutex), and alloc_ordered_workqueue() instead of
+deprecated create_singlethread_workqueue().
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ sound/soc/codecs/mt6358-accdet.c | 63 ++++++++++++++++----------------
+ 1 file changed, 32 insertions(+), 31 deletions(-)
+
+diff --git a/sound/soc/codecs/mt6358-accdet.c b/sound/soc/codecs/mt6358-accdet.c
+index 99cd584..e7dc601 100644
+--- a/sound/soc/codecs/mt6358-accdet.c
++++ b/sound/soc/codecs/mt6358-accdet.c
+@@ -6,6 +6,7 @@
+  */
+ 
+ #include <linux/bits.h>
++#include <linux/cleanup.h>
+ #include <linux/delay.h>
+ #include <linux/iio/consumer.h>
+ #include <linux/input.h>
+@@ -289,9 +290,9 @@ static void mt6358_accdet_work(struct work_struct *work)
+ 	unsigned int val = 0;
+ 	u32 cur_ab;
+ 
+-	mutex_lock(&priv->lock);
++	guard(mutex)(&priv->lock);
+ 	if (!priv->plugged_in)
+-		goto out_unlock;
++		return;
+ 
+ 	regmap_read(priv->regmap, MT6358_ACCDET_CON14, &val);
+ 	cur_ab = (val >> ACCDET_MEM_IN_SHIFT) & ACCDET_MEM_IN_MASK;
+@@ -339,9 +340,6 @@ static void mt6358_accdet_work(struct work_struct *work)
+ 	}
+ 
+ 	mt6358_accdet_report(priv);
+-
+-out_unlock:
+-	mutex_unlock(&priv->lock);
+ }
+ 
+ static void mt6358_accdet_eint_work(struct work_struct *work)
+@@ -351,7 +349,7 @@ static void mt6358_accdet_eint_work(struct work_struct *work)
+ 	u32 eint_pwm_idle = priv->eint_num ? ACCDET_EINT1_PWM_IDLE_BIT :
+ 					     ACCDET_EINT0_PWM_IDLE_BIT;
+ 
+-	mutex_lock(&priv->lock);
++	guard(mutex)(&priv->lock);
+ 	if (priv->plugged_in) {
+ 		mt6358_accdet_seq_reset(priv);
+ 		regmap_update_bits(priv->regmap, MT6358_ACCDET_CON2,
+@@ -368,7 +366,6 @@ static void mt6358_accdet_eint_work(struct work_struct *work)
+ 		priv->btn_type = 0;
+ 		mt6358_accdet_report(priv);
+ 	}
+-	mutex_unlock(&priv->lock);
+ }
+ 
+ static irqreturn_t mt6358_accdet_irq_handler(int irq, void *data)
+@@ -397,23 +394,25 @@ static irqreturn_t mt6358_accdet_irq_handler(int irq, void *data)
+ 	if (status & eint_sts) {
+ 		bool plug_in;
+ 
+-		mutex_lock(&priv->lock);
+-		plug_in = !priv->plugged_in;
+-		priv->plugged_in = plug_in;
+-
+-		/* Flip EINT polarity to detect the opposite transition */
+-		if ((plug_in && priv->eint_pol == IRQ_TYPE_LEVEL_HIGH) ||
+-		    (!plug_in && priv->eint_pol != IRQ_TYPE_LEVEL_HIGH))
+-			regmap_update_bits(priv->regmap, MT6358_ACCDET_CON12,
+-					   eint_pol, 0);
+-		else
+-			regmap_update_bits(priv->regmap, MT6358_ACCDET_CON12,
+-					   eint_pol, eint_pol);
+-
+-		mt6358_accdet_set_eint_deb(priv, plug_in ?
+-					   priv->plugout_deb :
+-					   priv->pwm_deb.eint_debounce0);
+-		mutex_unlock(&priv->lock);
++		scoped_guard(mutex, &priv->lock) {
++			plug_in = !priv->plugged_in;
++			priv->plugged_in = plug_in;
++
++			/* Flip EINT polarity to detect the opposite transition */
++			if ((plug_in && priv->eint_pol == IRQ_TYPE_LEVEL_HIGH) ||
++			    (!plug_in && priv->eint_pol != IRQ_TYPE_LEVEL_HIGH))
++				regmap_update_bits(priv->regmap,
++						   MT6358_ACCDET_CON12,
++						   eint_pol, 0);
++			else
++				regmap_update_bits(priv->regmap,
++						   MT6358_ACCDET_CON12,
++						   eint_pol, eint_pol);
++
++			mt6358_accdet_set_eint_deb(priv, plug_in ?
++						   priv->plugout_deb :
++						   priv->pwm_deb.eint_debounce0);
++		}
+ 
+ 		mt6358_accdet_clear_irq(priv, eint_clr, eint_sts, eint_top);
+ 		queue_work(priv->wq, &priv->eint_work);
+@@ -596,10 +595,10 @@ int mt6358_accdet_enable_jack_detect(struct snd_soc_component *component,
+ 	snd_jack_set_key(jack->jack, SND_JACK_BTN_2, KEY_VOLUMEUP);
+ 	snd_jack_set_key(jack->jack, SND_JACK_BTN_3, KEY_VOICECOMMAND);
+ 
+-	mutex_lock(&priv->lock);
+-	priv->jack = jack;
+-	mt6358_accdet_report(priv);
+-	mutex_unlock(&priv->lock);
++	scoped_guard(mutex, &priv->lock) {
++		priv->jack = jack;
++		mt6358_accdet_report(priv);
++	}
+ 
+ 	return 0;
+ }
+@@ -720,13 +719,15 @@ static int mt6358_accdet_probe(struct platform_device *pdev)
+ 	const char *eint_name;
+ 	int ret;
+ 
+-	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
++	priv = devm_kzalloc_obj(dev, *priv);
+ 	if (!priv)
+ 		return -ENOMEM;
+ 
+ 	priv->dev = dev;
+ 	priv->regmap = mt6397->regmap;
+-	mutex_init(&priv->lock);
++	ret = devm_mutex_init(dev, &priv->lock);
++	if (ret)
++		return ret;
+ 	platform_set_drvdata(pdev, priv);
+ 
+ 	mt6358_accdet_parse_dt(priv);
+@@ -745,7 +746,7 @@ static int mt6358_accdet_probe(struct platform_device *pdev)
+ 		priv->adc_chan = NULL;
+ 	}
+ 
+-	priv->wq = create_singlethread_workqueue("mt6358_accdet");
++	priv->wq = alloc_ordered_workqueue("mt6358_accdet", 0);
+ 	if (!priv->wq)
+ 		return -ENOMEM;
+ 

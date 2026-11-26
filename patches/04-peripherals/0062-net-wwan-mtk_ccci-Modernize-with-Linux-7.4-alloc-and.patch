@@ -1,0 +1,94 @@
+From 646782d4094d26dfd42cf72b0b411c682f6ac1e1 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 01:54:18 +0700
+Subject: [PATCH] net: wwan: mtk_ccci: Modernize with Linux 7.4 alloc and
+ pm_runtime helpers
+
+Convert mtk_ccci_core.c and mtk_ccci_dpmaif.c to devm_kzalloc_obj(),
+devm_kzalloc_objs(), and devm_pm_runtime_enable().
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/net/wwan/mtk_ccci/mtk_ccci_core.c   | 12 +++++++-----
+ drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c | 10 +++++-----
+ 2 files changed, 12 insertions(+), 10 deletions(-)
+
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+index 2b7cf44..7018560 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+@@ -1644,8 +1644,8 @@ static int mtk_ccci_parse_ccif(struct mtk_ccci_dev *ccci)
+ 
+ 	ccci->num_ccif_clks = of_property_count_strings(ccif_np, "clock-names");
+ 	if (ccci->num_ccif_clks > 0) {
+-		ccci->ccif_clks = devm_kcalloc(ccci->dev, ccci->num_ccif_clks,
+-					       sizeof(*ccci->ccif_clks), GFP_KERNEL);
++		ccci->ccif_clks = devm_kzalloc_objs(ccci->dev, *ccci->ccif_clks,
++						    ccci->num_ccif_clks);
+ 		if (!ccci->ccif_clks) {
+ 			ret = -ENOMEM;
+ 			goto err_put;
+@@ -1693,7 +1693,7 @@ static int mtk_ccci_probe(struct platform_device *pdev)
+ 	static_assert(ARRAY_SIZE(mtk_ccb_configs) * sizeof(struct mtk_ccci_ccb_hdr) <=
+ 		      NC_SZ_CCB_CTRL);
+ 
+-	ccci = devm_kzalloc(&pdev->dev, sizeof(*ccci), GFP_KERNEL);
++	ccci = devm_kzalloc_obj(&pdev->dev, *ccci);
+ 	if (!ccci)
+ 		return -ENOMEM;
+ 
+@@ -1813,6 +1813,10 @@ static int mtk_ccci_probe(struct platform_device *pdev)
+ 	if (ret)
+ 		goto err_wq;
+ 
++	ret = devm_pm_runtime_enable(&pdev->dev);
++	if (ret)
++		goto err_wq;
++
+ 	ret = mtk_ccci_fs_register(ccci);
+ 	if (ret) {
+ 		dev_err(&pdev->dev, "failed to register /dev/ccci_fs: %d\n", ret);
+@@ -1830,7 +1834,6 @@ static int mtk_ccci_probe(struct platform_device *pdev)
+ 		dev_warn(&pdev->dev, "DPMAIF init failed (%d); continuing without IP data plane\n",
+ 			 ret);
+ 
+-	pm_runtime_enable(&pdev->dev);
+ 	device_init_wakeup(&pdev->dev, true);
+ 	mtk_ccci_park_md(ccci);
+ 
+@@ -1870,7 +1873,6 @@ static void mtk_ccci_remove(struct platform_device *pdev)
+ 	 * Do not power off MT6789_POWER_DOMAIN_MD while MD is running: BL31
+ 	 * has no EL3 MD-stop SMC and asserting AXI protection would hang.
+ 	 */
+-	pm_runtime_disable(&pdev->dev);
+ 	clk_bulk_disable_unprepare(ccci->num_ccif_clks, ccci->ccif_clks);
+ 	for (i = 0; i < ccci->num_ccif_clks; i++)
+ 		clk_put(ccci->ccif_clks[i].clk);
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c
+index 3089538..c379cb6 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c
+@@ -1412,7 +1412,7 @@ int mtk_ccci_dpmaif_init(struct mtk_ccci_dev *ccci)
+ 		goto err_put;
+ 	}
+ 
+-	dp = devm_kzalloc(dev, sizeof(*dp), GFP_KERNEL);
++	dp = devm_kzalloc_obj(dev, *dp);
+ 	if (!dp) {
+ 		ret = -ENOMEM;
+ 		goto err_put;
+@@ -1468,10 +1468,10 @@ int mtk_ccci_dpmaif_init(struct mtk_ccci_dev *ccci)
+ 	dp->frg_base = dmam_alloc_coherent(dev,
+ 					   MTK_DPMAIF_BAT_CNT * sizeof(*dp->frg_base),
+ 					   &dp->frg_dma, GFP_KERNEL);
+-	dp->bat_skbs = devm_kcalloc(dev, MTK_DPMAIF_BAT_CNT,
+-				    sizeof(*dp->bat_skbs), GFP_KERNEL);
+-	dp->frg_pages = devm_kcalloc(dev, MTK_DPMAIF_BAT_CNT,
+-				     sizeof(*dp->frg_pages), GFP_KERNEL);
++	dp->bat_skbs = devm_kzalloc_objs(dev, *dp->bat_skbs,
++					 MTK_DPMAIF_BAT_CNT);
++	dp->frg_pages = devm_kzalloc_objs(dev, *dp->frg_pages,
++					  MTK_DPMAIF_BAT_CNT);
+ 	if (!dp->pit_base || !dp->bat_base || !dp->frg_base ||
+ 	    !dp->bat_skbs || !dp->frg_pages) {
+ 		ret = -ENOMEM;

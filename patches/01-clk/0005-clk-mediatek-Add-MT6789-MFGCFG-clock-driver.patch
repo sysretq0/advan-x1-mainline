@@ -1,6 +1,6 @@
-From 1cb6ae243e07a37c4d54096dcfc7067613214c0a Mon Sep 17 00:00:00 2001
-From: sysretq0 <sysretq0@proton.me>
-Date: Tue, 24 Nov 2026 09:52:00 +0000
+From 9f35c6a8b61134a415df090bd027b7f103900d09 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 01:52:25 +0700
 Subject: [PATCH] clk: mediatek: Add MT6789 MFGCFG clock driver
 
 Add the MediaTek MT6789 MFGCFG (0x13fbf000) clock gate driver providing
@@ -18,15 +18,15 @@ active-state flag so clk_disable_unused and clk_summary verify real
 hardware gate state while MFG1 is active without touching MFG_TOP_CONFIG
 MMIO while MFG1 is powered off.
 
-Signed-off-by: sysretq0 <sysretq0@proton.me>
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  drivers/clk/mediatek/Makefile            |   2 +-
- drivers/clk/mediatek/clk-mt6789-mfgcfg.c | 188 +++++++++++++++++++++++
- 2 files changed, 189 insertions(+), 1 deletion(-)
+ drivers/clk/mediatek/clk-mt6789-mfgcfg.c | 180 +++++++++++++++++++++++
+ 2 files changed, 181 insertions(+), 1 deletion(-)
  create mode 100644 drivers/clk/mediatek/clk-mt6789-mfgcfg.c
 
 diff --git a/drivers/clk/mediatek/Makefile b/drivers/clk/mediatek/Makefile
-index 0290929dd..ade9dcb6b 100644
+index 0290929..ade9dcb 100644
 --- a/drivers/clk/mediatek/Makefile
 +++ b/drivers/clk/mediatek/Makefile
 @@ -25,7 +25,7 @@ obj-$(CONFIG_COMMON_CLK_MT6779_MFGCFG) += clk-mt6779-mfg.o
@@ -40,10 +40,10 @@ index 0290929dd..ade9dcb6b 100644
  obj-$(CONFIG_COMMON_CLK_MT6795_MFGCFG) += clk-mt6795-mfg.o
 diff --git a/drivers/clk/mediatek/clk-mt6789-mfgcfg.c b/drivers/clk/mediatek/clk-mt6789-mfgcfg.c
 new file mode 100644
-index 000000000..ce0326303
+index 0000000..7a6fab4
 --- /dev/null
 +++ b/drivers/clk/mediatek/clk-mt6789-mfgcfg.c
-@@ -0,0 +1,188 @@
+@@ -0,0 +1,180 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Copyright (c) 2022 MediaTek Inc.
@@ -52,6 +52,7 @@ index 000000000..ce0326303
 + * MediaTek MT6789 MFGCFG (GPU top config) clock gate driver.
 + */
 +
++#include <linux/cleanup.h>
 +#include <linux/clk-provider.h>
 +#include <linux/io.h>
 +#include <linux/module.h>
@@ -90,7 +91,7 @@ index 000000000..ce0326303
 +struct mt6789_mfgcfg_clk {
 +	struct clk_hw hw;
 +	void __iomem *base;
-+	spinlock_t lock;
++	spinlock_t lock; /* protects enabled state and CG registers */
 +	bool enabled;
 +};
 +
@@ -128,13 +129,11 @@ index 000000000..ce0326303
 +static int mt6789_mfgcfg_enable(struct clk_hw *hw)
 +{
 +	struct mt6789_mfgcfg_clk *mfg = to_mt6789_mfgcfg(hw);
-+	unsigned long flags;
 +
-+	spin_lock_irqsave(&mfg->lock, flags);
++	guard(spinlock_irqsave)(&mfg->lock);
 +	writel(MFG_CG_BG3D_BIT, mfg->base + MFG_CG_CLR);
 +	mt6789_mfgcfg_external_cg_init(mfg->base);
 +	mfg->enabled = true;
-+	spin_unlock_irqrestore(&mfg->lock, flags);
 +
 +	return 0;
 +}
@@ -142,26 +141,21 @@ index 000000000..ce0326303
 +static void mt6789_mfgcfg_disable(struct clk_hw *hw)
 +{
 +	struct mt6789_mfgcfg_clk *mfg = to_mt6789_mfgcfg(hw);
-+	unsigned long flags;
 +
-+	spin_lock_irqsave(&mfg->lock, flags);
++	guard(spinlock_irqsave)(&mfg->lock);
 +	mfg->enabled = false;
 +	writel(MFG_CG_BG3D_BIT, mfg->base + MFG_CG_SET);
-+	spin_unlock_irqrestore(&mfg->lock, flags);
 +}
 +
 +static int mt6789_mfgcfg_is_enabled(struct clk_hw *hw)
 +{
 +	struct mt6789_mfgcfg_clk *mfg = to_mt6789_mfgcfg(hw);
-+	unsigned long flags;
-+	int ret = 0;
 +
-+	spin_lock_irqsave(&mfg->lock, flags);
++	guard(spinlock_irqsave)(&mfg->lock);
 +	if (mfg->enabled)
-+		ret = !(readl(mfg->base + MFG_CG_CON) & MFG_CG_BG3D_BIT);
-+	spin_unlock_irqrestore(&mfg->lock, flags);
++		return !(readl(mfg->base + MFG_CG_CON) & MFG_CG_BG3D_BIT);
 +
-+	return ret;
++	return 0;
 +}
 +
 +static const struct clk_ops mt6789_mfgcfg_ops = {
@@ -188,7 +182,7 @@ index 000000000..ce0326303
 +	};
 +	int ret;
 +
-+	mfg = devm_kzalloc(dev, sizeof(*mfg), GFP_KERNEL);
++	mfg = devm_kzalloc_obj(dev, *mfg);
 +	if (!mfg)
 +		return -ENOMEM;
 +
@@ -203,9 +197,7 @@ index 000000000..ce0326303
 +	if (ret)
 +		return ret;
 +
-+	clk_data = devm_kzalloc(dev,
-+				struct_size(clk_data, hws, CLK_MFGCFG_NR_CLK),
-+				GFP_KERNEL);
++	clk_data = devm_kzalloc_flex(dev, *clk_data, hws, CLK_MFGCFG_NR_CLK);
 +	if (!clk_data)
 +		return -ENOMEM;
 +
@@ -232,6 +224,3 @@ index 000000000..ce0326303
 +
 +MODULE_DESCRIPTION("MediaTek MT6789 GPU MFGCFG clock driver");
 +MODULE_LICENSE("GPL");
--- 
-2.55.0
-

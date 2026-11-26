@@ -1,6 +1,6 @@
-From 029b7978135e6f1ac5d1b7ed877dd09c2c8f218d Mon Sep 17 00:00:00 2001
-From: sysretq0 <sysretq0@proton.me>
-Date: Wed, 25 Nov 2026 13:04:17 +0000
+From 73c1f5cd3030d0d6b473f6d615d14ad7d12c2a59 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 01:52:28 +0700
 Subject: [PATCH] nvmem: Add MediaTek MT6358/MT6366 PMIC eFuse driver
 
 Add a read-only NVMEM provider driver for the MediaTek MT6358/MT6366 PMIC
@@ -8,17 +8,17 @@ OTP eFuse array (128 x 16-bit rows = 256 bytes) and register its MFD cell
 in mt6397-core.c. Provides per-unit calibration cells for MT6366 PMIC
 thermal sensors and MT6358/MT6366 ACCDET.
 
-Signed-off-by: sysretq0 <sysretq0@proton.me>
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  drivers/mfd/mt6397-core.c    |   3 +
  drivers/nvmem/Kconfig        |  11 ++
  drivers/nvmem/Makefile       |   2 +
- drivers/nvmem/mt6358-efuse.c | 197 +++++++++++++++++++++++++++++++++++
- 4 files changed, 213 insertions(+)
+ drivers/nvmem/mt6358-efuse.c | 198 +++++++++++++++++++++++++++++++++++
+ 4 files changed, 214 insertions(+)
  create mode 100644 drivers/nvmem/mt6358-efuse.c
 
 diff --git a/drivers/mfd/mt6397-core.c b/drivers/mfd/mt6397-core.c
-index 8d87dab10..a6f8a4242 100644
+index 8d87dab..a6f8a42 100644
 --- a/drivers/mfd/mt6397-core.c
 +++ b/drivers/mfd/mt6397-core.c
 @@ -243,6 +243,9 @@ static const struct mfd_cell mt6358_devs[] = {
@@ -32,7 +32,7 @@ index 8d87dab10..a6f8a4242 100644
  };
  
 diff --git a/drivers/nvmem/Kconfig b/drivers/nvmem/Kconfig
-index d2f5bb236..2ea43455e 100644
+index d2f5bb2..2ea4345 100644
 --- a/drivers/nvmem/Kconfig
 +++ b/drivers/nvmem/Kconfig
 @@ -596,4 +596,15 @@ config NVMEM_QORIQ_EFUSE
@@ -52,7 +52,7 @@ index d2f5bb236..2ea43455e 100644
 +
  endif # NVMEM
 diff --git a/drivers/nvmem/Makefile b/drivers/nvmem/Makefile
-index 5e70bad9f..d1413bfda 100644
+index 5e70bad..d1413bf 100644
 --- a/drivers/nvmem/Makefile
 +++ b/drivers/nvmem/Makefile
 @@ -104,3 +104,5 @@ obj-$(CONFIG_NVMEM_ZYNQMP)		+= nvmem_zynqmp_nvmem.o
@@ -63,10 +63,10 @@ index 5e70bad9f..d1413bfda 100644
 +nvmem-mt6358-efuse-y			:= mt6358-efuse.o
 diff --git a/drivers/nvmem/mt6358-efuse.c b/drivers/nvmem/mt6358-efuse.c
 new file mode 100644
-index 000000000..d3e4bdf29
+index 0000000..7c159d8
 --- /dev/null
 +++ b/drivers/nvmem/mt6358-efuse.c
-@@ -0,0 +1,197 @@
+@@ -0,0 +1,198 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * MediaTek MT6358/MT6366 PMIC OTP eFuse NVMEM driver.
@@ -84,6 +84,7 @@ index 000000000..d3e4bdf29
 + */
 +
 +#include <linux/bits.h>
++#include <linux/cleanup.h>
 +#include <linux/delay.h>
 +#include <linux/mfd/mt6397/core.h>
 +#include <linux/module.h>
@@ -129,13 +130,13 @@ index 000000000..d3e4bdf29
 +	u16 *out = buf;
 +	int ret;
 +
-+	mutex_lock(&efuse->lock);
++	guard(mutex)(&efuse->lock);
 +
 +	ret = regmap_write(efuse->regmap,
 +			   MT6358_TOP_CKHWEN_CON0 + MT6358_EFUSE_CLR_OFFSET,
 +			   RG_EFUSE_CK_PDN_HWEN_MASK);
 +	if (ret)
-+		goto out_unlock;
++		return ret;
 +
 +	ret = regmap_write(efuse->regmap,
 +			   MT6358_TOP_CKPDN_CON0 + MT6358_EFUSE_CLR_OFFSET,
@@ -191,8 +192,6 @@ index 000000000..d3e4bdf29
 +	regmap_write(efuse->regmap,
 +		     MT6358_TOP_CKPDN_CON0 + MT6358_EFUSE_SET_OFFSET,
 +		     RG_EFUSE_CK_PDN_MASK);
-+out_unlock:
-+	mutex_unlock(&efuse->lock);
 +	return ret;
 +}
 +
@@ -204,7 +203,7 @@ index 000000000..d3e4bdf29
 +	struct mt6358_efuse *efuse;
 +	int ret;
 +
-+	efuse = devm_kzalloc(dev, sizeof(*efuse), GFP_KERNEL);
++	efuse = devm_kzalloc_obj(dev, *efuse);
 +	if (!efuse)
 +		return -ENOMEM;
 +
@@ -222,7 +221,9 @@ index 000000000..d3e4bdf29
 +		return dev_err_probe(dev, ret, "failed to read OTP_CON8\n");
 +	efuse->trig_sta &= 1;
 +
-+	mutex_init(&efuse->lock);
++	ret = devm_mutex_init(dev, &efuse->lock);
++	if (ret)
++		return ret;
 +	efuse->dev = dev;
 +	platform_set_drvdata(pdev, efuse);
 +
@@ -264,6 +265,3 @@ index 000000000..d3e4bdf29
 +MODULE_AUTHOR("sysretq0 <sysretq0@proton.me>");
 +MODULE_DESCRIPTION("MediaTek MT6358/MT6366 PMIC eFuse NVMEM driver");
 +MODULE_LICENSE("GPL");
--- 
-2.55.0
-

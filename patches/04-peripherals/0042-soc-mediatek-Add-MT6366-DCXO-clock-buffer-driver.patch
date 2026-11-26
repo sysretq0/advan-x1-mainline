@@ -1,24 +1,24 @@
-From dfac6af30bfb114fd821a0cbf039b358bed82615 Mon Sep 17 00:00:00 2001
-From: sysretq0 <sysretq0@proton.me>
-Date: Wed, 25 Nov 2026 13:02:42 +0000
+From d9a7f0c2fdba2926301ee390381d668ce558c8d5 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 01:52:27 +0700
 Subject: [PATCH] soc: mediatek: Add MT6366 DCXO clock buffer driver
 
-Add a regmap-backed MFD sub-device driver for the MediaTek MT6366 PMIC
-DCXO external clock buffer (DCXO_CW00 = 0x788, auxout CW18/CW19 =
-0x7b4/0x7b6). Enables board-requested buffers such as XO_NFC (index 2,
-EXTBUF3) in SW mode at probe and restores prior CW00 bits on remove.
+Add a platform driver for the MediaTek MT6366 PMIC DCXO external clock
+buffer controller (DCXO_CW00..CW19) and register its MFD cell in
+mt6397-core.c. Enables DT-selected XO buffers (such as XO_NFC) under
+software control and restores the initial DCXO_CW00 mask on teardown.
 
-Signed-off-by: sysretq0 <sysretq0@proton.me>
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  drivers/mfd/mt6397-core.c                |   3 +
- drivers/soc/mediatek/Kconfig             |   8 ++
+ drivers/soc/mediatek/Kconfig             |   9 ++
  drivers/soc/mediatek/Makefile            |   1 +
- drivers/soc/mediatek/mtk-mt6366-clkbuf.c | 163 +++++++++++++++++++++++
- 4 files changed, 175 insertions(+)
+ drivers/soc/mediatek/mtk-mt6366-clkbuf.c | 165 +++++++++++++++++++++++
+ 4 files changed, 178 insertions(+)
  create mode 100644 drivers/soc/mediatek/mtk-mt6366-clkbuf.c
 
 diff --git a/drivers/mfd/mt6397-core.c b/drivers/mfd/mt6397-core.c
-index 1338d25f0..8d87dab10 100644
+index 1338d25..8d87dab 100644
 --- a/drivers/mfd/mt6397-core.c
 +++ b/drivers/mfd/mt6397-core.c
 @@ -240,6 +240,9 @@ static const struct mfd_cell mt6358_devs[] = {
@@ -32,7 +32,7 @@ index 1338d25f0..8d87dab10 100644
  };
  
 diff --git a/drivers/soc/mediatek/Kconfig b/drivers/soc/mediatek/Kconfig
-index d7293977f..379d97015 100644
+index d729397..7d2ee09 100644
 --- a/drivers/soc/mediatek/Kconfig
 +++ b/drivers/soc/mediatek/Kconfig
 @@ -89,4 +89,13 @@ config MTK_SOCINFO
@@ -50,7 +50,7 @@ index d7293977f..379d97015 100644
 +
  endmenu
 diff --git a/drivers/soc/mediatek/Makefile b/drivers/soc/mediatek/Makefile
-index 0665573e3..1b27a9284 100644
+index 0665573..1b27a92 100644
 --- a/drivers/soc/mediatek/Makefile
 +++ b/drivers/soc/mediatek/Makefile
 @@ -9,3 +9,4 @@ obj-$(CONFIG_MTK_MMSYS) += mtk-mmsys.o
@@ -60,10 +60,10 @@ index 0665573e3..1b27a9284 100644
 +obj-$(CONFIG_MTK_MT6366_CLKBUF) += mtk-mt6366-clkbuf.o
 diff --git a/drivers/soc/mediatek/mtk-mt6366-clkbuf.c b/drivers/soc/mediatek/mtk-mt6366-clkbuf.c
 new file mode 100644
-index 000000000..9e900d1ef
+index 0000000..ff058d1
 --- /dev/null
 +++ b/drivers/soc/mediatek/mtk-mt6366-clkbuf.c
-@@ -0,0 +1,163 @@
+@@ -0,0 +1,165 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * MediaTek MT6366 PMIC DCXO external clock buffer controller.
@@ -133,6 +133,15 @@ index 000000000..9e900d1ef
 +	return 0;
 +}
 +
++static void mt6366_clkbuf_restore(void *data)
++{
++	struct mt6366_clkbuf *priv = data;
++
++	if (priv->enabled_mask)
++		regmap_update_bits(priv->regmap, MT6366_DCXO_CW00,
++				   priv->enabled_mask, priv->saved_cw00);
++}
++
 +static int mt6366_clkbuf_probe(struct platform_device *pdev)
 +{
 +	struct mt6397_chip *mt6397 = dev_get_drvdata(pdev->dev.parent);
@@ -144,17 +153,20 @@ index 000000000..9e900d1ef
 +	if (!mt6397 || !mt6397->regmap)
 +		return -ENODEV;
 +
-+	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
++	priv = devm_kzalloc_obj(dev, *priv);
 +	if (!priv)
 +		return -ENOMEM;
 +
 +	priv->dev = dev;
 +	priv->regmap = mt6397->regmap;
-+	platform_set_drvdata(pdev, priv);
 +
 +	ret = regmap_read(priv->regmap, MT6366_DCXO_CW00, &priv->saved_cw00);
 +	if (ret)
 +		return dev_err_probe(dev, ret, "failed to read DCXO_CW00\n");
++
++	ret = devm_add_action_or_reset(dev, mt6366_clkbuf_restore, priv);
++	if (ret)
++		return ret;
 +
 +	count = of_property_count_u32_elems(dev->of_node,
 +					    "mediatek,xo-buf-enable");
@@ -199,15 +211,6 @@ index 000000000..9e900d1ef
 +	return 0;
 +}
 +
-+static void mt6366_clkbuf_remove(struct platform_device *pdev)
-+{
-+	struct mt6366_clkbuf *priv = platform_get_drvdata(pdev);
-+
-+	if (priv->enabled_mask)
-+		regmap_update_bits(priv->regmap, MT6366_DCXO_CW00,
-+				   priv->enabled_mask, priv->saved_cw00);
-+}
-+
 +static const struct of_device_id mt6366_clkbuf_of_match[] = {
 +	{ .compatible = "mediatek,mt6366-clkbuf" },
 +	{ }
@@ -216,7 +219,6 @@ index 000000000..9e900d1ef
 +
 +static struct platform_driver mt6366_clkbuf_driver = {
 +	.probe = mt6366_clkbuf_probe,
-+	.remove = mt6366_clkbuf_remove,
 +	.driver = {
 +		.name = "mt6366-clkbuf",
 +		.of_match_table = mt6366_clkbuf_of_match,
@@ -227,6 +229,3 @@ index 000000000..9e900d1ef
 +MODULE_AUTHOR("sysretq0 <sysretq0@proton.me>");
 +MODULE_DESCRIPTION("MediaTek MT6366 PMIC DCXO clock buffer driver");
 +MODULE_LICENSE("GPL");
--- 
-2.55.0
-

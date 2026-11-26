@@ -1,0 +1,309 @@
+From dbe59a25dd797e3634f56eeffbea66813fd17097 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 01:52:29 +0700
+Subject: [PATCH] Input: chipone-icnl9922c - modernize with Linux 7.4 devm and
+ cleanup helpers
+
+Convert chipone_icnl9922c.c to devm_kzalloc_obj(), devm_mutex_init(),
+devm_work_autocancel() (dropping the custom cancel_work_sync devm
+action), and guard/scoped_guard(mutex) from <linux/cleanup.h> while
+preserving the unlock-before-disable_irq() ordering.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/input/touchscreen/chipone_icnl9922c.c | 192 +++++++++---------
+ 1 file changed, 93 insertions(+), 99 deletions(-)
+
+diff --git a/drivers/input/touchscreen/chipone_icnl9922c.c b/drivers/input/touchscreen/chipone_icnl9922c.c
+index ae9a508..3e1873b 100644
+--- a/drivers/input/touchscreen/chipone_icnl9922c.c
++++ b/drivers/input/touchscreen/chipone_icnl9922c.c
+@@ -6,8 +6,10 @@
+  */
+ 
+ #include <drm/drm_panel.h>
++#include <linux/cleanup.h>
+ #include <linux/crc32.h>
+ #include <linux/delay.h>
++#include <linux/devm-helpers.h>
+ #include <linux/firmware.h>
+ #include <linux/gpio/consumer.h>
+ #include <linux/input.h>
+@@ -423,18 +425,17 @@ static irqreturn_t icnl9922c_irq_handler(int irq, void *dev_id)
+ 	struct icnl9922c_touch_info info;
+ 	int ret, i;
+ 
+-	mutex_lock(&ts->lock);
+-	if (!ts->running) {
+-		mutex_unlock(&ts->lock);
+-		return IRQ_HANDLED;
++	scoped_guard(mutex, &ts->lock) {
++		if (!ts->running)
++			return IRQ_HANDLED;
++		ret = icnl9922c_tcs_read_1cs(ts,
++					     ICNL9922C_CMD_TP_DATA_COORDINATES_RO,
++					     (u8 *)&info, sizeof(info));
++		if (ret)
++			dev_err_ratelimited(&ts->spi->dev,
++					    "touch read failed: %d (rx=%*ph)\n",
++					    ret, 16, ts->rx_buf);
+ 	}
+-	ret = icnl9922c_tcs_read_1cs(ts, ICNL9922C_CMD_TP_DATA_COORDINATES_RO,
+-				     (u8 *)&info, sizeof(info));
+-	if (ret)
+-		dev_err_ratelimited(&ts->spi->dev,
+-				    "touch read failed: %d (rx=%*ph)\n",
+-				    ret, 16, ts->rx_buf);
+-	mutex_unlock(&ts->lock);
+ 	if (ret)
+ 		return IRQ_HANDLED;
+ 
+@@ -634,90 +635,91 @@ static void icnl9922c_fw_work(struct work_struct *work)
+ 	u16 fwid = 0, fwver = 0, res_x = 0, res_y = 0;
+ 	int ret, retries;
+ 
+-	mutex_lock(&ts->lock);
+-
+-	if (!ts->fw_data) {
+-		const struct firmware *fw;
++	scoped_guard(mutex, &ts->lock) {
++		if (!ts->fw_data) {
++			const struct firmware *fw;
++
++			ret = request_firmware(&fw, ICNL9922C_FW_NAME, dev);
++			if (ret) {
++				dev_info(dev,
++					 "firmware %s not available (%d); idle\n",
++					 ICNL9922C_FW_NAME, ret);
++				return;
++			}
++
++			ts->fw_data = devm_kmemdup(dev, fw->data, fw->size,
++						   GFP_KERNEL);
++			ts->fw_size = fw->size;
++			release_firmware(fw);
++			if (!ts->fw_data)
++				return;
++		}
+ 
+-		ret = request_firmware(&fw, ICNL9922C_FW_NAME, dev);
++		ret = icnl9922c_upload_sram(ts, ts->fw_data, ts->fw_size);
+ 		if (ret) {
+-			dev_info(dev, "firmware %s not available (%d); idle\n",
+-				 ICNL9922C_FW_NAME, ret);
+-			mutex_unlock(&ts->lock);
++			dev_err(dev, "failed to upload SRAM firmware: %d\n",
++				ret);
+ 			return;
+ 		}
+ 
+-		ts->fw_data = devm_kmemdup(dev, fw->data, fw->size, GFP_KERNEL);
+-		ts->fw_size = fw->size;
+-		release_firmware(fw);
+-		if (!ts->fw_data) {
+-			mutex_unlock(&ts->lock);
+-			return;
++		msleep(40);
++
++		for (retries = 0; retries < 5; retries++) {
++			ret = icnl9922c_tcs_read(ts,
++						 ICNL9922C_CMD_INFO_CHIP_FW_ID_RO,
++						 buf, 4);
++			if (!ret) {
++				fwid = get_unaligned_le16(buf);
++				if (fwid && fwid != 0xffff)
++					break;
++			}
++			msleep(30);
+ 		}
+-	}
+ 
+-	ret = icnl9922c_upload_sram(ts, ts->fw_data, ts->fw_size);
+-	if (ret) {
+-		dev_err(dev, "failed to upload SRAM firmware: %d\n", ret);
+-		mutex_unlock(&ts->lock);
+-		return;
+-	}
+-
+-	msleep(40);
++		if (!fwid || fwid == 0xffff) {
++			dev_err(dev,
++				"SRAM firmware failed to boot into TCS mode (ret=%d rx=%*ph)\n",
++				ret,
++				(int)(4 + sizeof(struct icnl9922c_rx_tail)),
++				ts->rx_buf);
++			return;
++		}
+ 
+-	for (retries = 0; retries < 5; retries++) {
+-		ret = icnl9922c_tcs_read(ts, ICNL9922C_CMD_INFO_CHIP_FW_ID_RO,
+-					 buf, 4);
+-		if (!ret) {
+-			fwid = get_unaligned_le16(buf);
+-			if (fwid && fwid != 0xffff)
++		for (retries = 0; retries < 3; retries++) {
++			ret = icnl9922c_tcs_read(ts,
++						 ICNL9922C_CMD_INFO_FW_VER_RO,
++						 buf, 4);
++			if (!ret) {
++				fwver = get_unaligned_le16(buf);
+ 				break;
++			}
++			usleep_range(1000, 2000);
+ 		}
+-		msleep(30);
+-	}
+-
+-	if (!fwid || fwid == 0xffff) {
+-		dev_err(dev, "SRAM firmware failed to boot into TCS mode (ret=%d rx=%*ph)\n",
+-			ret, (int)(4 + sizeof(struct icnl9922c_rx_tail)),
+-			ts->rx_buf);
+-		mutex_unlock(&ts->lock);
+-		return;
+-	}
+-
+-	for (retries = 0; retries < 3; retries++) {
+-		ret = icnl9922c_tcs_read(ts, ICNL9922C_CMD_INFO_FW_VER_RO,
+-					 buf, 4);
+-		if (!ret) {
+-			fwver = get_unaligned_le16(buf);
+-			break;
++		if (ret)
++			dev_warn(dev, "fw_ver read failed: %d (rx=%*ph)\n",
++				 ret,
++				 (int)(4 + sizeof(struct icnl9922c_rx_tail)),
++				 ts->rx_buf);
++
++		if (!icnl9922c_tcs_read(ts, ICNL9922C_CMD_INFO_TOUCH_XY_INFO_RO,
++					buf, sizeof(buf))) {
++			res_x = get_unaligned_le16(buf);
++			res_y = get_unaligned_le16(buf + 2);
+ 		}
+-		usleep_range(1000, 2000);
+-	}
+-	if (ret)
+-		dev_warn(dev, "fw_ver read failed: %d (rx=%*ph)\n",
+-			 ret, (int)(4 + sizeof(struct icnl9922c_rx_tail)),
+-			 ts->rx_buf);
+-
+-	if (!icnl9922c_tcs_read(ts, ICNL9922C_CMD_INFO_TOUCH_XY_INFO_RO,
+-				buf, sizeof(buf))) {
+-		res_x = get_unaligned_le16(buf);
+-		res_y = get_unaligned_le16(buf + 2);
+-	}
+ 
+-	ts->running = true;
+-	mutex_unlock(&ts->lock);
++		ts->running = true;
++	}
+ 
+ 	ret = icnl9922c_ensure_input(ts, fwid, fwver, res_x, res_y);
+ 	if (ret)
+ 		return;
+ 
+-	mutex_lock(&ts->lock);
++	guard(mutex)(&ts->lock);
+ 	if (ts->running && !ts->irq_enabled) {
+ 		irq_set_irqchip_state(ts->spi->irq, IRQCHIP_STATE_PENDING, false);
+ 		enable_irq(ts->spi->irq);
+ 		ts->irq_enabled = true;
+ 	}
+-	mutex_unlock(&ts->lock);
+ }
+ 
+ static int icnl9922c_panel_prepared(struct drm_panel_follower *follower)
+@@ -737,13 +739,13 @@ static int icnl9922c_panel_unpreparing(struct drm_panel_follower *follower)
+ 
+ 	cancel_work_sync(&ts->fw_work);
+ 
+-	mutex_lock(&ts->lock);
+-	ts->running = false;
+-	if (ts->irq_enabled) {
+-		ts->irq_enabled = false;
+-		disable = true;
++	scoped_guard(mutex, &ts->lock) {
++		ts->running = false;
++		if (ts->irq_enabled) {
++			ts->irq_enabled = false;
++			disable = true;
++		}
+ 	}
+-	mutex_unlock(&ts->lock);
+ 
+ 	/*
+ 	 * disable_irq() synchronizes with the threaded IRQ handler, which
+@@ -753,12 +755,11 @@ static int icnl9922c_panel_unpreparing(struct drm_panel_follower *follower)
+ 	if (disable)
+ 		disable_irq(ts->spi->irq);
+ 
+-	mutex_lock(&ts->lock);
++	guard(mutex)(&ts->lock);
+ 	if (ts->input) {
+ 		input_mt_sync_frame(ts->input);
+ 		input_sync(ts->input);
+ 	}
+-	mutex_unlock(&ts->lock);
+ 
+ 	return 0;
+ }
+@@ -768,13 +769,6 @@ static const struct drm_panel_follower_funcs icnl9922c_panel_follower_funcs = {
+ 	.panel_unpreparing = icnl9922c_panel_unpreparing,
+ };
+ 
+-static void icnl9922c_cancel_work(void *data)
+-{
+-	struct icnl9922c_ts *ts = data;
+-
+-	cancel_work_sync(&ts->fw_work);
+-}
+-
+ static int icnl9922c_probe(struct spi_device *spi)
+ {
+ 	struct device *dev = &spi->dev;
+@@ -807,7 +801,7 @@ static int icnl9922c_probe(struct spi_device *spi)
+ 	if (ret)
+ 		return dev_err_probe(dev, ret, "failed to setup SPI\n");
+ 
+-	ts = devm_kzalloc(dev, sizeof(*ts), GFP_KERNEL);
++	ts = devm_kzalloc_obj(dev, *ts);
+ 	if (!ts)
+ 		return -ENOMEM;
+ 
+@@ -816,12 +810,14 @@ static int icnl9922c_probe(struct spi_device *spi)
+ 	if (!ts->tx_buf || !ts->rx_buf)
+ 		return -ENOMEM;
+ 
+-	mutex_init(&ts->lock);
+-	INIT_WORK(&ts->fw_work, icnl9922c_fw_work);
++	ret = devm_mutex_init(dev, &ts->lock);
++	if (ret)
++		return ret;
++
+ 	ts->spi = spi;
+ 	spi_set_drvdata(spi, ts);
+ 
+-	ret = devm_add_action_or_reset(dev, icnl9922c_cancel_work, ts);
++	ret = devm_work_autocancel(dev, &ts->fw_work, icnl9922c_fw_work);
+ 	if (ret)
+ 		return ret;
+ 
+@@ -871,14 +867,12 @@ static ssize_t fw_ver_show(struct device *dev, struct device_attribute *attr,
+ 	u8 raw[4];
+ 	int ret;
+ 
+-	mutex_lock(&ts->lock);
+-	if (!ts->running) {
+-		mutex_unlock(&ts->lock);
+-		return -ENODEV;
++	scoped_guard(mutex, &ts->lock) {
++		if (!ts->running)
++			return -ENODEV;
++		ret = icnl9922c_tcs_read(ts, ICNL9922C_CMD_INFO_FW_VER_RO,
++					 raw, sizeof(raw));
+ 	}
+-	ret = icnl9922c_tcs_read(ts, ICNL9922C_CMD_INFO_FW_VER_RO,
+-				 raw, sizeof(raw));
+-	mutex_unlock(&ts->lock);
+ 	if (ret)
+ 		return ret;
+ 

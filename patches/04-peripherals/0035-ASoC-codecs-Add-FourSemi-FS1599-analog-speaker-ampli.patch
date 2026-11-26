@@ -1,6 +1,6 @@
-From 7ca14a7388410a7ce53c07ee77330d971f950fba Mon Sep 17 00:00:00 2001
-From: sysretq0 <sysretq0@proton.me>
-Date: Wed, 25 Nov 2026 05:27:27 +0000
+From 4f80ef35f8515dde5bee7c7414356104e5fbd344 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 01:52:27 +0700
 Subject: [PATCH] ASoC: codecs: Add FourSemi FS1599 analog speaker amplifier
  driver
 
@@ -8,16 +8,16 @@ Add an ASoC auxiliary component driver for the FourSemi FS1599
 I2C-controlled Class-K boost analog-input speaker amplifier used on
 MediaTek MT6789 boards (driven from the MT6366 PMIC LINEOUT output).
 
-Signed-off-by: sysretq0 <sysretq0@proton.me>
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  sound/soc/codecs/Kconfig  |  13 ++
  sound/soc/codecs/Makefile |   2 +
- sound/soc/codecs/fs1599.c | 313 ++++++++++++++++++++++++++++++++++++++
- 3 files changed, 328 insertions(+)
+ sound/soc/codecs/fs1599.c | 328 ++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 343 insertions(+)
  create mode 100644 sound/soc/codecs/fs1599.c
 
 diff --git a/sound/soc/codecs/Kconfig b/sound/soc/codecs/Kconfig
-index ba59dabee..61582785d 100644
+index ba59dab..6158278 100644
 --- a/sound/soc/codecs/Kconfig
 +++ b/sound/soc/codecs/Kconfig
 @@ -1351,6 +1351,19 @@ config SND_SOC_FRAMER
@@ -41,7 +41,7 @@ index ba59dabee..61582785d 100644
  	select CRC16
  	tristate
 diff --git a/sound/soc/codecs/Makefile b/sound/soc/codecs/Makefile
-index 3826f9e4f..5f454785d 100644
+index 3826f9e..5f45478 100644
 --- a/sound/soc/codecs/Makefile
 +++ b/sound/soc/codecs/Makefile
 @@ -143,6 +143,7 @@ snd-soc-es8389-y := es8389.o
@@ -62,10 +62,10 @@ index 3826f9e4f..5f454785d 100644
  obj-$(CONFIG_SND_SOC_GTM601)    += snd-soc-gtm601.o
 diff --git a/sound/soc/codecs/fs1599.c b/sound/soc/codecs/fs1599.c
 new file mode 100644
-index 000000000..410be1052
+index 0000000..9c75369
 --- /dev/null
 +++ b/sound/soc/codecs/fs1599.c
-@@ -0,0 +1,326 @@
+@@ -0,0 +1,328 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * FourSemi FS1599 I2C-controlled analog speaker amplifier driver
@@ -74,6 +74,7 @@ index 000000000..410be1052
 + */
 +
 +#include <linux/bitfield.h>
++#include <linux/cleanup.h>
 +#include <linux/delay.h>
 +#include <linux/i2c.h>
 +#include <linux/mod_devicetable.h>
@@ -268,18 +269,18 @@ index 000000000..410be1052
 +	struct fs1599_priv *fs = snd_soc_component_get_drvdata(comp);
 +	int ret = 0;
 +
-+	mutex_lock(&fs->lock);
-+	switch (event) {
-+	case SND_SOC_DAPM_POST_PMU:
-+		ret = fs1599_start_up(fs);
-+		break;
-+	case SND_SOC_DAPM_PRE_PMD:
-+		ret = fs1599_shut_down(fs);
-+		break;
-+	default:
-+		break;
++	scoped_guard(mutex, &fs->lock) {
++		switch (event) {
++		case SND_SOC_DAPM_POST_PMU:
++			ret = fs1599_start_up(fs);
++			break;
++		case SND_SOC_DAPM_PRE_PMD:
++			ret = fs1599_shut_down(fs);
++			break;
++		default:
++			break;
++		}
 +	}
-+	mutex_unlock(&fs->lock);
 +
 +	if (ret)
 +		dev_err(fs->dev, "power event %d failed: %d\n", event, ret);
@@ -327,12 +328,14 @@ index 000000000..410be1052
 +	unsigned int devid = 0, rev = 0;
 +	int ret;
 +
-+	fs = devm_kzalloc(dev, sizeof(*fs), GFP_KERNEL);
++	fs = devm_kzalloc_obj(dev, *fs);
 +	if (!fs)
 +		return -ENOMEM;
 +
 +	fs->dev = dev;
-+	mutex_init(&fs->lock);
++	ret = devm_mutex_init(dev, &fs->lock);
++	if (ret)
++		return ret;
 +	i2c_set_clientdata(i2c, fs);
 +
 +	fs->regmap = devm_regmap_init_i2c(i2c, &fs1599_regmap_config);
@@ -360,10 +363,9 @@ index 000000000..410be1052
 +{
 +	struct fs1599_priv *fs = i2c_get_clientdata(i2c);
 +
-+	mutex_lock(&fs->lock);
++	guard(mutex)(&fs->lock);
 +	if (fs->initialized)
 +		fs1599_shut_down(fs);
-+	mutex_unlock(&fs->lock);
 +}
 +
 +static const struct of_device_id fs1599_of_match[] = {
@@ -392,6 +394,3 @@ index 000000000..410be1052
 +MODULE_AUTHOR("sysretq0 <sysretq0@proton.me>");
 +MODULE_DESCRIPTION("FourSemi FS1599 analog speaker amplifier driver");
 +MODULE_LICENSE("GPL");
--- 
-2.55.0
-

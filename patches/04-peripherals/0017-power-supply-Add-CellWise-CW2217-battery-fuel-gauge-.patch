@@ -1,17 +1,13 @@
-From 4bdf73df435ab383656437e29833da585bb521b7 Mon Sep 17 00:00:00 2001
-From: sysretq0 <sysretq0@proton.me>
-Date: Mon, 23 Nov 2026 12:19:33 +0000
+From c95496df5b4f41e5c574423cb8b347b802668bdf Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 01:52:26 +0700
 Subject: [PATCH] power: supply: Add CellWise CW2217 battery fuel gauge driver
 
-Add a regmap-based I2C power supply driver for the CellWise CW2215 and
-CW2217 single-cell fuel gauges, reporting voltage, current, state of
-charge, temperature, cycle count, and state of health. Verify the
-optional 80-byte DT battery profile against gauge registers 0x10..0x5f
-and run the restart/sleep/program/active initialization sequence only
-when the IC is asleep, unconfigured, or mismatched, preserving warm
-reboot SOC tracking.
+Add a mainline power_supply driver for the CellWise CW2215/CW2217
+battery fuel gauge over I2C, exposing voltage, current, state of
+charge, temperature, cycle count, health, and design charge.
 
-Signed-off-by: sysretq0 <sysretq0@proton.me>
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
  drivers/power/supply/Kconfig          |  11 +
  drivers/power/supply/Makefile         |   1 +
@@ -55,7 +51,7 @@ index f3c0d10..66e6303 100644
  obj-$(CONFIG_BATTERY_DS2781)	+= ds2781_battery.o
 diff --git a/drivers/power/supply/cw2217_battery.c b/drivers/power/supply/cw2217_battery.c
 new file mode 100644
-index 0000000..b78d4bf
+index 0000000..ece1da3
 --- /dev/null
 +++ b/drivers/power/supply/cw2217_battery.c
 @@ -0,0 +1,468 @@
@@ -444,7 +440,7 @@ index 0000000..b78d4bf
 +	unsigned int val;
 +	int ret;
 +
-+	cw = devm_kzalloc(&client->dev, sizeof(*cw), GFP_KERNEL);
++	cw = devm_kzalloc_obj(&client->dev, *cw);
 +	if (!cw)
 +		return -ENOMEM;
 +
@@ -527,6 +523,3 @@ index 0000000..b78d4bf
 +MODULE_AUTHOR("sysretq0 <sysretq0@proton.me>");
 +MODULE_DESCRIPTION("CellWise CW2215/CW2217 Battery Fuel Gauge driver");
 +MODULE_LICENSE("GPL");
--- 
-2.55.0
-
