@@ -234,7 +234,7 @@ ln -sf /etc/systemd/system/boot-diag-dump.service \
        /etc/systemd/system/multi-user.target.wants/boot-diag-dump.service
 
 if command -v glib-compile-schemas >/dev/null 2>&1 && [ -d /usr/share/glib-2.0/schemas ]; then
-    glib-compile-schemas --strict /usr/share/glib-2.0/schemas || true
+    glib-compile-schemas /usr/share/glib-2.0/schemas || true
 fi
 if [ -d /run/systemd/system ]; then
     systemctl daemon-reload || true
