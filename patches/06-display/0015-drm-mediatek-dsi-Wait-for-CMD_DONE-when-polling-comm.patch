@@ -1,0 +1,103 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Thu, 26 Nov 2026 20:14:51 +0700
+Subject: [PATCH] drm/mediatek: dsi: Wait for CMD_DONE when polling commands on
+ MT6789
+
+On MediaTek MT6789, mtk_dsi_host_send_cmd() previously polled
+!(DSI_INTSTA & DSI_BUSY) immediately after mtk_dsi_start(). Because
+DSI_START=1 crosses into the 26 MHz DSI LP clock domain before DSI_BUSY
+asserts, readl_poll_timeout() returned immediately on fast resumed CPUs
+and back-to-back panel init commands overwrote DSI_CMDQ before the
+previous packet finished transmitting.
+
+On Advan X1 this silently dropped ~37 of the 48 ICNL9922C unprepare +
+prepare commands on every suspend/resume cycle (14013000.dsi IRQ delta
+was only +10/+11 instead of +48, vs 46/46 at boot), leaving the panel
+uninitialized and black even while OVL0..DSI0 scanned out at 60 Hz, and
+letting restore_dsi_mode restart video mode on top of an in-flight
+unprepare command.
+
+Wait for the expected completion flag (CMD_DONE_INT_FLAG /
+LPRX_RD_RDY_INT_FLAG) in either DSI_INTSTA or dsi->irq_data before
+polling !DSI_BUSY, add a brief settle delay in
+mtk_dsi_switch_to_cmd_mode(), and send the stock 0xac 0x0a 0x00 exit
+command before Display Off in icnl9922c_unprepare().
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/gpu/drm/mediatek/mtk_dsi.c            | 24 +++++++++++++++----
+ .../gpu/drm/panel/panel-chipone-icnl9922c.c   |  1 +
+ 2 files changed, 21 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_dsi.c
+index 88442dd..aa3178a 100644
+--- a/drivers/gpu/drm/mediatek/mtk_dsi.c
++++ b/drivers/gpu/drm/mediatek/mtk_dsi.c
+@@ -727,12 +727,12 @@ static void mtk_dsi_set_interrupt_enable(struct mtk_dsi *dsi)
+ 
+ static void mtk_dsi_irq_data_set(struct mtk_dsi *dsi, u32 irq_bit)
+ {
+-	dsi->irq_data |= irq_bit;
++	WRITE_ONCE(dsi->irq_data, dsi->irq_data | irq_bit);
+ }
+ 
+ static void mtk_dsi_irq_data_clear(struct mtk_dsi *dsi, u32 irq_bit)
+ {
+-	dsi->irq_data &= ~irq_bit;
++	WRITE_ONCE(dsi->irq_data, dsi->irq_data & ~irq_bit);
+ }
+ 
+ static s32 mtk_dsi_wait_for_irq_done(struct mtk_dsi *dsi, u32 irq_flag,
+@@ -782,12 +782,14 @@ static s32 mtk_dsi_switch_to_cmd_mode(struct mtk_dsi *dsi, u8 irq_flag, u32 t)
+ 	struct drm_device *drm = dsi->bridge.dev;
+ 
+ 	mtk_dsi_irq_data_clear(dsi, irq_flag);
++	writel(~(u32)irq_flag, dsi->regs + DSI_INTSTA);
+ 	mtk_dsi_set_cmd_mode(dsi);
+ 
+ 	if (dsi->driver_data->poll_for_idle) {
+ 		u32 val;
+ 		int ret;
+ 
++		udelay(5);
+ 		ret = readl_poll_timeout(dsi->regs + DSI_INTSTA, val,
+ 					 !(val & DSI_BUSY), 100, t * 1000);
+ 		if (ret) {
+@@ -1416,8 +1418,22 @@ static ssize_t mtk_dsi_host_send_cmd(struct mtk_dsi *dsi,
+ 		u32 val;
+ 		int ret;
+ 
+-		ret = readl_poll_timeout(dsi->regs + DSI_INTSTA, val,
+-					 !(val & DSI_BUSY), 10, 500000);
++		/*
++		 * Do not test !(DSI_BUSY) immediately after DSI_START: on
++		 * MT6789 DSI_START crosses into the 26 MHz LP clock domain
++		 * before DSI_BUSY asserts, so an immediate !DSI_BUSY check
++		 * returns before transmission begins and subsequent CMDQ
++		 * writes clobber in-flight panel init commands. Wait for the
++		 * completion flag (either in DSI_INTSTA or captured by
++		 * mtk_dsi_irq) and then confirm !DSI_BUSY.
++		 */
++		ret = read_poll_timeout(readl, val,
++					((val | READ_ONCE(dsi->irq_data)) & flag) == flag,
++					10, 500000, false,
++					dsi->regs + DSI_INTSTA);
++		if (!ret)
++			ret = readl_poll_timeout(dsi->regs + DSI_INTSTA, val,
++						 !(val & DSI_BUSY), 10, 500000);
+ 		if (ret) {
+ 			drm_warn(dsi->bridge.dev,
+ 				 "DSI command timeout: intsta=0x%08x dbg6=0x%08x\n",
+diff --git a/drivers/gpu/drm/panel/panel-chipone-icnl9922c.c b/drivers/gpu/drm/panel/panel-chipone-icnl9922c.c
+index 83bc0d6..01f314d 100644
+--- a/drivers/gpu/drm/panel/panel-chipone-icnl9922c.c
++++ b/drivers/gpu/drm/panel/panel-chipone-icnl9922c.c
+@@ -418,6 +418,7 @@ static int icnl9922c_unprepare(struct drm_panel *panel)
+ 	struct icnl9922c_panel *ctx = to_icnl9922c_panel(panel);
+ 	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
+ 
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xac, 0x0a, 0x00);
+ 	mipi_dsi_dcs_set_display_off_multi(&dsi_ctx);
+ 	mipi_dsi_msleep(&dsi_ctx, 20);
+ 	mipi_dsi_dcs_enter_sleep_mode_multi(&dsi_ctx);
