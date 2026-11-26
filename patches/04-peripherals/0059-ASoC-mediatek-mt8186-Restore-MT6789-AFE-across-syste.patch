@@ -1,0 +1,69 @@
+From 9ff57b91cb60abf0c8f55b0681eb68a5811d1f59 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 01:52:25 +0700
+Subject: [PATCH] ASoC: mediatek: mt8186: Restore MT6789 AFE across system
+ sleep
+
+When the system enters s2idle while a PCM stream is open, the MT6789
+AUDIO power domain powers off and resets the AFE hardware registers.
+Because mt8186_afe_pm_ops only defines runtime PM callbacks and lacks
+system sleep callbacks, mt8186_afe_runtime_resume() never runs on
+wakeup, leaving AFE_DAC_CON0 (AFE_ON) cleared and AFE_DL1_CUR stuck
+at zero with repeated "hw_ptr or hw_base = 0 err" stalls until the
+PCM stream is closed and reopened.
+
+Add LATE_SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend,
+pm_runtime_force_resume) so the AFE suspends cleanly after
+snd_soc_suspend() and restores regcache and AFE_ON before
+snd_soc_resume(). Also mark the software-programmed AFE_*_END DMA
+ring end registers as non-volatile on MT6789 (matching upstream
+mt8188/mt8195) so regcache_sync() restores them instead of leaving
+their power-on reset values.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ sound/soc/mediatek/mt8186/mt8186-afe-pcm.c | 24 ++++++++++++++++++++++
+ 1 file changed, 24 insertions(+)
+
+diff --git a/sound/soc/mediatek/mt8186/mt8186-afe-pcm.c b/sound/soc/mediatek/mt8186/mt8186-afe-pcm.c
+index 14468ba..8aacb46 100644
+--- a/sound/soc/mediatek/mt8186/mt8186-afe-pcm.c
++++ b/sound/soc/mediatek/mt8186/mt8186-afe-pcm.c
+@@ -2636,6 +2636,28 @@ static bool mt6789_is_volatile_reg(struct device *dev, unsigned int reg)
+ 	switch (reg) {
+ 	case AFE_AGENT_ON:
+ 		return true;
++	case AFE_DL1_END:
++	case AFE_DL2_END:
++	case AFE_DL3_END:
++	case AFE_DL4_END:
++	case AFE_DL5_END:
++	case AFE_DL6_END:
++	case AFE_DL7_END:
++	case AFE_DL8_END:
++	case AFE_DL12_END:
++	case AFE_VUL_END:
++	case AFE_VUL12_END:
++	case AFE_VUL2_END:
++	case AFE_VUL3_END:
++	case AFE_VUL4_END:
++	case AFE_VUL5_END:
++	case AFE_VUL6_END:
++	case AFE_AWB_END:
++	case AFE_AWB2_END:
++	case AFE_DAI_END:
++	case AFE_DAI2_END:
++	case AFE_MOD_DAI_END:
++		return false;
+ 	default:
+ 		return mt8186_is_volatile_reg(dev, reg);
+ 	}
+@@ -3048,6 +3070,8 @@ static const struct of_device_id mt8186_afe_pcm_dt_match[] = {
+ MODULE_DEVICE_TABLE(of, mt8186_afe_pcm_dt_match);
+ 
+ static const struct dev_pm_ops mt8186_afe_pm_ops = {
++	LATE_SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend,
++				 pm_runtime_force_resume)
+ 	RUNTIME_PM_OPS(mt8186_afe_runtime_suspend,
+ 		       mt8186_afe_runtime_resume, NULL)
+ };
