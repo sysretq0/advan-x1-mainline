@@ -26,6 +26,8 @@ OUT_DIR="${OUT_DIR:-$WORK_DIR/out}"
 
 GCC_DIR="$(find "$SYSROOT/usr/lib/gcc/aarch64-linux-gnu" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -V | tail -n 1)"
 [ -n "$GCC_DIR" ] || { echo "FATAL: no aarch64 gcc runtime dir in $SYSROOT" >&2; exit 1; }
+QEMU_AARCH64="$(command -v qemu-aarch64-static || command -v qemu-aarch64 || true)"
+[ -n "$QEMU_AARCH64" ] || { echo "FATAL: neither qemu-aarch64-static nor qemu-aarch64 found" >&2; exit 1; }
 
 rm -rf "$STAGE_DIR" "$OUT_DIR"
 mkdir -p "$WORK_DIR" "$STAGE_DIR" "$OUT_DIR" \
@@ -95,7 +97,7 @@ cat > "$MM_WORK/gen/config.h" << 'EOF'
 EOF
 
 # Generate mm-daemon-enums-types.h using sysroot glib-mkenums
-QEMU_LD_PREFIX="$SYSROOT" qemu-aarch64-static -L "$SYSROOT" \
+QEMU_LD_PREFIX="$SYSROOT" "$QEMU_AARCH64" -L "$SYSROOT" \
     "$SYSROOT/usr/bin/glib-mkenums" \
     --template "$MM_SRC/build-aux/mm-enums-template.h" \
     --fhead "#ifndef __MM_DAEMON_ENUMS_TYPES_H__\n#define __MM_DAEMON_ENUMS_TYPES_H__\n#include <glib-object.h>\nG_BEGIN_DECLS\n" \

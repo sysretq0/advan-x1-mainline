@@ -28,7 +28,9 @@ SHELL_TAG="${SHELL_TAG:-51.1.mobile.23}"
 
 GCC_DIR="$(find "$SYSROOT/usr/lib/gcc/aarch64-linux-gnu" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -V | tail -n 1)"
 [ -n "$GCC_DIR" ] || { echo "FATAL: no aarch64 gcc runtime dir in $SYSROOT/usr/lib/gcc/aarch64-linux-gnu" >&2; exit 1; }
-echo "== Toolchain: $CLANG_DIR/bin/clang =="
+QEMU_AARCH64="$(command -v qemu-aarch64-static || command -v qemu-aarch64 || true)"
+[ -n "$QEMU_AARCH64" ] || { echo "FATAL: neither qemu-aarch64-static nor qemu-aarch64 found" >&2; exit 1; }
+echo "== Toolchain: $CLANG_DIR/bin/clang (qemu: $QEMU_AARCH64) =="
 "$CLANG_DIR/bin/clang" --version | head -n 2
 echo "== Sysroot: $SYSROOT (gcc-install-dir: $GCC_DIR) =="
 
@@ -94,7 +96,7 @@ cat > "$WRAP_DIR/qemu-arm64-exec" <<EOF
 export QEMU_LD_PREFIX="$SYSROOT"
 export LD_LIBRARY_PATH="$STAGE_DIR/usr/lib/aarch64-linux-gnu:$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51:$STAGE_DIR/usr/lib/aarch64-linux-gnu/gnome-shell:$SYSROOT/usr/lib/aarch64-linux-gnu:$SYSROOT/lib/aarch64-linux-gnu\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
 export GI_TYPELIB_PATH="$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51:$STAGE_DIR/usr/lib/aarch64-linux-gnu/girepository-1.0:$SYSROOT/usr/lib/aarch64-linux-gnu/girepository-1.0\${GI_TYPELIB_PATH:+:\$GI_TYPELIB_PATH}"
-exec qemu-aarch64-static -L "$SYSROOT" "\$@"
+exec "$QEMU_AARCH64" -L "$SYSROOT" "\$@"
 EOF
 
 # Wrapper for sysroot Python/ELF codegen and GIR tools so host Ubuntu 24.04
@@ -112,7 +114,7 @@ export GI_GIR_PATH="$STAGE_DIR/usr/share/gir-1.0:$STAGE_DIR/usr/lib/aarch64-linu
 export XDG_DATA_DIRS="$STAGE_DIR/usr/share:$SYSROOT/usr/share"
 export CC="$WRAP_DIR/aarch64-clang"
 export PKG_CONFIG="$WRAP_DIR/aarch64-pkg-config"
-exec qemu-aarch64-static -L "$SYSROOT" "$target" "\$@"
+exec "$QEMU_AARCH64" -L "$SYSROOT" "$target" "\$@"
 EOF
     chmod +x "$WRAP_DIR/$name"
 }
