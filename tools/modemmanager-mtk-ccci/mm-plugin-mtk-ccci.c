@@ -935,7 +935,7 @@ create_bearer_list (MMIfaceModem *self)
     return mm_bearer_list_new (1, 0);
 }
 
-static gboolean
+static MMBaseModemAtResponseProcessorResult
 optional_at_continue (MMBaseModem *self, gpointer none, const gchar *command,
                       const gchar *response, gboolean last_command,
                       const GError *error, GVariant **result,
@@ -945,7 +945,7 @@ optional_at_continue (MMBaseModem *self, gpointer none, const gchar *command,
         mm_obj_dbg (self, "optional voice/SMS AT '%s' skipped: %s",
                     command, error->message);
     *result = NULL;
-    return FALSE;
+    return MM_BASE_MODEM_AT_RESPONSE_PROCESSOR_RESULT_CONTINUE;
 }
 
 static void
