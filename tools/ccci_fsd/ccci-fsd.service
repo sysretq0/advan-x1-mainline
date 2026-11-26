@@ -1,6 +1,7 @@
 [Unit]
 Description=MediaTek MT6789 CCCI Read-Only NVRAM Filesystem Daemon
 After=systemd-udev-trigger.service local-fs.target
+Wants=ModemManager.service
 ConditionPathExists=/dev/ccci_fs
 
 [Service]

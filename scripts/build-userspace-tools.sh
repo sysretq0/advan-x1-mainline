@@ -7,6 +7,7 @@
 # Compiled with Google Clang:
 #   - /usr/local/sbin/ccci_fsd
 #   - /usr/local/sbin/ccci_rpcd
+#   - /usr/local/sbin/ccci_audd
 #   - /usr/lib/aarch64-linux-gnu/ModemManager/libmm-plugin-mtk-ccci.so
 #
 # Output in $OUT_DIR:
@@ -74,6 +75,22 @@ echo "== 2. Building ccci_rpcd (Google Clang arm64) =="
     -o "$STAGE_DIR/usr/local/sbin/ccci_rpcd"
 "$CLANG_DIR/bin/llvm-strip" --strip-all "$STAGE_DIR/usr/local/sbin/ccci_rpcd"
 
+export PKG_CONFIG_SYSROOT_DIR="$SYSROOT"
+export PKG_CONFIG_LIBDIR="$SYSROOT/usr/lib/aarch64-linux-gnu/pkgconfig:$SYSROOT/usr/share/pkgconfig"
+GLIB_CFLAGS="$(pkg-config --cflags glib-2.0 gio-2.0 gio-unix-2.0 gobject-2.0 gmodule-2.0 gudev-1.0)"
+GLIB_LIBS="$(pkg-config --libs glib-2.0 gio-2.0 gobject-2.0 gmodule-2.0)"
+
+echo "== 2b. Building ccci_audd (Google Clang arm64) =="
+# shellcheck disable=SC2086
+"${CLANG_AARCH64[@]}" -O2 -Wall -Wextra -Werror -std=c11 \
+    $GLIB_CFLAGS \
+    "$REPO/tools/ccci_audd/ccci_audd.c" \
+    -o "$STAGE_DIR/usr/local/sbin/ccci_audd" \
+    -Wl,--as-needed $GLIB_LIBS
+"$CLANG_DIR/bin/llvm-strip" --strip-all "$STAGE_DIR/usr/local/sbin/ccci_audd"
+install -m 0644 "$REPO/tools/ccci_audd/ccci-audd.service" \
+    "$STAGE_DIR/etc/systemd/system/ccci-audd.service"
+
 echo "== 3. Building ModemManager mtk-ccci plugin (Google Clang arm64) =="
 MM_WORK="$WORK_DIR/mm-src"
 rm -rf "$MM_WORK"
@@ -111,12 +128,8 @@ python3 "$SYSROOT/usr/bin/glib-mkenums" \
     "$MM_SRC/src/mm-port-serial-at.h" \
     "$MM_SRC/src/mm-base-bearer.h" \
     "$MM_SRC/src/mm-iface-modem-3gpp.h" \
+    "$MM_SRC/src/mm-iface-modem-messaging.h" \
     > "$MM_WORK/gen/mm-daemon-enums-types.h" 2>/dev/null || true
-
-export PKG_CONFIG_SYSROOT_DIR="$SYSROOT"
-export PKG_CONFIG_LIBDIR="$SYSROOT/usr/lib/aarch64-linux-gnu/pkgconfig:$SYSROOT/usr/share/pkgconfig"
-GLIB_CFLAGS="$(pkg-config --cflags glib-2.0 gio-2.0 gobject-2.0 gmodule-2.0 gudev-1.0)"
-GLIB_LIBS="$(pkg-config --libs glib-2.0 gio-2.0 gobject-2.0 gmodule-2.0)"
 
 # shellcheck disable=SC2086
 "${CLANG_AARCH64[@]}" \
@@ -197,6 +210,7 @@ fi
 for bin in \
     "$STAGE_DIR/usr/local/sbin/ccci_fsd" \
     "$STAGE_DIR/usr/local/sbin/ccci_rpcd" \
+    "$STAGE_DIR/usr/local/sbin/ccci_audd" \
     "$STAGE_DIR/usr/lib/aarch64-linux-gnu/ModemManager/libmm-plugin-mtk-ccci.so"; do
     [ -f "$bin" ] || { echo "FATAL: missing expected binary $bin" >&2; exit 1; }
     echo "  ldd check: $(basename "$bin")"
@@ -222,6 +236,7 @@ Recommends: modemmanager, network-manager, pipewire-audio | pipewire, systemd-zr
 Description: Advan X1 (MediaTek MT6789) mainline Linux userspace support
  Self-contained device support package built with Google Clang:
   - ccci_fsd & ccci_rpcd read-only NVRAM overlay modem daemons
+  - ccci_audd Gen95 voice speech mailbox & Hostless_Speech PCM2 bridge
   - ModemManager mtk-ccci plugin + udev rules + service drop-in
   - mtk-wwan-connect standalone fallback helper (active when ModemManager is absent)
   - USB ConfigFS composite gadget (NCM usb0 + ACM ttyGS0) + networkd config
@@ -246,10 +261,21 @@ rm -f /etc/systemd/system/multi-user.target.wants/advan-power-screen.service \
 mkdir -p /etc/systemd/system/multi-user.target.wants
 ln -sf /etc/systemd/system/ccci-fsd.service \
        /etc/systemd/system/multi-user.target.wants/ccci-fsd.service
+ln -sf /etc/systemd/system/ccci-audd.service \
+       /etc/systemd/system/multi-user.target.wants/ccci-audd.service
 ln -sf /etc/systemd/system/advan-x1-usb-gadget.service \
        /etc/systemd/system/multi-user.target.wants/advan-x1-usb-gadget.service
 ln -sf /etc/systemd/system/mtk-wwan-connect.service \
        /etc/systemd/system/multi-user.target.wants/mtk-wwan-connect.service
+
+# Enable ModemManager at boot when installed so cellular data/voice/SMS come up automatically
+if [ -f /usr/lib/systemd/system/ModemManager.service ]; then
+    ln -sf /usr/lib/systemd/system/ModemManager.service \
+           /etc/systemd/system/multi-user.target.wants/ModemManager.service
+elif [ -f /lib/systemd/system/ModemManager.service ]; then
+    ln -sf /lib/systemd/system/ModemManager.service \
+           /etc/systemd/system/multi-user.target.wants/ModemManager.service
+fi
 
 # Enable systemd-networkd so /etc/systemd/network/10-usb0.network configures usb0
 if [ -f /usr/lib/systemd/system/systemd-networkd.service ]; then
@@ -267,6 +293,9 @@ if [ -d /run/systemd/system ]; then
     systemctl daemon-reload || true
     udevadm control --reload-rules || true
     systemctl try-restart ModemManager.service || true
+    if [ -e /dev/ccci_aud ]; then
+        systemctl restart ccci-audd.service || true
+    fi
 fi
 exit 0
 EOF
@@ -278,6 +307,7 @@ set -e
 case "$1" in
     purge|remove)
         rm -f /etc/systemd/system/multi-user.target.wants/ccci-fsd.service \
+              /etc/systemd/system/multi-user.target.wants/ccci-audd.service \
               /etc/systemd/system/multi-user.target.wants/advan-x1-usb-gadget.service \
               /etc/systemd/system/multi-user.target.wants/mtk-wwan-connect.service
         if [ -d /run/systemd/system ]; then
@@ -302,8 +332,10 @@ sudo chroot "$SYSROOT" /bin/bash -c "
     dpkg --unpack --force-depends '/tmp/$DEB_NAME'
     dpkg --configure --force-depends advan-x1-support
     test -L /etc/systemd/system/multi-user.target.wants/ccci-fsd.service
+    test -L /etc/systemd/system/multi-user.target.wants/ccci-audd.service
     test -L /etc/systemd/system/multi-user.target.wants/advan-x1-usb-gadget.service
     test -L /etc/systemd/system/multi-user.target.wants/mtk-wwan-connect.service
+    test -x /usr/local/sbin/ccci_audd
     test -x /usr/local/sbin/advan-x1-usb-gadget.sh
     test -f /etc/pipewire/pipewire-pulse.conf.d/50-mt6789-latency.conf
     test -f /etc/wireplumber/wireplumber.conf.d/50-mt6789-alsa.conf

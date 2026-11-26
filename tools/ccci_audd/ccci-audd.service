@@ -1,0 +1,14 @@
+[Unit]
+Description=MediaTek MT6789 CCCI Voice Speech Audio Bridge
+After=ccci-fsd.service sound.target dbus.service
+Wants=ccci-fsd.service
+ConditionPathExists=/dev/ccci_aud
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/ccci_audd
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

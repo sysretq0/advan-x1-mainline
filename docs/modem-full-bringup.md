@@ -74,17 +74,27 @@ ModemManager + ASoC stack in strict bring-up order: **Internet -> Call -> SMS ->
        `channel = 5`, `reserved = (msg_id << 16) | (payload_len + 6)`, payload starts
        with `[u16 0xa2a2, u16 data_type, u16 payload_len, data...]`.
      - **Key message IDs:**
-       - `MSG_A2M_SPH_ON = 0x2f20` (`param16 = 0x19` for normal CS speech)
-       - `MSG_A2M_SPH_OFF = 0x2f21` (`param16 = 0`)
+       - `MSG_A2M_SPH_ON = 0x2f20` (150 B payload, `data_type = 0x0019`, 128 B `mtk_sph_info` -> MD replies `0xaf20`)
+       - `MSG_A2M_SPH_OFF = 0x2f21` (16 B mailbox, `param16 = 0`, `param32 = 0` -> MD replies `0xaf21`)
+       - `MSG_A2M_SET_SPEECH_MODE = 0x2f2b` (150 B payload, `data_type = 0x0019`, 128 B `mtk_sph_info`)
+       - `MSG_A2M_MD_ALIVE_ACK = 0x2fa0` (16 B mailbox reply to `0xafa0`)
        - `MSG_M2A_MD_ALIVE = 0xaf70` (boot-time mailbox hello from MD)
        - `MSG_M2A_EM_DATA_REQUEST / SPEECH_VER = 0xafa0` (boot-time payload from MD)
 
-### Wave 2 Follow-up for Live Voice Audio
-- Once kernel + UCM2 `VoiceCall.conf` are booted, add a small `ccci-aud-helper`
-  daemon (or CallAudioD hook) that monitors ModemManager `Voice.Calls` over D-Bus,
-  switches ALSA UCM2 to `Voice Call` (opening `hw:mt6789mt6366,5` at 16/32 kHz),
-  and sends `MSG_A2M_SPH_ON` (`0x2f20`) / `MSG_A2M_SPH_OFF` (`0x2f21`) over
-  `/dev/ccci_aud`.
+### Wave 2 Userspace Speech Bridge (`ccci_audd`)
+- Implemented in [`tools/ccci_audd/ccci_audd.c`](../tools/ccci_audd/ccci_audd.c) and packaged in
+  `advan-x1-support` as `ccci-audd.service`.
+- Monitors ModemManager `org.freedesktop.ModemManager1.Modem.Voice` / `.Call` state transitions
+  over system D-Bus; when a call enters `DIALING` / `RINGING_OUT` / `ACTIVE` / `HELD`:
+  1. Switches ALSA UCM2 (`mt6789-mt6366`) to `Voice Call` (`Earpiece` / `Speaker` / `Headphones` + `Mic`,
+     keeping `Lineout Volume <= 8`).
+  2. Opens and starts `Hostless_Speech` (`/dev/snd/pcmC0D5p` + `/dev/snd/pcmC0D5c` at 32 kHz using
+     `sw.stop_threshold = ULONG_MAX` so `SNDRV_PCM_IOCTL_START` activates the PCM2<->ADDA crossbar
+     without any DMA transfer).
+  3. Sends `MSG_A2M_SPH_ON` (`0x2f20`, 150 B payload) over `/dev/ccci_aud` and verifies the
+     `MSG_M2A_SPH_ON_ACK` (`0xaf20`) reply from MD1.
+- On call termination, sends `MSG_A2M_SPH_OFF` (`0x2f21`), closes `Hostless_Speech`, and restores
+  UCM2 `HiFi`.
 
 ---
 
@@ -98,9 +108,12 @@ ModemManager + ASoC stack in strict bring-up order: **Internet -> Call -> SMS ->
   - `AT+CPMS="SM","SM","SM"` (SIM storage; resolves ModemManager's
     `cannot set default storage` warning on MOLY)
 - Send / ACK: `AT+CMGS=<len>` + PDU, ACK received SMS via `AT+CNMA=1,2,"0000"`.
-- Wired into `mm-plugin-mtk-ccci.c` `power_up_radio_ready()`, letting
-  ModemManager's standard `MMBroadbandModem` SMS interface + Chatty work out of
-  the box.
+- Wired into `mm-plugin-mtk-ccci.c`:
+  - `power_up_radio_ready()` uses a non-aborting `optional_at_continue()` response
+    processor so every CS voice and SMS AT command executes cleanly.
+  - Implements `MMIfaceModemMessaging::load_supported_storages` advertising
+    `MM_SMS_STORAGE_SM` (`mem1`/`mem2`/`mem3`) so ModemManager always configures
+    SIM storage cleanly even when `+CPMS=?` is unavailable prior to `+CFUN=1`.
 
 ---
 

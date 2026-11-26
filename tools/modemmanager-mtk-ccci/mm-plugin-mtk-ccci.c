@@ -20,6 +20,7 @@
 #include "mm-bearer-list.h"
 #include "mm-iface-modem.h"
 #include "mm-iface-modem-3gpp.h"
+#include "mm-iface-modem-messaging.h"
 #include "mm-log-object.h"
 #include "mm-modem-helpers.h"
 #include "mm-modem-helpers-mtk-ccci.h"
@@ -688,11 +689,13 @@ struct _MMBroadbandModemMtkCcci {
 
 static void iface_modem_init (MMIfaceModemInterface *iface);
 static void iface_modem_3gpp_init (MMIfaceModem3gppInterface *iface);
+static void iface_modem_messaging_init (MMIfaceModemMessagingInterface *iface);
 
 G_DEFINE_TYPE_EXTENDED (MMBroadbandModemMtkCcci, mm_broadband_modem_mtk_ccci,
                         MM_TYPE_BROADBAND_MODEM, 0,
                         G_IMPLEMENT_INTERFACE (MM_TYPE_IFACE_MODEM, iface_modem_init)
-                        G_IMPLEMENT_INTERFACE (MM_TYPE_IFACE_MODEM_3GPP, iface_modem_3gpp_init))
+                        G_IMPLEMENT_INTERFACE (MM_TYPE_IFACE_MODEM_3GPP, iface_modem_3gpp_init)
+                        G_IMPLEMENT_INTERFACE (MM_TYPE_IFACE_MODEM_MESSAGING, iface_modem_messaging_init))
 
 static void
 initialization_complete (GTask *task, GError *error)
@@ -848,6 +851,53 @@ iface_modem_3gpp_init (MMIfaceModem3gppInterface *iface)
 }
 
 static void
+messaging_load_supported_storages (MMIfaceModemMessaging *self,
+                                   GAsyncReadyCallback callback,
+                                   gpointer user_data)
+{
+    GTask *task = g_task_new (self, NULL, callback, user_data);
+
+    g_task_return_boolean (task, TRUE);
+    g_object_unref (task);
+}
+
+static gboolean
+messaging_load_supported_storages_finish (MMIfaceModemMessaging *self,
+                                          GAsyncResult *res,
+                                          GArray **mem1,
+                                          GArray **mem2,
+                                          GArray **mem3,
+                                          GError **error)
+{
+    /*
+     * Stock libmtk-ril.so uses SIM SMS storage (+CPMS="SM","SM","SM").
+     * During early modem initialization (before +CFUN=1), MOLY can reject
+     * +CPMS=? with SIM-not-ready, leaving ModemManager with an empty storage
+     * list and triggering "cannot set default storage". Advertise SM directly
+     * so MMIfaceModemMessaging selects SM cleanly once powered up.
+     */
+    static const MMSmsStorage storages[] = { MM_SMS_STORAGE_SM };
+
+    if (!g_task_propagate_boolean (G_TASK (res), error))
+        return FALSE;
+
+    *mem1 = g_array_sized_new (FALSE, FALSE, sizeof (MMSmsStorage), G_N_ELEMENTS (storages));
+    g_array_append_vals (*mem1, storages, G_N_ELEMENTS (storages));
+    *mem2 = g_array_sized_new (FALSE, FALSE, sizeof (MMSmsStorage), G_N_ELEMENTS (storages));
+    g_array_append_vals (*mem2, storages, G_N_ELEMENTS (storages));
+    *mem3 = g_array_sized_new (FALSE, FALSE, sizeof (MMSmsStorage), G_N_ELEMENTS (storages));
+    g_array_append_vals (*mem3, storages, G_N_ELEMENTS (storages));
+    return TRUE;
+}
+
+static void
+iface_modem_messaging_init (MMIfaceModemMessagingInterface *iface)
+{
+    iface->load_supported_storages = messaging_load_supported_storages;
+    iface->load_supported_storages_finish = messaging_load_supported_storages_finish;
+}
+
+static void
 bearer_new_ready (GObject *source, GAsyncResult *res, GTask *task)
 {
     GError *error = NULL;
@@ -885,6 +935,19 @@ create_bearer_list (MMIfaceModem *self)
     return mm_bearer_list_new (1, 0);
 }
 
+static gboolean
+optional_at_continue (MMBaseModem *self, gpointer none, const gchar *command,
+                      const gchar *response, gboolean last_command,
+                      const GError *error, GVariant **result,
+                      GError **result_error)
+{
+    if (error)
+        mm_obj_dbg (self, "optional voice/SMS AT '%s' skipped: %s",
+                    command, error->message);
+    *result = NULL;
+    return FALSE;
+}
+
 static void
 power_up_voice_sms_ready (MMBaseModem *modem, GAsyncResult *res, GTask *task)
 {
@@ -901,26 +964,27 @@ static void
 power_up_radio_ready (MMBaseModem *modem, GAsyncResult *res, GTask *task)
 {
     /*
-     * Stock MOLY CS voice and SMS initialization verified from Advan X1
-     * stock radio.log (libmtk-ril.so):
+     * Stock MOLY CS voice and SMS initialization verified from libmtk-ril.so:
      *   - CS voice: enable CS call, caller ID (+CLIP/+COLP/+CSSN), voice mode
-     *     (+CMOD=0), disable auto-answer (S0=0). Keep +EAIC=0 so standard
+     *     (+CMOD=0), disable auto-answer (ATS0=0). Keep +EAIC=0 so standard
      *     RING/+CLCC/ATD/ATA/ATH work natively with ModemManager voice iface.
-     *   - SMS: PDU mode (+CMGF=0), Phase 2+ (+CSMS=1), direct URC routing
-     *     (+CNMI=1,2,2,1,1), SIM storage (+CPMS="SM","SM","SM") last so
-     *     missing/busy SIM does not block CS voice setup.
+     *   - SMS: enable SMS, PDU mode (+CMGF=0), Phase 2+ (+CSMS=1), direct URC
+     *     routing (+CNMI=1,2,2,1,1), SIM storage (+CPMS="SM","SM","SM").
+     * Use optional_at_continue so an unsupported or SIM-busy response on one
+     * command never aborts the rest of the sequence.
      */
     static const MMBaseModemAtCommand post_commands[] = {
-        { "+ECFGSET=\"disable_cs_call\",\"0\"", 5, FALSE, mm_base_modem_response_processor_no_result_continue },
-        { "+CLIP=1", 5, FALSE, mm_base_modem_response_processor_no_result_continue },
-        { "+COLP=1", 5, FALSE, mm_base_modem_response_processor_no_result_continue },
-        { "+CSSN=1,1", 5, FALSE, mm_base_modem_response_processor_no_result_continue },
-        { "+CMOD=0", 5, FALSE, mm_base_modem_response_processor_no_result_continue },
-        { "S0=0", 5, FALSE, mm_base_modem_response_processor_no_result_continue },
-        { "+CMGF=0", 5, FALSE, mm_base_modem_response_processor_no_result_continue },
-        { "+CSMS=1", 5, FALSE, mm_base_modem_response_processor_no_result_continue },
-        { "+CNMI=1,2,2,1,1", 5, FALSE, mm_base_modem_response_processor_no_result_continue },
-        { "+CPMS=\"SM\",\"SM\",\"SM\"", 5, FALSE, mm_base_modem_response_processor_no_result_continue },
+        { "+ECFGSET=\"disable_cs_call\",\"0\"", 5, FALSE, optional_at_continue },
+        { "+ECFGSET=\"disable_sms\",\"0\"", 5, FALSE, optional_at_continue },
+        { "+CLIP=1", 5, FALSE, optional_at_continue },
+        { "+COLP=1", 5, FALSE, optional_at_continue },
+        { "+CSSN=1,1", 5, FALSE, optional_at_continue },
+        { "+CMOD=0", 5, FALSE, optional_at_continue },
+        { "ATS0=0", 5, FALSE, optional_at_continue },
+        { "+CMGF=0", 5, FALSE, optional_at_continue },
+        { "+CSMS=1", 5, FALSE, optional_at_continue },
+        { "+CNMI=1,2,2,1,1", 5, FALSE, optional_at_continue },
+        { "+CPMS=\"SM\",\"SM\",\"SM\"", 5, FALSE, optional_at_continue },
         { NULL }
     };
     GError *error = NULL;

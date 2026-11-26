@@ -1,0 +1,2 @@
+# Native Wayland + Mutter fractional scaling (2.5x -> 432x984 logical) and OSK IME
+export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --ozone-platform-hint=auto --enable-viewport --enable-wayland-ime --wayland-text-input-version=3"

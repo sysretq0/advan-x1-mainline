@@ -6,6 +6,7 @@ on:
     paths:
       - 'tools/ccci_fsd/**'
       - 'tools/ccci_rpcd/**'
+      - 'tools/ccci_audd/**'
       - 'tools/modemmanager-mtk-ccci/**'
       - 'tools/mtk-wwan-connect/**'
       - 'tools/pipewire/**'
@@ -20,6 +21,7 @@ on:
     paths:
       - 'tools/ccci_fsd/**'
       - 'tools/ccci_rpcd/**'
+      - 'tools/ccci_audd/**'
       - 'tools/modemmanager-mtk-ccci/**'
       - 'tools/mtk-wwan-connect/**'
       - 'tools/pipewire/**'
