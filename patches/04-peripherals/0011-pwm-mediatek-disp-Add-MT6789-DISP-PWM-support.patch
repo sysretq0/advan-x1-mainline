@@ -3,42 +3,36 @@ From: sysretq0 <sysretq0@proton.me>
 Date: Sun, 22 Nov 2026 04:29:49 +0000
 Subject: [PATCH 11/11] pwm: mediatek-disp: Add MT6789 DISP PWM support
 
-Add mediatek,mt6789-disp-pwm match entry to pwm-mtk-disp.
+Add mediatek,mt6789-disp-pwm match entry to pwm-mtk-disp using
+mt8183_pwm_data (con0=0x18, con1=0x1c, bls_debug=0x80 mask 0x3,
+has_commit=false).
+
+MT6789 DISP_PWM0 defaults to double-buffered mode where DISP_PWM_COMMIT
+(0x0c) only latches CON1 (0x1c) into the active working register (0x2c)
+on a DISP_MUTEX0 SOF strobe when MUTEX0_MOD0 bit 16 (DISP_PWM0) is set.
+Mainline mediatek-drm does not attach DISP_PWM0 to MUTEX0, so once
+MT6789_POWER_DOMAIN_DISP cycles across s2idle and clears the bootloader's
+MUTEX0_MOD0 bit 16, CON1 writes stop latching and the working duty cycle
+remains stuck at 0% (black screen on resume). Setting DISP_PWM_DEBUG
+(0x80) to 0x3 disables double-buffering and commits duty/period updates
+directly, matching MT8183.
 
 Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
- drivers/pwm/pwm-mtk-disp.c | 11 +++++++++++
- 1 file changed, 11 insertions(+)
+ drivers/pwm/pwm-mtk-disp.c | 1 +
+ 1 file changed, 1 insertion(+)
 
 diff --git a/drivers/pwm/pwm-mtk-disp.c b/drivers/pwm/pwm-mtk-disp.c
-index 56d10cde5..d44ce2fd8 100644
+index 56d10cde5..9f887d32a 100644
 --- a/drivers/pwm/pwm-mtk-disp.c
 +++ b/drivers/pwm/pwm-mtk-disp.c
-@@ -284,6 +284,16 @@ static const struct mtk_pwm_data mt8173_pwm_data = {
- 	.commit_mask = 0x1,
- };
- 
-+static const struct mtk_pwm_data mt6789_pwm_data = {
-+	.enable_mask = BIT(0),
-+	.con0 = 0x18,
-+	.con0_sel = 0x0,
-+	.con1 = 0x1c,
-+	.has_commit = true,
-+	.commit = 0x0c,
-+	.commit_mask = 0x1,
-+};
-+
- static const struct mtk_pwm_data mt8183_pwm_data = {
- 	.enable_mask = BIT(0),
- 	.con0 = 0x18,
-@@ -297,6 +307,7 @@ static const struct mtk_pwm_data mt8183_pwm_data = {
+@@ -297,6 +297,7 @@
  static const struct of_device_id mtk_disp_pwm_of_match[] = {
  	{ .compatible = "mediatek,mt2701-disp-pwm", .data = &mt2701_pwm_data },
  	{ .compatible = "mediatek,mt6595-disp-pwm", .data = &mt8173_pwm_data },
-+	{ .compatible = "mediatek,mt6789-disp-pwm", .data = &mt6789_pwm_data },
++	{ .compatible = "mediatek,mt6789-disp-pwm", .data = &mt8183_pwm_data },
  	{ .compatible = "mediatek,mt8173-disp-pwm", .data = &mt8173_pwm_data },
  	{ .compatible = "mediatek,mt8183-disp-pwm", .data = &mt8183_pwm_data },
  	{ }
 -- 
 2.55.0
-
