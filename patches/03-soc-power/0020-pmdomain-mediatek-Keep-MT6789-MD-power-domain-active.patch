@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Thu, 26 Nov 2026 08:54:00 +0000
+Subject: [PATCH] pmdomain: mediatek: Keep MT6789 MD power domain active across s2idle wakeup
+
+On MediaTek MT6789, the CCCI cellular modem device (d0cf000.modem) marks
+itself as a wakeup source (device_init_wakeup(..., true)) and enables
+CCIF0/WDT/DPMAIF wakeup IRQs while running so incoming cellular events
+can wake the AP from s2idle.
+
+However, MT6789_POWER_DOMAIN_MD omitted MTK_SCPD_ACTIVE_WAKEUP
+(GENPD_FLAG_ACTIVE_WAKEUP). As a result, genpd_finish_suspend() powered
+off the MD MTCMOS rail and engaged MD bus-protect on every s2idle entry
+while the modem CPU was live and registered on LTE — killing the modem
+(hanging /dev/wwan0at0 AT probes after resume) and wedging the AP-MD
+AXI bus across suspend cycles.
+
+Add MTK_SCPD_ACTIVE_WAKEUP to MT6789_POWER_DOMAIN_MD so genpd leaves MD
+MTCMOS on across s2idle when the modem is running (while keeping it off
+when the modem is parked via runtime PM).
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/pmdomain/mediatek/mt6789-pm-domains.h | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/pmdomain/mediatek/mt6789-pm-domains.h b/drivers/pmdomain/mediatek/mt6789-pm-domains.h
+index 24189d837..e6cf98974 100644
+--- a/drivers/pmdomain/mediatek/mt6789-pm-domains.h
++++ b/drivers/pmdomain/mediatek/mt6789-pm-domains.h
+@@ -26,7 +26,8 @@ static const struct scpsys_domain_data scpsys_domain_data_mt6789[] = {
+ 					MT6789_TOP_AXI_PROT_EN_VDNR_STA1),
+ 		},
+ 		.caps = MTK_SCPD_MODEM_PWRSEQ | MTK_SCPD_EXT_BUCK_ISO |
+-			MTK_SCPD_KEEP_DEFAULT_OFF,
++			MTK_SCPD_KEEP_DEFAULT_OFF |
++			MTK_SCPD_ACTIVE_WAKEUP,
+ 	},
+ 	[MT6789_POWER_DOMAIN_CONN] = {
+ 		.name = "conn",
+-- 
+2.47.2

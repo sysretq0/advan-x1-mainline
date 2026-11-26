@@ -14,5 +14,6 @@ gboolean mm_mtk_ccci_parse_eif (const gchar *line, MMMtkCcciEif *eif);
 gchar **mm_mtk_ccci_parse_dns (const gchar *response, const gchar *apn,
                                const gchar *address, GError **error);
 gboolean mm_mtk_ccci_valid_apn (const gchar *apn);
+gboolean mm_mtk_ccci_valid_cred (const gchar *value);
 
 #endif

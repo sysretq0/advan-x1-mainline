@@ -132,3 +132,21 @@ mm_mtk_ccci_valid_apn (const gchar *apn)
     }
     return TRUE;
 }
+
+gboolean
+mm_mtk_ccci_valid_cred (const gchar *value)
+{
+    const gchar *p;
+
+    if (!value || !*value)
+        return TRUE;
+    if (strlen (value) > 100)
+        return FALSE;
+    for (p = value; *p; p++) {
+        guchar c = (guchar) *p;
+
+        if (c < 0x20 || c > 0x7e || c == '"' || c == ';' || c == ',' || c == '\\')
+            return FALSE;
+    }
+    return TRUE;
+}

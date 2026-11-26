@@ -65,8 +65,23 @@ apn_sequence_ready (MMBaseModem *modem, GAsyncResult *res, GTask *task)
     g_object_unref (task);
 }
 
+static guint
+mtk_auth_type (const gchar *user, const gchar *password, MMBearerAllowedAuth auth)
+{
+    if ((!user || !*user) && (!password || !*password))
+        return 0;
+    if (auth == MM_BEARER_ALLOWED_AUTH_PAP)
+        return 1;
+    if (auth == MM_BEARER_ALLOWED_AUTH_CHAP)
+        return 2;
+    if (auth == MM_BEARER_ALLOWED_AUTH_NONE)
+        return 0;
+    return 3; /* PAP or CHAP */
+}
+
 static void
 configure_apn (MMBaseModem *modem, const gchar *apn,
+               const gchar *user, const gchar *password, MMBearerAllowedAuth auth,
                GAsyncReadyCallback callback, gpointer user_data)
 {
     static const MMBaseModemAtCommand commands[] = {
@@ -82,14 +97,25 @@ configure_apn (MMBaseModem *modem, const gchar *apn,
     };
     GTask *task = g_task_new (modem, NULL, callback, user_data);
     ApnSetup *ctx = g_new0 (ApnSetup, 1);
+    const gchar *u = user ? user : "";
+    const gchar *p = password ? password : "";
+    guint authtype = mtk_auth_type (u, p, auth);
 
     G_STATIC_ASSERT (G_N_ELEMENTS (commands) == G_N_ELEMENTS (ctx->commands));
     memcpy (ctx->commands, commands, sizeof (commands));
-    ctx->set_apn = g_strdup_printf (
-        "+EAPNSET=\"%s\",2,\"type=default,supl;protocol=IPV4V6;roaming_protocol=IPV4V6;"
-        "authtype=0;carrier_enabled=1;max_conns=0;max_conns_time=0;wait_time=0;"
-        "bearer_bitmask=0;inactive_timer=0\"", apn);
-    ctx->initial_apn = g_strdup_printf ("+EIAAPN=\"%s\",0,\"IPV4V6\",\"IPV4V6\",0,\"\",\"\"", apn);
+    if (*u || *p) {
+        ctx->set_apn = g_strdup_printf (
+            "+EAPNSET=\"%s\",2,\"type=default,supl;protocol=IPV4V6;roaming_protocol=IPV4V6;"
+            "user=%s;password=%s;authtype=%u;carrier_enabled=1;max_conns=0;max_conns_time=0;"
+            "wait_time=0;bearer_bitmask=0;inactive_timer=0\"", apn, u, p, authtype);
+    } else {
+        ctx->set_apn = g_strdup_printf (
+            "+EAPNSET=\"%s\",2,\"type=default,supl;protocol=IPV4V6;roaming_protocol=IPV4V6;"
+            "authtype=0;carrier_enabled=1;max_conns=0;max_conns_time=0;wait_time=0;"
+            "bearer_bitmask=0;inactive_timer=0\"", apn);
+    }
+    ctx->initial_apn = g_strdup_printf ("+EIAAPN=\"%s\",0,\"IPV4V6\",\"IPV4V6\",%u,\"%s\",\"%s\"",
+                                        apn, authtype, u, p);
     ctx->commands[3].command = ctx->set_apn;
     ctx->commands[6].command = ctx->initial_apn;
     g_task_set_task_data (task, ctx, (GDestroyNotify) apn_setup_free);
@@ -124,6 +150,9 @@ typedef struct {
     MMPortSerialAt *primary;
     ConnectStep step;
     gchar *apn;
+    gchar *user;
+    gchar *password;
+    MMBearerAllowedAuth auth;
     gboolean activated;
     gboolean have_eif;
     gboolean link_lost;
@@ -148,6 +177,8 @@ connect_context_free (ConnectContext *ctx)
     g_clear_object (&ctx->data);
     g_clear_error (&ctx->error);
     g_free (ctx->apn);
+    g_free (ctx->user);
+    g_free (ctx->password);
     g_free (ctx);
 }
 
@@ -273,7 +304,8 @@ connect_step (GTask *task)
     }
     switch (ctx->step) {
     case CONNECT_CONFIGURE_APN:
-        configure_apn (ctx->modem, ctx->apn, (GAsyncReadyCallback) connect_apn_ready, task);
+        configure_apn (ctx->modem, ctx->apn, ctx->user, ctx->password, ctx->auth,
+                       (GAsyncReadyCallback) connect_apn_ready, task);
         return;
     case CONNECT_ALLOW:
         command = g_strdup ("+EDALLOW=1");
@@ -344,12 +376,12 @@ connect_3gpp (MMBroadbandBearer *bearer, MMBroadbandModem *modem,
     MMBearerIpFamily family = mm_bearer_properties_get_ip_type (config);
     MMBearerAllowedAuth auth = mm_bearer_properties_get_allowed_auth (config);
 
-    if (!mm_mtk_ccci_valid_apn (apn) || (user && *user) || (password && *password) ||
-        (auth != MM_BEARER_ALLOWED_AUTH_UNKNOWN && !(auth & MM_BEARER_ALLOWED_AUTH_NONE)) ||
+    if (!mm_mtk_ccci_valid_apn (apn) || !mm_mtk_ccci_valid_cred (user) ||
+        !mm_mtk_ccci_valid_cred (password) ||
         (family != MM_BEARER_IP_FAMILY_NONE && family != MM_BEARER_IP_FAMILY_ANY &&
-         family != MM_BEARER_IP_FAMILY_IPV4)) {
+         !(family & (MM_BEARER_IP_FAMILY_IPV4 | MM_BEARER_IP_FAMILY_IPV4V6)))) {
         g_task_return_new_error (task, MM_CORE_ERROR, MM_CORE_ERROR_UNSUPPORTED,
-                                 "CCCI requires an APN, IPv4, and no PAP/CHAP credentials");
+                                 "CCCI requires a valid APN and IPv4 or IPv4v6");
         g_object_unref (task);
         return;
     }
@@ -357,6 +389,9 @@ connect_3gpp (MMBroadbandBearer *bearer, MMBroadbandModem *modem,
     ctx->modem = g_object_ref (MM_BASE_MODEM (modem));
     ctx->primary = g_object_ref (primary);
     ctx->apn = g_strdup (apn);
+    ctx->user = g_strdup (user);
+    ctx->password = g_strdup (password);
+    ctx->auth = auth;
     g_task_set_task_data (task, ctx, (GDestroyNotify) connect_context_free);
     g_task_set_check_cancellable (task, FALSE);
     self->pending = task;
@@ -591,17 +626,18 @@ set_initial_eps_settings (MMIfaceModem3gpp *self, MMBearerProperties *config,
     MMBearerIpFamily family = mm_bearer_properties_get_ip_type (config);
     MMBearerAllowedAuth auth = mm_bearer_properties_get_allowed_auth (config);
 
-    if (!mm_mtk_ccci_valid_apn (apn) || (user && *user) || (password && *password) ||
-        (auth != MM_BEARER_ALLOWED_AUTH_UNKNOWN && !(auth & MM_BEARER_ALLOWED_AUTH_NONE)) ||
+    if (!mm_mtk_ccci_valid_apn (apn) || !mm_mtk_ccci_valid_cred (user) ||
+        !mm_mtk_ccci_valid_cred (password) ||
         (family != MM_BEARER_IP_FAMILY_NONE && family != MM_BEARER_IP_FAMILY_ANY &&
-         family != MM_BEARER_IP_FAMILY_IPV4)) {
+         !(family & (MM_BEARER_IP_FAMILY_IPV4 | MM_BEARER_IP_FAMILY_IPV4V6)))) {
         g_task_return_new_error (task, MM_CORE_ERROR, MM_CORE_ERROR_UNSUPPORTED,
-                                 "CCCI initial attach requires an APN, IPv4, and no PAP/CHAP credentials");
+                                 "CCCI initial attach requires a valid APN and IPv4 or IPv4v6");
         g_object_unref (task);
         return;
     }
     g_task_set_task_data (task, g_object_ref (config), g_object_unref);
-    configure_apn (MM_BASE_MODEM (self), apn, (GAsyncReadyCallback) initial_eps_apn_ready, task);
+    configure_apn (MM_BASE_MODEM (self), apn, user, password, auth,
+                   (GAsyncReadyCallback) initial_eps_apn_ready, task);
 }
 
 static void
@@ -716,11 +752,164 @@ load_signal_quality_finish (MMIfaceModem *self, GAsyncResult *res, GError **erro
 }
 
 static void
+load_supported_modes (MMIfaceModem *self, GAsyncReadyCallback callback, gpointer user_data)
+{
+    static const MMModemModeCombination modes[] = {
+        { MM_MODEM_MODE_2G, MM_MODEM_MODE_NONE },
+        { MM_MODEM_MODE_3G, MM_MODEM_MODE_NONE },
+        { MM_MODEM_MODE_4G, MM_MODEM_MODE_NONE },
+        { MM_MODEM_MODE_2G | MM_MODEM_MODE_3G, MM_MODEM_MODE_NONE },
+        { MM_MODEM_MODE_2G | MM_MODEM_MODE_3G, MM_MODEM_MODE_3G },
+        { MM_MODEM_MODE_2G | MM_MODEM_MODE_4G, MM_MODEM_MODE_NONE },
+        { MM_MODEM_MODE_2G | MM_MODEM_MODE_4G, MM_MODEM_MODE_4G },
+        { MM_MODEM_MODE_3G | MM_MODEM_MODE_4G, MM_MODEM_MODE_NONE },
+        { MM_MODEM_MODE_3G | MM_MODEM_MODE_4G, MM_MODEM_MODE_4G },
+        { MM_MODEM_MODE_2G | MM_MODEM_MODE_3G | MM_MODEM_MODE_4G, MM_MODEM_MODE_NONE },
+        { MM_MODEM_MODE_2G | MM_MODEM_MODE_3G | MM_MODEM_MODE_4G, MM_MODEM_MODE_3G },
+        { MM_MODEM_MODE_2G | MM_MODEM_MODE_3G | MM_MODEM_MODE_4G, MM_MODEM_MODE_4G },
+    };
+    GTask *task = g_task_new (self, NULL, callback, user_data);
+    GArray *combinations = g_array_sized_new (FALSE, FALSE,
+                                              sizeof (MMModemModeCombination),
+                                              G_N_ELEMENTS (modes));
+
+    g_array_append_vals (combinations, modes, G_N_ELEMENTS (modes));
+    g_task_return_pointer (task, combinations, (GDestroyNotify) g_array_unref);
+    g_object_unref (task);
+}
+
+static GArray *
+load_supported_modes_finish (MMIfaceModem *self, GAsyncResult *res, GError **error)
+{
+    return g_task_propagate_pointer (G_TASK (res), error);
+}
+
+static void
+load_current_modes (MMIfaceModem *self, GAsyncReadyCallback callback, gpointer user_data)
+{
+    mm_base_modem_at_command (MM_BASE_MODEM (self), "+ERAT?", 5, FALSE, callback, user_data);
+}
+
+static gboolean
+load_current_modes_finish (MMIfaceModem *self, GAsyncResult *res,
+                           MMModemMode *allowed, MMModemMode *preferred, GError **error)
+{
+    g_autoptr(GMatchInfo) match_info = NULL;
+    g_autoptr(GRegex) r = NULL;
+    const gchar *response;
+    gint erat_mode = -1, erat_pref = -1;
+
+    response = mm_base_modem_at_command_finish (MM_BASE_MODEM (self), res, error);
+    if (!response)
+        return FALSE;
+
+    r = g_regex_new ("\\+ERAT:\\s*[0-9]+,\\s*[0-9]+,\\s*([0-9]+),\\s*([0-9]+)", 0, 0, error);
+    if (!r)
+        return FALSE;
+    if (!g_regex_match (r, response, 0, &match_info) ||
+        !mm_get_int_from_match_info (match_info, 1, &erat_mode) ||
+        !mm_get_int_from_match_info (match_info, 2, &erat_pref)) {
+        g_set_error (error, MM_CORE_ERROR, MM_CORE_ERROR_FAILED,
+                     "Couldn't parse +ERAT response: '%s'", response);
+        return FALSE;
+    }
+
+    switch (erat_mode) {
+    case 0: *allowed = MM_MODEM_MODE_2G; break;
+    case 1: *allowed = MM_MODEM_MODE_3G; break;
+    case 2: *allowed = MM_MODEM_MODE_2G | MM_MODEM_MODE_3G; break;
+    case 3: *allowed = MM_MODEM_MODE_4G; break;
+    case 4: *allowed = MM_MODEM_MODE_2G | MM_MODEM_MODE_4G; break;
+    case 5: *allowed = MM_MODEM_MODE_3G | MM_MODEM_MODE_4G; break;
+    case 6: *allowed = MM_MODEM_MODE_2G | MM_MODEM_MODE_3G | MM_MODEM_MODE_4G; break;
+    default:
+        g_set_error (error, MM_CORE_ERROR, MM_CORE_ERROR_FAILED,
+                     "Unsupported +ERAT mode %d", erat_mode);
+        return FALSE;
+    }
+
+    switch (erat_pref) {
+    case 0: *preferred = MM_MODEM_MODE_NONE; break;
+    case 1: *preferred = MM_MODEM_MODE_2G; break;
+    case 2: *preferred = MM_MODEM_MODE_3G; break;
+    case 3:
+    case 4: *preferred = MM_MODEM_MODE_4G; break;
+    default:
+        *preferred = MM_MODEM_MODE_NONE;
+        break;
+    }
+
+    return TRUE;
+}
+
+static void
+set_current_modes_ready (MMBaseModem *modem, GAsyncResult *res, GTask *task)
+{
+    GError *error = NULL;
+
+    if (!mm_base_modem_at_command_finish (modem, res, &error))
+        g_task_return_error (task, error);
+    else
+        g_task_return_boolean (task, TRUE);
+    g_object_unref (task);
+}
+
+static void
+set_current_modes (MMIfaceModem *self, MMModemMode allowed, MMModemMode preferred,
+                   GAsyncReadyCallback callback, gpointer user_data)
+{
+    GTask *task = g_task_new (self, NULL, callback, user_data);
+    g_autofree gchar *command = NULL;
+    gint erat_mode = -1, erat_pref = 0;
+
+    if (allowed == MM_MODEM_MODE_ANY) {
+        erat_mode = 6;
+        erat_pref = 4;
+    } else if (allowed == MM_MODEM_MODE_2G) {
+        erat_mode = 0;
+    } else if (allowed == MM_MODEM_MODE_3G) {
+        erat_mode = 1;
+    } else if (allowed == (MM_MODEM_MODE_2G | MM_MODEM_MODE_3G)) {
+        erat_mode = 2;
+    } else if (allowed == MM_MODEM_MODE_4G) {
+        erat_mode = 3;
+    } else if (allowed == (MM_MODEM_MODE_2G | MM_MODEM_MODE_4G)) {
+        erat_mode = 4;
+    } else if (allowed == (MM_MODEM_MODE_3G | MM_MODEM_MODE_4G)) {
+        erat_mode = 5;
+    } else if (allowed == (MM_MODEM_MODE_2G | MM_MODEM_MODE_3G | MM_MODEM_MODE_4G)) {
+        erat_mode = 6;
+    }
+
+    if (erat_mode < 0) {
+        g_task_return_new_error (task, MM_CORE_ERROR, MM_CORE_ERROR_UNSUPPORTED,
+                                 "Unsupported RAT mode mask 0x%x", allowed);
+        g_object_unref (task);
+        return;
+    }
+
+    if (allowed != MM_MODEM_MODE_ANY) {
+        if (preferred == MM_MODEM_MODE_4G)
+            erat_pref = 4;
+        else if (preferred == MM_MODEM_MODE_3G)
+            erat_pref = 2;
+        else if (preferred == MM_MODEM_MODE_2G)
+            erat_pref = 1;
+        else
+            erat_pref = 0;
+    }
+
+    command = g_strdup_printf ("+ERAT=%d,%d", erat_mode, erat_pref);
+    mm_base_modem_at_command (MM_BASE_MODEM (self), command, 30, FALSE,
+                              (GAsyncReadyCallback) set_current_modes_ready, task);
+}
+
+static void
 load_supported_ip_families (MMIfaceModem *self, GAsyncReadyCallback callback, gpointer user_data)
 {
     GTask *task = g_task_new (self, NULL, callback, user_data);
 
-    g_task_return_int (task, MM_BEARER_IP_FAMILY_IPV4);
+    g_task_return_int (task, MM_BEARER_IP_FAMILY_IPV4 | MM_BEARER_IP_FAMILY_IPV4V6);
     g_object_unref (task);
 }
 
@@ -770,6 +959,12 @@ iface_modem_init (MMIfaceModemInterface *iface)
     iface->modem_power_down_finish = power_down_finish;
     iface->load_signal_quality = load_signal_quality;
     iface->load_signal_quality_finish = load_signal_quality_finish;
+    iface->load_supported_modes = load_supported_modes;
+    iface->load_supported_modes_finish = load_supported_modes_finish;
+    iface->load_current_modes = load_current_modes;
+    iface->load_current_modes_finish = load_current_modes_finish;
+    iface->set_current_modes = set_current_modes;
+    iface->set_current_modes_finish = set_current_modes_finish;
     iface->load_supported_ip_families = load_supported_ip_families;
     iface->load_supported_ip_families_finish = load_supported_ip_families_finish;
     iface->setup_flow_control = NULL;

@@ -207,7 +207,7 @@ Section: admin
 Priority: optional
 Architecture: arm64
 Maintainer: sysretq0 <324514544+sysretq0@users.noreply.github.com>
-Depends: libc6, libglib2.0-0t64 | libglib2.0-0, libmm-glib0, util-linux, python3, alsa-ucm-conf
+Depends: libc6, libglib2.0-0t64 | libglib2.0-0, libmm-glib0, util-linux, python3, alsa-ucm-conf, mobile-broadband-provider-info
 Recommends: modemmanager, network-manager, pipewire-audio | pipewire
 Description: Advan X1 (MediaTek MT6789) mainline Linux userspace support
  Self-contained device support package built with Google Clang:
