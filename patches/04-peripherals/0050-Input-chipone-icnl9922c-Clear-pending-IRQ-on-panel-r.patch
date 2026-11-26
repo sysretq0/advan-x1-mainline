@@ -1,0 +1,52 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Thu, 26 Nov 2026 22:50:00 +0700
+Subject: [PATCH] Input: chipone-icnl9922c - mask IRQ unlazily and clear
+ pending IRQ on resume
+
+The ICNL9922C TDDI touchscreen uses an edge-falling EINT interrupt.
+During panel sleep/reset and volatile SRAM firmware upload on resume,
+the INT line toggles and latches a pending interrupt in the controller.
+Without IRQ_DISABLE_UNLAZY and clearing IRQCHIP_STATE_PENDING prior to
+enable_irq(), the stale latched interrupt fires immediately after resume
+and reads all-0x7f SPI idle bytes ("touch read failed: -5").
+
+Set IRQ_DISABLE_UNLAZY when requesting the IRQ and clear any pending
+hardware interrupt state immediately before re-enabling the IRQ at the
+end of icnl9922c_fw_work().
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/input/touchscreen/chipone_icnl9922c.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/input/touchscreen/chipone_icnl9922c.c b/drivers/input/touchscreen/chipone_icnl9922c.c
+index d960b66bd..5c2d9a81e 100644
+--- a/drivers/input/touchscreen/chipone_icnl9922c.c
++++ b/drivers/input/touchscreen/chipone_icnl9922c.c
+@@ -16,6 +16,7 @@
+ #include <linux/input/mt.h>
+ #include <linux/input/touchscreen.h>
+ #include <linux/interrupt.h>
++#include <linux/irq.h>
+ #include <linux/math.h>
+ #include <linux/module.h>
+ #include <linux/mutex.h>
+@@ -520,6 +521,7 @@ static int icnl9922c_ensure_input(struct icnl9922c_ts *ts, u16 fwid, u16 fwver,
+ 		return ret;
+ 	}
+ 
++	irq_set_status_flags(ts->spi->irq, IRQ_DISABLE_UNLAZY);
+ 	ret = devm_request_threaded_irq(dev, ts->spi->irq, NULL,
+ 					icnl9922c_irq_handler,
+ 					IRQF_ONESHOT | IRQF_NO_AUTOEN,
+@@ -713,6 +715,7 @@ static void icnl9922c_fw_work(struct work_struct *work)
+ 
+ 	mutex_lock(&ts->lock);
+ 	if (ts->running && !ts->irq_enabled) {
++		irq_set_irqchip_state(ts->spi->irq, IRQCHIP_STATE_PENDING, false);
+ 		enable_irq(ts->spi->irq);
+ 		ts->irq_enabled = true;
+ 	}
+-- 
+2.55.0

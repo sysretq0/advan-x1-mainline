@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Thu, 26 Nov 2026 22:50:00 +0700
+Subject: [PATCH] net: wwan: mtk_ccci: Quietly drain CCCI_CH_IMSM_RX channel
+
+The MT6789 Gen95 modem periodically sends 32-byte IMS service status
+packets on logical channel 169 (CCCI_IMSM_RX). Without an IMS daemon
+active, these hit the unhandled default path and spam kernel warnings
+and hex dumps in dmesg.
+
+Define CCCI_CH_IMSM_RX (169) and drain it quietly at debug level.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/net/wwan/mtk_ccci/mtk_ccci.h      | 1 +
+ drivers/net/wwan/mtk_ccci/mtk_ccci_core.c | 4 ++++
+ 2 files changed, 5 insertions(+)
+
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci.h b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
+index a1b2c3d4e..f5e6d7c8b 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci.h
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci.h
+@@ -112,6 +112,7 @@
+ #define CCCI_CH_RPC_TX			33
+ #define CCCI_CH_STATUS_RX		67
+ #define CCCI_CH_STATUS_TX		68
++#define CCCI_CH_IMSM_RX			169
+ 
+ /* Control channel message IDs */
+ #define CCCI_MD_INIT_START_BOOT		0x0
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+index 34c9d42d6..777777777 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+@@ -885,6 +885,10 @@ static void mtk_ccci_drain_queue(struct mtk_ccci_dev *ccci, u32 q)
+ 		case CCCI_CH_UART2_RX:
+ 			mtk_ccci_at_rx(ccci, ccci->rx_buf, ret);
+ 			break;
++		case CCCI_CH_IMSM_RX:
++			dev_dbg(ccci->dev, "CCIF Q%u IMSM RX len=%d\n",
++				q, ret);
++			break;
+ 		default:
+ 			if (__ratelimit(&ccci->unhandled_rs)) {
+ 				dev_warn(ccci->dev,
+-- 
+2.55.0

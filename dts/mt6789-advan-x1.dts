@@ -362,7 +362,7 @@
 	sd-uhs-ddr50;
 	no-mmc;
 	no-sdio;
-	cd-gpios = <&pio 7 GPIO_ACTIVE_HIGH>;
+	cd-gpios = <&pio 7 GPIO_ACTIVE_LOW>;
 	vmmc-supply = <&mt6366_vmch_reg>;
 	vqmmc-supply = <&mt6366_vmc_reg>;
 	status = "okay";
@@ -480,7 +480,7 @@
 	clock-frequency = <400000>;
 	status = "okay";
 
-	tcpc@4e {
+	tcpc: tcpc@4e {
 		compatible = "richtek,rt1711h";
 		reg = <0x4e>;
 		pinctrl-names = "default";
@@ -523,6 +523,7 @@
 		ti,boost-voltage = <5000000>;
 		ti,boost-max-current = <1200000>;
 		monitored-battery = <&battery>;
+		power-supplies = <&tcpc>;
 
 		charger_vbus: usb-otg-vbus {
 			regulator-name = "usb-otg-vbus";

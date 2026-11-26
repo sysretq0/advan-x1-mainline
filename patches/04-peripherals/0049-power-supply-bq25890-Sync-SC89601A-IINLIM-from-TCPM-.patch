@@ -1,0 +1,187 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Thu, 26 Nov 2026 22:50:00 +0700
+Subject: [PATCH] power: supply: bq25890: Sync SC89601A IINLIM from TCPM and
+ omit unconnected TS
+
+On SC89601A boards where D+/D- BC1.2/HVDCP detection is disabled for USB
+gadget coexistence and a USB-C TCPC (e.g. RT1711H) negotiates USB-PD /
+Type-C current limits, SC89601A stays stuck at its 500 mA power-on
+IINLIM default even when TCPM negotiates 5V / 2A.
+
+Subscribe to power_supply notifier events for SC89601A and resolve the
+optional DT "power-supplies" supplier lazily via
+power_supply_get_by_reference() inside a work item. This avoids a
+circular -EPROBE_DEFER deadlock when the TCPC consumes this charger's
+usb-otg-vbus regulator, while keeping F_IINLIM synchronized with TCPM's
+CURRENT_MAX across attach, PD renegotiation, VBUS plug-in IRQ, and
+system resume.
+
+Additionally, on boards where the battery NTC is connected to the fuel
+gauge rather than SC89601A's TS pin, REG10 (F_TSPCT) reads 0x7f (80%
+VREGN), causing the BQ25890 thermistor table to report a bogus -21.0 C
+temperature and register a bogus thermal zone. Omit POWER_SUPPLY_PROP_TEMP
+when SC89601A reports F_TSPCT == 0x7f at init.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/power/supply/bq25890_charger.c | 98 ++++++++++++++++++++++++++
+ 1 file changed, 98 insertions(+)
+
+diff --git a/drivers/power/supply/bq25890_charger.c b/drivers/power/supply/bq25890_charger.c
+index 88c91cf..1a2b3c4 100644
+--- a/drivers/power/supply/bq25890_charger.c
++++ b/drivers/power/supply/bq25890_charger.c
+@@ -16,6 +16,7 @@
+ #include <linux/gpio/consumer.h>
+ #include <linux/interrupt.h>
+ #include <linux/delay.h>
++#include <linux/property.h>
+ #include <linux/usb/phy.h>
+ 
+ #include <linux/acpi.h>
+@@ -122,6 +123,8 @@ struct bq25890_device {
+ 	struct usb_phy *usb_phy;
+ 	struct notifier_block usb_nb;
+ 	struct work_struct usb_work;
++	struct notifier_block psy_nb;
++	struct work_struct psy_work;
+ 	struct delayed_work pump_express_work;
+ 	unsigned long usb_event;
+ 
+@@ -780,6 +783,73 @@ static void bq25890_charger_external_power_changed(struct power_supply *psy)
+ 	power_supply_changed(psy);
+ }
+ 
++static void bq25890_sc89601a_psy_work(struct work_struct *work)
++{
++	struct bq25890_device *bq =
++		container_of(work, struct bq25890_device, psy_work);
++	union power_supply_propval online, cur;
++	struct power_supply *supplier;
++	int iinlim_ua = 500000;
++	int ret;
++
++	supplier = power_supply_get_by_reference(dev_fwnode(bq->dev),
++						 "power-supplies");
++	if (IS_ERR_OR_NULL(supplier))
++		return;
++
++	ret = power_supply_get_property(supplier, POWER_SUPPLY_PROP_ONLINE,
++					&online);
++	if (!ret && online.intval) {
++		ret = power_supply_get_property(supplier,
++						POWER_SUPPLY_PROP_CURRENT_MAX,
++						&cur);
++		if (!ret && cur.intval > 0)
++			iinlim_ua = clamp(cur.intval, 100000, 3250000);
++	}
++	power_supply_put(supplier);
++
++	if (ret)
++		return;
++
++	ret = bq25890_field_write(bq, F_IINLIM,
++				  bq25890_charger_get_scaled_iinlim_regval(bq, iinlim_ua));
++	if (!ret)
++		power_supply_changed(bq->charger);
++}
++
++static int bq25890_sc89601a_psy_notifier(struct notifier_block *nb,
++					 unsigned long evt, void *data)
++{
++	struct bq25890_device *bq =
++		container_of(nb, struct bq25890_device, psy_nb);
++	struct power_supply *psy = data;
++	struct fwnode_handle *np;
++	bool match = false;
++
++	if (evt != PSY_EVENT_PROP_CHANGED || psy == bq->charger)
++		return NOTIFY_DONE;
++
++	np = fwnode_find_reference(dev_fwnode(bq->dev), "power-supplies", 0);
++	if (!IS_ERR(np)) {
++		match = (np == psy->dev.fwnode);
++		fwnode_handle_put(np);
++	}
++
++	if (!match)
++		return NOTIFY_DONE;
++
++	schedule_work(&bq->psy_work);
++	return NOTIFY_OK;
++}
++
++static void bq25890_sc89601a_psy_cleanup(void *data)
++{
++	struct bq25890_device *bq = data;
++
++	power_supply_unreg_notifier(&bq->psy_nb);
++	cancel_work_sync(&bq->psy_work);
++}
++
+ static int bq25890_get_chip_state(struct bq25890_device *bq,
+ 				  struct bq25890_state *state)
+ {
+@@ -852,6 +910,9 @@ static irqreturn_t __bq25890_handle_irq(struct bq25890_device *bq)
+ 			goto error;
+ 	}
+ 
++	if (bq->chip_version == SC89601A && new_state.online && !bq->state.online)
++		schedule_work(&bq->psy_work);
++
+ 	bq->state = new_state;
+ 	power_supply_changed(bq->charger);
+ 
+@@ -1057,6 +1118,16 @@ static int bq25890_power_supply_init(struct bq25890_device *bq)
+ 	bq->desc = bq25890_power_supply_desc;
+ 	bq->desc.name = bq->name;
+ 
++	/*
++	 * Omit POWER_SUPPLY_PROP_TEMP (last property in the array) when the
++	 * SC89601A TS pin is unconnected/pulled high (F_TSPCT == 0x7f), which
++	 * otherwise reports -21.0 C and registers a bogus thermal zone.
++	 */
++	if (bq->chip_version == SC89601A &&
++	    bq25890_field_read(bq, F_TSPCT) == 0x7f)
++		bq->desc.num_properties =
++			ARRAY_SIZE(bq25890_power_supply_props) - 1;
++
+ 	psy_cfg.supplied_to = bq25890_charger_supplied_to;
+ 	psy_cfg.num_supplicants = ARRAY_SIZE(bq25890_charger_supplied_to);
+ 
+@@ -1566,6 +1637,22 @@ static int bq25890_probe(struct i2c_client *client)
+ 		usb_register_notifier(bq->usb_phy, &bq->usb_nb);
+ 	}
+ 
++	if (bq->chip_version == SC89601A) {
++		INIT_WORK(&bq->psy_work, bq25890_sc89601a_psy_work);
++		bq->psy_nb.notifier_call = bq25890_sc89601a_psy_notifier;
++		ret = power_supply_reg_notifier(&bq->psy_nb);
++		if (ret)
++			return ret;
++
++		ret = devm_add_action_or_reset(dev,
++					       bq25890_sc89601a_psy_cleanup,
++					       bq);
++		if (ret)
++			return ret;
++
++		schedule_work(&bq->psy_work);
++	}
++
+ 	return 0;
+ }
+ 
+@@ -1637,6 +1725,9 @@ static int bq25890_resume(struct device *dev)
+ 	/* signal userspace, maybe state changed while suspended */
+ 	power_supply_changed(bq->charger);
+ 
++	if (bq->chip_version == SC89601A && bq->state.online)
++		schedule_work(&bq->psy_work);
++
+ unlock:
+ 	mutex_unlock(&bq->lock);
+ 
+-- 
+2.55.0
