@@ -1,0 +1,155 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Thu, 26 Nov 2026 19:31:39 +0700
+Subject: [PATCH] drm/mediatek: Restore MT6789 RDMA, OVL, and DSI cold-start
+ registers
+
+When MT6789_POWER_DOMAIN_DISP powers off during s2idle system suspend,
+bootloader-initialized display pipeline registers reset to 0x0. Restore
+the remaining RDMA0, OVL0, and DSI0 cold-start registers verified
+against live MT6789 stock Android mtcmos-on state and mediatek_v2:
+
+- RDMA0: set RDMA_RG_PIXEL_10_BIT in DISP_REG_RDMA_GLOBAL_CON (MT6789
+  OVL0 outputs 10-bit to RDMA0 regardless of panel bpc) and restore
+  DISP_RDMA_MEM_GMC_SETTING_0/1/2 and DISP_RDMA_SRAM_CASCADE.
+- OVL0: restore DISP_REG_OVL_RDMA_GMC and DISP_REG_OVL_RDMA_FIFO_CTRL
+  for each layer in mtk_ovl_start().
+- DSI0: set MM_RST_SEL in DSI_DEBUG_SEL alongside
+  DSI_CM_WAIT_FIFO_FULL_EN in mtk_dsi_enable().
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/gpu/drm/mediatek/mtk_disp_ovl.c  | 11 +++++++++++
+ drivers/gpu/drm/mediatek/mtk_disp_rdma.c | 21 +++++++++++++++++++++
+ drivers/gpu/drm/mediatek/mtk_dsi.c       |  6 +++++-
+ 3 files changed, 37 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/mediatek/mtk_disp_ovl.c b/drivers/gpu/drm/mediatek/mtk_disp_ovl.c
+index ff0ce7f..a829c62 100644
+--- a/drivers/gpu/drm/mediatek/mtk_disp_ovl.c
++++ b/drivers/gpu/drm/mediatek/mtk_disp_ovl.c
+@@ -45,6 +45,9 @@
+ #define OVL_CONST_BLEND					BIT(28)
+ #define DISP_REG_OVL_RDMA_CTRL(n)		(0x00c0 + 0x20 * (n))
+ #define DISP_REG_OVL_RDMA_GMC(n)		(0x00c8 + 0x20 * (n))
++#define DISP_REG_OVL_RDMA_FIFO_CTRL(n)		(0x00d0 + 0x20 * (n))
++#define OVL_RDMA_GMC_MT6789			0x03ff03ff
++#define OVL_RDMA_FIFO_CTRL_MT6789		0x01200000
+ #define DISP_REG_OVL_RDMA_BURST_CON1		0x01f4
+ #define OVL_RDMA_BURST16_EN				BIT(28)
+ #define DISP_REG_OVL_GDRDY_PRD			0x0208
+@@ -282,6 +285,7 @@ void mtk_ovl_start(struct device *dev)
+ 	}
+ 	if (ovl->data->force_relay_mode) {
+ 		unsigned int reg;
++		unsigned int i;
+ 
+ 		reg = readl(ovl->regs + DISP_REG_OVL_SRC_CON);
+ 		reg |= DISP_OVL_FORCE_RELAY_MODE;
+@@ -292,6 +296,13 @@ void mtk_ovl_start(struct device *dev)
+ 		writel_relaxed(reg, ovl->regs + DISP_REG_OVL_RDMA_BURST_CON1);
+ 
+ 		writel_relaxed(0xffffffff, ovl->regs + DISP_REG_OVL_GDRDY_PRD);
++
++		for (i = 0; i < ovl->data->layer_nr; i++) {
++			writel_relaxed(OVL_RDMA_GMC_MT6789,
++				       ovl->regs + DISP_REG_OVL_RDMA_GMC(i));
++			writel_relaxed(OVL_RDMA_FIFO_CTRL_MT6789,
++				       ovl->regs + DISP_REG_OVL_RDMA_FIFO_CTRL(i));
++		}
+ 	}
+ 	if (ovl->data->bypass_shadow)
+ 		en |= DISP_OVL_BYPASS_SHADOW;
+diff --git a/drivers/gpu/drm/mediatek/mtk_disp_rdma.c b/drivers/gpu/drm/mediatek/mtk_disp_rdma.c
+index 09343a4..8f29227 100644
+--- a/drivers/gpu/drm/mediatek/mtk_disp_rdma.c
++++ b/drivers/gpu/drm/mediatek/mtk_disp_rdma.c
+@@ -29,6 +29,7 @@
+ #define DISP_REG_RDMA_GLOBAL_CON		0x0010
+ #define RDMA_ENGINE_EN					BIT(0)
+ #define RDMA_MODE_MEMORY				BIT(1)
++#define RDMA_RG_PIXEL_10_BIT				BIT(3)
+ #define RDMA_SOFT_RESET					BIT(4)
+ #define DISP_REG_RDMA_SIZE_CON_0		0x0014
+ #define RDMA_MATRIX_ENABLE				BIT(17)
+@@ -46,6 +47,8 @@
+ #define MEM_MODE_INPUT_SWAP				BIT(8)
+ #define DISP_RDMA_MEM_SRC_PITCH			0x002c
+ #define DISP_RDMA_MEM_GMC_SETTING_0		0x0030
++#define DISP_RDMA_MEM_GMC_SETTING_1		0x0034
++#define DISP_RDMA_MEM_GMC_SETTING_2		0x003c
+ #define DISP_REG_RDMA_FIFO_CON			0x0040
+ #define RDMA_FIFO_UNDERFLOW_EN				BIT(31)
+ #define RDMA_FIFO_PSEUDO_SIZE(bytes)			(((bytes) / 16) << 16)
+@@ -54,6 +57,7 @@
+ #define DISP_REG_RDMA_SHADOW_UPDATE		0x00bc
+ #define RDMA_BYPASS_SHADOW				BIT(1)
+ #define RDMA_READ_WORK_REG				BIT(2)
++#define DISP_RDMA_SRAM_CASCADE			0x00c8
+ #define DISP_RDMA_MEM_START_ADDR		0x0f00
+ 
+ #define RDMA_MEM_GMC				0x40402020
+@@ -78,6 +82,7 @@ struct mtk_disp_rdma_data {
+ 	size_t num_formats;
+ 	bool bypass_shadow;
+ 	bool zero_fifo_threshold;
++	bool mt6789_cold_start;
+ };
+ 
+ /*
+@@ -231,6 +236,21 @@ void mtk_rdma_config(struct device *dev, unsigned int width,
+ 	      RDMA_FIFO_PSEUDO_SIZE(rdma_fifo_size) |
+ 	      RDMA_OUTPUT_VALID_FIFO_THRESHOLD(threshold);
+ 	mtk_ddp_write(cmdq_pkt, reg, &rdma->cmdq_reg, rdma->regs, DISP_REG_RDMA_FIFO_CON);
++
++	if (rdma->data->mt6789_cold_start) {
++		mtk_ddp_write_mask(cmdq_pkt, RDMA_RG_PIXEL_10_BIT,
++				   &rdma->cmdq_reg, rdma->regs,
++				   DISP_REG_RDMA_GLOBAL_CON,
++				   RDMA_RG_PIXEL_10_BIT);
++		mtk_ddp_write(cmdq_pkt, 0x8797074c, &rdma->cmdq_reg, rdma->regs,
++			      DISP_RDMA_MEM_GMC_SETTING_0);
++		mtk_ddp_write(cmdq_pkt, 0x074c06b7, &rdma->cmdq_reg, rdma->regs,
++			      DISP_RDMA_MEM_GMC_SETTING_1);
++		mtk_ddp_write(cmdq_pkt, 0x00000100, &rdma->cmdq_reg, rdma->regs,
++			      DISP_RDMA_MEM_GMC_SETTING_2);
++		mtk_ddp_write(cmdq_pkt, 0x04200140, &rdma->cmdq_reg, rdma->regs,
++			      DISP_RDMA_SRAM_CASCADE);
++	}
+ }
+ 
+ static unsigned int rdma_fmt_convert(struct mtk_disp_rdma *rdma,
+@@ -409,6 +429,7 @@ static const struct mtk_disp_rdma_data mt6789_rdma_driver_data = {
+ 	.num_formats = ARRAY_SIZE(mt8173_formats),
+ 	.bypass_shadow = true,
+ 	.zero_fifo_threshold = true,
++	.mt6789_cold_start = true,
+ };
+ 
+ static const struct mtk_disp_rdma_data mt8173_rdma_driver_data = {
+diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_dsi.c
+index ebd8637..88442dd 100644
+--- a/drivers/gpu/drm/mediatek/mtk_dsi.c
++++ b/drivers/gpu/drm/mediatek/mtk_dsi.c
+@@ -163,6 +163,8 @@
+ 
+ #define DSI_STATE_DBG6		0x160
+ #define DSI_STATE_DBG7		0x164
++#define DSI_DEBUG_SEL		0x170
++#define MM_RST_SEL			BIT(9)
+ 
+ /* DSI_SHADOW_DEBUG */
+ #define FORCE_COMMIT			BIT(0)
+@@ -361,9 +363,11 @@ static void mtk_dsi_phy_timconfig(struct mtk_dsi *dsi)
+ static void mtk_dsi_enable(struct mtk_dsi *dsi)
+ {
+ 	mtk_dsi_mask(dsi, DSI_CON_CTRL, DSI_EN, DSI_EN);
+-	if (dsi->driver_data->mt6789_dphy_timing)
++	if (dsi->driver_data->mt6789_dphy_timing) {
+ 		mtk_dsi_mask(dsi, DSI_CON_CTRL, DSI_CM_WAIT_FIFO_FULL_EN,
+ 			     DSI_CM_WAIT_FIFO_FULL_EN);
++		mtk_dsi_mask(dsi, DSI_DEBUG_SEL, MM_RST_SEL, MM_RST_SEL);
++	}
+ }
+ 
+ static void mtk_dsi_disable(struct mtk_dsi *dsi)

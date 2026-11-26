@@ -7,8 +7,11 @@
  * mm-plugin-mtk-ccci.c (GPL-2.0-or-later).
  */
 #include <config.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <gmodule.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "mm-plugin-common.h"
 #include "mm-base-modem-at.h"
@@ -259,8 +262,31 @@ bind_wwan0_if_id (guint net_if)
 {
     static const gchar *const path = "/sys/bus/platform/devices/d0cf000.modem/wwan0_if_id";
     g_autofree gchar *val = g_strdup_printf ("%u\n", net_if);
+    gsize len = strlen (val);
+    gsize off = 0;
+    int fd;
 
-    return g_file_set_contents (path, val, -1, NULL);
+    /*
+     * Write directly rather than using g_file_set_contents(), which creates a
+     * temporary file and calls rename() (always failing on sysfs).
+     */
+    fd = open (path, O_WRONLY | O_CLOEXEC);
+    if (fd < 0)
+        return FALSE;
+
+    while (off < len) {
+        ssize_t n = write (fd, val + off, len - off);
+
+        if (n < 0) {
+            if (errno == EINTR)
+                continue;
+            close (fd);
+            return FALSE;
+        }
+        off += (gsize) n;
+    }
+
+    return close (fd) == 0;
 }
 
 static void

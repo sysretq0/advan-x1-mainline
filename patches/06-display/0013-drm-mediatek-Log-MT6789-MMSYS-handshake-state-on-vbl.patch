@@ -1,26 +1,30 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
-Date: Thu, 26 Nov 2026 03:35:00 +0000
-Subject: [PATCH] drm/mediatek: Log MT6789 MMSYS handshake state on vblank stall
+Date: Thu, 26 Nov 2026 19:31:39 +0700
+Subject: [PATCH] drm/mediatek: Log MT6789 MMSYS and DDP state on vblank stall
 
 When mtk_crtc_atomic_disable() times out waiting for a vblank on
-MT6789, dump the MMSYS clock gates, SODI/EMI control, SMI LARB GREQ,
-DL_VALID/DL_READY handshake signals, and DDP routing registers before
-clocks are gated off. This adds zero output on healthy frames and
-pinpoints the exact stalled DDP link if a post-suspend hang occurs.
+MT6789, dump the MMSYS clock gates (using the correct 0x1a0 CG_CON1
+offset), SODI/EMI control, SMI LARB GREQ, DL_VALID/DL_READY handshake
+signals, DDP routing, and clocked MUTEX/OVL/RDMA/DSC/DSI/IOMMU/SMI
+registers before clocks are gated off. This adds zero output on healthy
+frames and pinpoints the exact stalled DDP block if a post-suspend hang
+occurs.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- drivers/gpu/drm/mediatek/mtk_crtc.c | 48 +++++++++++++++++++++++++++++++++++++
- 1 file changed, 48 insertions(+)
+ drivers/gpu/drm/mediatek/mtk_crtc.c | 128 ++++++++++++++++++++++++++++
+ 1 file changed, 128 insertions(+)
 
 diff --git a/drivers/gpu/drm/mediatek/mtk_crtc.c b/drivers/gpu/drm/mediatek/mtk_crtc.c
-index 52dd02b20..6e9ae6ac8 100644
+index 52dd02b..bb28868 100644
 --- a/drivers/gpu/drm/mediatek/mtk_crtc.c
 +++ b/drivers/gpu/drm/mediatek/mtk_crtc.c
-@@ -6,8 +6,10 @@
+@@ -5,9 +5,12 @@
+ 
  #include <linux/clk.h>
  #include <linux/dma-mapping.h>
++#include <linux/io.h>
  #include <linux/mailbox_controller.h>
 +#include <linux/mfd/syscon.h>
  #include <linux/of.h>
@@ -29,12 +33,61 @@ index 52dd02b20..6e9ae6ac8 100644
  #include <linux/soc/mediatek/mtk-cmdq.h>
  #include <linux/soc/mediatek/mtk-mmsys.h>
  #include <linux/soc/mediatek/mtk-mutex.h>
-@@ -811,12 +813,55 @@ static void mtk_crtc_atomic_enable(struct drm_crtc *crtc,
+@@ -811,12 +814,134 @@ static void mtk_crtc_atomic_enable(struct drm_crtc *crtc,
  	mtk_crtc->enabled = true;
  }
  
++static void mtk_crtc_dump_mt6789_block(struct drm_device *dev,
++				       const char *name, phys_addr_t pa,
++				       const u32 *offs, size_t n)
++{
++	void __iomem *base;
++	u32 v[12] = { 0 };
++	size_t i;
++
++	if (n > ARRAY_SIZE(v))
++		n = ARRAY_SIZE(v);
++
++	base = ioremap(pa, 0x1000);
++	if (!base)
++		return;
++
++	for (i = 0; i < n; i++)
++		v[i] = readl_relaxed(base + offs[i]);
++
++	iounmap(base);
++
++	if (n <= 4)
++		drm_err(dev, "mt6789 %s: 0x%x 0x%x 0x%x 0x%x\n",
++			name, v[0], v[1], v[2], v[3]);
++	else if (n <= 8)
++		drm_err(dev,
++			"mt6789 %s: 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x\n",
++			name, v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]);
++	else
++		drm_err(dev,
++			"mt6789 %s: 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x\n",
++			name, v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7],
++			v[8], v[9], v[10], v[11]);
++}
++
 +static void mtk_crtc_dump_mt6789_mmsys_stall(struct mtk_crtc *mtk_crtc)
 +{
++	static const u32 mutex_offs[] = { 0x020, 0x02c, 0x030, 0x000 };
++	static const u32 ovl_offs[] = {
++		0x00c, 0x020, 0x024, 0x02c, 0x0c0, 0x0c8, 0x0d0, 0x1f4
++	};
++	static const u32 rdma_offs[] = {
++		0x010, 0x014, 0x018, 0x030, 0x040, 0x0bc, 0x0c8, 0x004
++	};
++	static const u32 dsc_offs[] = { 0x000, 0x004, 0x008, 0x030 };
++	static const u32 dsi_offs[] = {
++		0x000, 0x00c, 0x010, 0x014, 0x018, 0x01c,
++		0x038, 0x104, 0x160, 0x164, 0x170, 0x190
++	};
++	static const u32 iommu_offs[] = { 0x000, 0x110, 0x118, 0x120 };
++	static const u32 smic_offs[] = { 0x100, 0x220, 0x444, 0x000 };
++	static const u32 larb_offs[] = { 0x000, 0x024, 0x380, 0x384 };
 +	struct drm_device *dev = mtk_crtc->base.dev;
 +	struct regmap *mmsys;
 +	u32 cg0 = 0, cg1 = 0, misc = 0, sodi = 0, emi = 0;
@@ -54,7 +107,7 @@ index 52dd02b20..6e9ae6ac8 100644
 +	regmap_read(mmsys, 0x0f4, &sodi);
 +	regmap_read(mmsys, 0x0f8, &emi);
 +	regmap_read(mmsys, 0x100, &cg0);
-+	regmap_read(mmsys, 0x110, &cg1);
++	regmap_read(mmsys, 0x1a0, &cg1);
 +	regmap_read(mmsys, 0x8dc, &greq0);
 +	regmap_read(mmsys, 0x8e0, &greq1);
 +	regmap_read(mmsys, 0xe9c, &v0);
@@ -73,6 +126,36 @@ index 52dd02b20..6e9ae6ac8 100644
 +	drm_err(dev,
 +		"mt6789 mmsys dl: va0=0x%x va1=0x%x rd0=0x%x rd1=0x%x ovl=0x%x/0x%x dither=0x%x dsi=0x%x dsc=0x%x\n",
 +		v0, v1, r0, r1, ovl_con, ovl_mout, dither_mout, dsi_sel, dsc_mout);
++
++	if (!(cg0 & BIT(0)))
++		mtk_crtc_dump_mt6789_block(dev, "mutex0", 0x14001000,
++					   mutex_offs, ARRAY_SIZE(mutex_offs));
++	if (!(cg0 & BIT(1)))
++		mtk_crtc_dump_mt6789_block(dev, "ovl0", 0x14005000,
++					   ovl_offs, ARRAY_SIZE(ovl_offs));
++	if (!(cg0 & BIT(2)))
++		mtk_crtc_dump_mt6789_block(dev, "rdma0", 0x14007000,
++					   rdma_offs, ARRAY_SIZE(rdma_offs));
++	if (!(cg0 & BIT(13)))
++		mtk_crtc_dump_mt6789_block(dev, "dsc0", 0x14012000,
++					   dsc_offs, ARRAY_SIZE(dsc_offs));
++	if (!(cg0 & BIT(14)))
++		mtk_crtc_dump_mt6789_block(dev, "dsi0", 0x14013000,
++					   dsi_offs, ARRAY_SIZE(dsi_offs));
++	if (!(cg0 & BIT(19)))
++		mtk_crtc_dump_mt6789_block(dev, "iommu", 0x14016000,
++					   iommu_offs, ARRAY_SIZE(iommu_offs));
++	if (!(cg0 & BIT(16))) {
++		mtk_crtc_dump_mt6789_block(dev, "smi_common", 0x14002000,
++					   smic_offs, ARRAY_SIZE(smic_offs));
++		mtk_crtc_dump_mt6789_block(dev, "smi_sub0", 0x1401b000,
++					   smic_offs, ARRAY_SIZE(smic_offs));
++		mtk_crtc_dump_mt6789_block(dev, "smi_sub1", 0x1401c000,
++					   smic_offs, ARRAY_SIZE(smic_offs));
++	}
++	if (!(cg0 & BIT(17)))
++		mtk_crtc_dump_mt6789_block(dev, "smi_larb0", 0x14003000,
++					   larb_offs, ARRAY_SIZE(larb_offs));
 +}
 +
  static void mtk_crtc_atomic_disable(struct drm_crtc *crtc,
@@ -85,7 +168,7 @@ index 52dd02b20..6e9ae6ac8 100644
  	int i;
  
  	drm_dbg_driver(dev, "%s %d\n", __func__, crtc->base.id);
-@@ -843,7 +888,10 @@ static void mtk_crtc_atomic_disable(struct drm_crtc *crtc,
+@@ -843,7 +968,10 @@ static void mtk_crtc_atomic_disable(struct drm_crtc *crtc,
  				   msecs_to_jiffies(500));
  #endif
  	/* Wait for planes to be disabled */
