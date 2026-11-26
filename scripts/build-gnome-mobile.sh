@@ -56,6 +56,7 @@ if [ "\$linking" = "1" ]; then
     --sysroot="$SYSROOT" \\
     --gcc-install-dir="$GCC_DIR" \\
     -fuse-ld=lld \\
+    "\$@" \\
     -isystem "$STAGE_DIR/usr/include" \\
     -L"$STAGE_DIR/usr/lib/aarch64-linux-gnu" \\
     -L"$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51" \\
@@ -65,15 +66,14 @@ if [ "\$linking" = "1" ]; then
     -Wl,-rpath-link,"$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51" \\
     -Wl,-rpath-link,"$SYSROOT/usr/lib/aarch64-linux-gnu" \\
     -Wl,-rpath-link,"$SYSROOT/lib/aarch64-linux-gnu" \\
-    "\$@" \\
     -Wno-unused-command-line-argument
 else
   exec "$CLANG_DIR/bin/clang" \\
     --target=aarch64-linux-gnu \\
     --sysroot="$SYSROOT" \\
     --gcc-install-dir="$GCC_DIR" \\
-    -isystem "$STAGE_DIR/usr/include" \\
     "\$@" \\
+    -isystem "$STAGE_DIR/usr/include" \\
     -Wno-unused-command-line-argument
 fi
 EOF
@@ -92,6 +92,7 @@ if [ "\$linking" = "1" ]; then
     --sysroot="$SYSROOT" \\
     --gcc-install-dir="$GCC_DIR" \\
     -fuse-ld=lld \\
+    "\$@" \\
     -isystem "$STAGE_DIR/usr/include" \\
     -L"$STAGE_DIR/usr/lib/aarch64-linux-gnu" \\
     -L"$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51" \\
@@ -101,15 +102,14 @@ if [ "\$linking" = "1" ]; then
     -Wl,-rpath-link,"$STAGE_DIR/usr/lib/aarch64-linux-gnu/mutter-51" \\
     -Wl,-rpath-link,"$SYSROOT/usr/lib/aarch64-linux-gnu" \\
     -Wl,-rpath-link,"$SYSROOT/lib/aarch64-linux-gnu" \\
-    "\$@" \\
     -Wno-unused-command-line-argument
 else
   exec "$CLANG_DIR/bin/clang++" \\
     --target=aarch64-linux-gnu \\
     --sysroot="$SYSROOT" \\
     --gcc-install-dir="$GCC_DIR" \\
-    -isystem "$STAGE_DIR/usr/include" \\
     "\$@" \\
+    -isystem "$STAGE_DIR/usr/include" \\
     -Wno-unused-command-line-argument
 fi
 EOF
