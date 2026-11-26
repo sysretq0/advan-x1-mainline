@@ -2,7 +2,7 @@
 
 **Document ID:** AX1ML-AUDIT-2026-11-25
 **Date:** 2026-11-25
-**Repository:** `/work/mainline/advan-x1-mainline` (branch `main`, HEAD `0497522`, 133 commits)
+**Repository:** `<repo>` (branch `main`, HEAD `0497522`, 133 commits)
 **Kernel baseline:** upstream Linux `v7.4-rc3/rc4`, pinned `666539eecdf4db623f5e3c3e55cf9f2dfad24aa4`
 **Patch series:** 75 patches in `patches/01-clk..07-dts` + 2 optional in `patches-extra/`
 
@@ -19,27 +19,27 @@ rebased, staged, or pushed during the audit. Only read operations were executed
 created, and it is untracked by explicit user request. Final attestation at audit time:
 
 ```
-$ git -C /work/mainline/advan-x1-mainline status --porcelain=v1
+$ git -C <repo> status --porcelain=v1
 (empty)
-$ git -C /work/mainline/advan-x1-mainline log -1 --oneline
+$ git -C <repo> log -1 --oneline
 0497522 display: keep DSI video mode active across panel_unprepare for CRTC vblank drain
-$ git -C /work/mainline/advan-x1-mainline rev-list --count HEAD
+$ git -C <repo> rev-list --count HEAD
 133
 ```
 
 ### 0.2 Authority hierarchy (strictly enforced)
 
 1. **Tier A — Advan X1 authoritative ground truth (wins all board-level conflicts).**
-   - Live stock Android 5.10.233 oracle at `127.0.0.1:5555` (`adb root`):
+   - Live stock Android 5.10.233 oracle (`adb root`):
      `/proc/pl_lk`, `/proc/ccci_dump`, `/sys`, live `dmesg`, `expdb`, stock sysfs.
-   - `/work/firmware/advan_x1/dtb/runtime_merged.dts` (decompiled stock DTB),
+   - `<stock-firmware>/dtb/runtime_merged.dts` (decompiled stock DTB),
      `lk_main.dts`, `dtbo_00.dts`.
-   - `/work/mainline/ref/advan-x1-oracle/modules/*.ko` (CCCI/DPMAIF/SPM/SCP kmods),
+   - `<stock-oracle>/modules/*.ko` (CCCI/DPMAIF/SPM/SCP kmods),
      `audio_modules/*.ko` (FS1599, MT6366, ACCDET, spk-amp), `fs1599.fsm`,
      stock userspace `bin/ccci_fsd`, `bin/ccci_rpcd`, `libmtk-ril.so`.
    - Stock logs: `ccci_dump.log`, `dmesg_ccci.log`, `radio.log`.
 2. **Tier B — Motorola `mp01` reference (SoC architecture & wire protocols ONLY).**
-   `/work/android-kernel/mp01-kernel` source, `mt6789.dts`, `k6789v1_64.dts`,
+   `<mt6789-downstream-ref>` source, `mt6789.dts`, `k6789v1_64.dts`,
    `cust_*.dtsi`, Motorola kmods. A board constant that matches mp01 while
    contradicting Tier A is a **critical ODM contamination bug**.
 3. **Tier C — our mainline tree & `git log`.** All 133 commits from scaffold `5207c88`
@@ -50,16 +50,16 @@ $ git -C /work/mainline/advan-x1-mainline rev-list --count HEAD
 
 | Tier | Source | Path / endpoint |
 |---|---|---|
-| A-live | Stock Android (root) | `adb -s 127.0.0.1:5555 shell …` |
+| A-live | Stock Android (root) | `adb shell …` |
 | A-live | LK log | `/proc/pl_lk` |
 | A-live | CCCI dump | `/proc/ccci_dump` |
 | A-live | Crash/boot history | `/dev/block/by-name/expdb` (`strings`) |
-| A-static | Merged stock DTB | `/work/firmware/advan_x1/dtb/runtime_merged.dts` |
-| A-static | DTBO overlay | `/work/firmware/advan_x1/dtb/dtbo_00.dts` |
-| A-static | Prebuilt kmods | `/work/mainline/ref/advan-x1-oracle/modules/*.ko` |
-| A-static | Audio kmods | `/work/mainline/ref/advan-x1-oracle/audio_modules/*.ko`, `fs1599.fsm` |
-| A-static | Stock daemons | `/work/mainline/ref/advan-x1-oracle/bin/ccci_fsd`, `ccci_rpcd` |
-| B | mp01 kernel | `/work/android-kernel/mp01-kernel/` |
+| A-static | Merged stock DTB | `<stock-firmware>/dtb/runtime_merged.dts` |
+| A-static | DTBO overlay | `<stock-firmware>/dtb/dtbo_00.dts` |
+| A-static | Prebuilt kmods | `<stock-oracle>/modules/*.ko` |
+| A-static | Audio kmods | `<stock-oracle>/audio_modules/*.ko`, `fs1599.fsm` |
+| A-static | Stock daemons | `<stock-oracle>/bin/ccci_fsd`, `ccci_rpcd` |
+| B | mp01 kernel | `<mt6789-downstream-ref>/` |
 | C | Mainline DTS | `dts/mt6789.dtsi`, `dts/mt6789-advan-x1.dts` |
 | C | Patches | `patches/01-clk` … `patches/07-dts` |
 | C | Daemons/tools | `tools/ccci_fsd/`, `tools/ccci_rpcd/`, `tools/ucm2/` |
@@ -122,9 +122,7 @@ match Advan ground truth. Contamination findings are provenance-only.
 ### 2.1 Identity and boot state
 
 ```
-$ adb connect 127.0.0.1:5555
-connected to 127.0.0.1:5555
-$ adb -s 127.0.0.1:5555 shell 'id; getprop ro.boot.bootreason; getprop sys.boot.reason;
+$ $ adb shell 'id; getprop ro.boot.bootreason; getprop sys.boot.reason;
                                getprop ro.build.version.release; cat /proc/version'
 uid=0(root) gid=0(root) groups=0(root),1004(input),1007(log),1011(adb),…
 2sec_reboot
@@ -475,27 +473,26 @@ are signed with an old, locally unavailable EDDSA key
 ## 10. Appendix B — exact commands used (all read-only)
 
 ```bash
-adb connect 127.0.0.1:5555
-adb -s 127.0.0.1:5555 shell 'getprop ro.boot.bootreason; getprop sys.boot.reason; cat /proc/version'
-adb -s 127.0.0.1:5555 shell 'cat /proc/pl_lk'
-adb -s 127.0.0.1:5555 shell 'for p in /sys/class/power_supply/*; do …; done'
-adb -s 127.0.0.1:5555 shell 'dmesg | grep -aiE "sc89601|upm6910|bq25890|cw2217|icnl|panel"'
-adb -s 127.0.0.1:5555 shell 'for z in /sys/class/thermal/thermal_zone*; do …trip_point_*_temp…; done'
-adb -s 127.0.0.1:5555 shell 'cat /sys/power/mem_sleep; cat /sys/power/state; …cpuidle/state*/name…'
-adb -s 127.0.0.1:5555 shell 'strings /dev/block/by-name/expdb | grep -aiE "ccci|mblock|reboot"'
-adb -s 127.0.0.1:5555 shell 'grep -aiE "CCIF|md_eint" /proc/ccci_dump'
+adb shell 'getprop ro.boot.bootreason; getprop sys.boot.reason; cat /proc/version'
+adb shell 'cat /proc/pl_lk'
+adb shell 'for p in /sys/class/power_supply/*; do …; done'
+adb shell 'dmesg | grep -aiE "sc89601|upm6910|bq25890|cw2217|icnl|panel"'
+adb shell 'for z in /sys/class/thermal/thermal_zone*; do …trip_point_*_temp…; done'
+adb shell 'cat /sys/power/mem_sleep; cat /sys/power/state; …cpuidle/state*/name…'
+adb shell 'strings /dev/block/by-name/expdb | grep -aiE "ccci|mblock|reboot"'
+adb shell 'grep -aiE "CCIF|md_eint" /proc/ccci_dump'
 
-git -C /work/mainline/advan-x1-mainline status --porcelain=v1
-git -C /work/mainline/advan-x1-mainline log --format='%h %s%n%b'
-git -C /work/mainline/advan-x1-mainline log -G'TODO|FIXME|mp01|Motorola|Zinwa|guess|temp|unverified' --oneline --all
-git -C /work/mainline/advan-x1-mainline log --format='%G? %h' | sort | uniq -c
-strings -a /work/mainline/ref/advan-x1-oracle/modules/*.ko
-nm -n /work/mainline/ref/advan-x1-oracle/modules/ccci_md_all.ko | grep -iE 'rpc|dpmaif|nc_off'
-objdump -d /work/mainline/ref/advan-x1-oracle/modules/ccci_md_all.ko
+git -C <repo> status --porcelain=v1
+git -C <repo> log --format='%h %s%n%b'
+git -C <repo> log -G'TODO|FIXME|mp01|Motorola|Zinwa|guess|temp|unverified' --oneline --all
+git -C <repo> log --format='%G? %h' | sort | uniq -c
+strings -a <stock-oracle>/modules/*.ko
+nm -n <stock-oracle>/modules/ccci_md_all.ko | grep -iE 'rpc|dpmaif|nc_off'
+objdump -d <stock-oracle>/modules/ccci_md_all.ko
 grep -nE '<node>@|reg =|interrupts =|temperature =' \
-  /work/firmware/advan_x1/dtb/runtime_merged.dts \
-  /work/mainline/advan-x1-mainline/dts/mt6789.dtsi \
-  /work/mainline/advan-x1-mainline/dts/mt6789-advan-x1.dts
+  <stock-firmware>/dtb/runtime_merged.dts \
+  <repo>/dts/mt6789.dtsi \
+  <repo>/dts/mt6789-advan-x1.dts
 ```
 
 ---

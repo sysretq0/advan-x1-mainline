@@ -50,7 +50,7 @@ fi
 # --- probe-mount root ---
 ROOT=""
 for i in 1 2 3 4 5 6 7 8 9 10; do
-    for d in /dev/sdc72 /dev/sd*[0-9] /dev/mmcblk*p[0-9]; do
+    for d in /dev/sd*[0-9] /dev/mmcblk*p[0-9]; do
         [ -b "$d" ] || continue
         if $B mount -t ext4 "$d" /mnt 2>/dev/null; then
             echo "=== ROOT MOUNTED: $d ==="

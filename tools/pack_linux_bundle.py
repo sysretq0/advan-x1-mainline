@@ -4,9 +4,8 @@
 pack_linux_bundle.py — Package an ARM64 Image, initramfs, and DTB into a
 loki-loader Linux Bundle ('LNXB').
 
-Symmetric to pack_xnu_bundle.py / the 'XNUB' format: loki-loader's
-do_boot_linux() then reads only the exact blocks the payload occupies,
-instead of blindly streaming 128 MiB.
+Uses a compact 4 KiB-aligned binary header so a chainloader can read only
+the exact blocks occupied by the payload instead of a fixed raw window.
 """
 
 import argparse

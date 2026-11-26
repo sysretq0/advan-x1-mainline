@@ -1,6 +1,5 @@
-CROSS_COMPILE ?= aarch64-linux-gnu-
-CC := $(CROSS_COMPILE)gcc
-CFLAGS := -O2 -Wall -Wextra -Werror -std=c11 -static
+CC ?= aarch64-linux-gnu-gcc
+CFLAGS ?= -O2 -Wall -Wextra -Werror -std=c11
 
 all: ccci_rpcd
 

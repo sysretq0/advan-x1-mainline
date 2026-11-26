@@ -21,9 +21,11 @@
  *      XFS, EROFS, SquashFS):
  *        - Explicit root= (PARTLABEL=, PARTUUID=, UUID=, LABEL=, /dev/<node>,
  *          /dev/disk/by-{uuid,partuuid,label,partlabel}/...)
- *        - Option A nested GPT on xnu_data via native kernel loop parser
- *          (BLKSSZGET + LOOP_CONFIGURE with LO_FLAGS_PARTSCAN -> /dev/loopNpM,
- *           zero hardcoded byte offsets, interleaved with root= polling)
+ *        - Automatic nested-GPT loop attach (BLKSSZGET + LOOP_CONFIGURE with
+ *          LO_FLAGS_PARTSCAN -> /dev/loopNpM, zero hardcoded byte offsets)
+ *          when the resolved root partition holds a GPT-partitioned OS image
+ *        - Generic fallback probe on standard Linux labels (linux / root)
+ *          when root= is omitted from the kernel command line
  *   6. Mount rootfs on /sysroot with auto-detected fstype and split VFS/FS
  *      mount flags (no mutation of /sysroot)
  *   7. Native C switch_root -> /sbin/init (systemd), forwarding `--` args
@@ -1362,7 +1364,7 @@ static bool resolve_root_spec(const char *root_spec, const char *only_disk,
 static bool is_preferred_root_name(const char *name)
 {
 	static const char *const names[] = {
-		"rootfs", "root", "xnu-root", "rootfs-ext4", "mainline", "linux"
+		"root", "linux", "mainline", "system"
 	};
 	for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
 		if (strcasecmp(name, names[i]) == 0)
@@ -1383,12 +1385,11 @@ static int part_cmp(const void *a, const void *b)
 }
 
 /*
- * Option A: Attach a container partition (default PARTLABEL=rootfs, fallback
- * PARTLABEL=xnu_data) to a loop device once using the kernel's native GPT
- * partition parser (BLKSSZGET + LOOP_CONFIGURE with LO_FLAGS_PARTSCAN).
- * Zero hardcoded byte offsets.
+ * Attach a GPT-partitioned container partition to a loop device once using the
+ * kernel's native GPT partition parser (BLKSSZGET + LOOP_CONFIGURE with
+ * LO_FLAGS_PARTSCAN). Zero hardcoded byte offsets.
  */
-static bool attach_nested_gpt_loop(const char *part_spec, const char *fallback_dev,
+static bool attach_nested_gpt_loop(const char *part_spec,
 				   char *loop_disk_out, size_t loop_disk_sz)
 {
 	char cont_dev[256] = { 0 };
@@ -1399,12 +1400,8 @@ static bool attach_nested_gpt_loop(const char *part_spec, const char *fallback_d
 	char loop_dev[64];
 	char loop_disk[32];
 
-	if (!resolve_root_spec(part_spec, NULL, cont_dev, sizeof(cont_dev), NULL) &&
-	    fallback_dev && fallback_dev[0]) {
-		struct stat st;
-		if (stat(fallback_dev, &st) == 0 && S_ISBLK(st.st_mode))
-			copy_str(cont_dev, sizeof(cont_dev), fallback_dev);
-	}
+	if (!resolve_root_spec(part_spec, NULL, cont_dev, sizeof(cont_dev), NULL))
+		return false;
 	if (!cont_dev[0])
 		return false;
 
@@ -1873,10 +1870,8 @@ int main(void)
 	struct fs_info probed_fs;
 	char cmdline[4096] = { 0 };
 	char root_dev[256] = { 0 };
-	char rootfs_loop_disk[32] = { 0 };
-	char xnu_loop_disk[32] = { 0 };
-	bool rootfs_attached = false;
-	bool xnu_attached = false;
+	char loop_disk[32] = { 0 };
+	bool loop_attached = false;
 
 	memset(&probed_fs, 0, sizeof(probed_fs));
 	setenv("PATH", "/sbin:/bin:/usr/sbin:/usr/bin", 1);
@@ -1913,12 +1908,15 @@ int main(void)
 	/*
 	 * Root resolution order:
 	 *  1. Explicit root= from kernel cmdline (direct filesystem, or nested
-	 *     GPT container if root= points at a GPT-wrapped partition).
-	 *  2. Default primary target: PARTLABEL=rootfs (direct filesystem or
-	 *     Option A nested GPT loop on PARTLABEL=rootfs / /dev/sdc64).
-	 *  3. Legacy fallback only if PARTLABEL=rootfs is absent: Option A
-	 *     nested GPT loop on PARTLABEL=xnu_data (/dev/sdc72).
+	 *     GPT container if root= points at a GPT-partitioned OS image).
+	 *  2. If root= is omitted, probe standard generic Linux partition
+	 *     labels (PARTLABEL=linux, LABEL=linux, PARTLABEL=root, LABEL=root)
+	 *     for either a direct filesystem or a nested GPT container.
 	 */
+	static const char *const default_specs[] = {
+		"PARTLABEL=linux", "LABEL=linux",
+		"PARTLABEL=root",  "LABEL=root",
+	};
 	int max_polls = cfg.rootdelay * 5;
 	if (max_polls < 1)
 		max_polls = 1;
@@ -1933,66 +1931,46 @@ int main(void)
 					probed_fs = fi;
 					break;
 				}
-				if (!rootfs_attached &&
-				    attach_nested_gpt_loop(cand, NULL,
-							   rootfs_loop_disk,
-							   sizeof(rootfs_loop_disk))) {
-					rootfs_attached = true;
-					if (select_nested_gpt_root(rootfs_loop_disk, NULL,
-								   root_dev, sizeof(root_dev),
-								   &probed_fs))
-						break;
-				} else {
+				if (!loop_attached &&
+				    attach_nested_gpt_loop(cand,
+							   loop_disk,
+							   sizeof(loop_disk)))
+					loop_attached = true;
+				if (loop_attached &&
+				    select_nested_gpt_root(loop_disk, NULL,
+							   root_dev, sizeof(root_dev),
+							   &probed_fs))
+					break;
+				if (!loop_attached) {
 					copy_str(root_dev, sizeof(root_dev), cand);
 					break;
 				}
 			}
-			if (!rootfs_attached &&
-			    attach_nested_gpt_loop("PARTLABEL=rootfs", "/dev/sdc64",
-						   rootfs_loop_disk,
-						   sizeof(rootfs_loop_disk)))
-				rootfs_attached = true;
-			if (rootfs_attached &&
-			    select_nested_gpt_root(rootfs_loop_disk, cfg.root,
-						   root_dev, sizeof(root_dev), &probed_fs))
-				break;
-			if (!xnu_attached &&
-			    attach_nested_gpt_loop("PARTLABEL=xnu_data", "/dev/sdc72",
-						   xnu_loop_disk, sizeof(xnu_loop_disk)))
-				xnu_attached = true;
-			if (xnu_attached &&
-			    select_nested_gpt_root(xnu_loop_disk, cfg.root,
-						   root_dev, sizeof(root_dev), &probed_fs))
+			if (loop_attached &&
+			    select_nested_gpt_root(loop_disk, NULL,
+						   root_dev, sizeof(root_dev),
+						   &probed_fs))
 				break;
 		} else {
-			char cand[256] = { 0 };
-			struct fs_info fi;
-			memset(&fi, 0, sizeof(fi));
-			if (resolve_root_spec("PARTLABEL=rootfs", NULL,
-					      cand, sizeof(cand), &fi) &&
-			    fi.fstype[0]) {
-				copy_str(root_dev, sizeof(root_dev), cand);
-				probed_fs = fi;
-				break;
-			}
-			if (!rootfs_attached &&
-			    attach_nested_gpt_loop("PARTLABEL=rootfs", "/dev/sdc64",
-						   rootfs_loop_disk,
-						   sizeof(rootfs_loop_disk)))
-				rootfs_attached = true;
-			if (rootfs_attached &&
-			    select_nested_gpt_root(rootfs_loop_disk, NULL,
-						   root_dev, sizeof(root_dev), &probed_fs))
-				break;
-			/* Fall back to legacy xnu_data only after rootfs had time to appear */
-			if (!rootfs_attached && i >= 2) {
-				if (!xnu_attached &&
-				    attach_nested_gpt_loop("PARTLABEL=xnu_data", "/dev/sdc72",
-							   xnu_loop_disk,
-							   sizeof(xnu_loop_disk)))
-					xnu_attached = true;
-				if (xnu_attached &&
-				    select_nested_gpt_root(xnu_loop_disk, NULL,
+			for (size_t s = 0; s < sizeof(default_specs) / sizeof(default_specs[0]); s++) {
+				char cand[256] = { 0 };
+				struct fs_info fi;
+				memset(&fi, 0, sizeof(fi));
+				if (!resolve_root_spec(default_specs[s], NULL,
+						       cand, sizeof(cand), &fi))
+					continue;
+				if (fi.fstype[0]) {
+					copy_str(root_dev, sizeof(root_dev), cand);
+					probed_fs = fi;
+					break;
+				}
+				if (!loop_attached &&
+				    attach_nested_gpt_loop(cand,
+							   loop_disk,
+							   sizeof(loop_disk)))
+					loop_attached = true;
+				if (loop_attached &&
+				    select_nested_gpt_root(loop_disk, NULL,
 							   root_dev, sizeof(root_dev),
 							   &probed_fs))
 					break;

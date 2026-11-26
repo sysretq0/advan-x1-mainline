@@ -13,6 +13,6 @@ force_split=@FORCE_SPLIT@
 # Extra kernel cmdline flags appended to default bootargs.
 # Examples:
 #   extra_bootargs=noswitch
-#   extra_bootargs=root=PARTLABEL=rootfs rootfstype=ext4
+#   extra_bootargs=root=PARTLABEL=linux rootfstype=ext4
 #   extra_bootargs=root=UUID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 extra_bootargs=

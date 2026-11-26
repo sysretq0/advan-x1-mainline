@@ -270,7 +270,7 @@ CONFIG_GNSS=y
 CONFIG_WWAN=y
 CONFIG_MTK_CCCI=y
 
-# Compressed RAM swap (built-in to match host systemd-zram-generator zstd config)
+# Compressed RAM swap (built-in to match packaged rootfs/advan-x1-support/etc/systemd/zram-generator.conf)
 CONFIG_SWAP=y
 CONFIG_ZSMALLOC=y
 CONFIG_ZRAM=y

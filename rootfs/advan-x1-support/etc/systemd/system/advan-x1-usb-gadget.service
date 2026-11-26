@@ -1,0 +1,12 @@
+[Unit]
+Description=Advan X1 USB ConfigFS Gadget (NCM + ACM)
+After=sys-kernel-config.mount local-fs.target
+Wants=sys-kernel-config.mount
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/advan-x1-usb-gadget.sh
+
+[Install]
+WantedBy=multi-user.target

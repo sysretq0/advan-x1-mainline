@@ -21,6 +21,11 @@ MUTTER_REPO="${MUTTER_REPO:-https://gitlab.gnome.org/World/MobileShell/mutter-mo
 SHELL_REPO="${SHELL_REPO:-https://gitlab.gnome.org/World/MobileShell/gnome-shell-mobile.git}"
 MUTTER_TAG="${MUTTER_TAG:-51.1.mobile.23}"
 SHELL_TAG="${SHELL_TAG:-51.1.mobile.23}"
+if [ "$SHELL_TAG" = "$MUTTER_TAG" ]; then
+    PKG_VER="$MUTTER_TAG"
+else
+    PKG_VER="${MUTTER_TAG}+shell.${SHELL_TAG}"
+fi
 
 [ -x "$CLANG_DIR/bin/clang" ] || { echo "FATAL: missing $CLANG_DIR/bin/clang" >&2; exit 1; }
 [ -x "$CLANG_DIR/bin/ld.lld" ] || { echo "FATAL: missing $CLANG_DIR/bin/ld.lld" >&2; exit 1; }
@@ -170,7 +175,10 @@ chmod +x "$WRAP_DIR/ldd"
 wrap_sysroot_bin() {
     local name="$1"
     local target="$SYSROOT/usr/bin/$name"
-    [ -e "$target" ] || return 0
+    if [ ! -e "$target" ]; then
+        echo "  [warn] sysroot tool not found (skipping wrapper): $name" >&2
+        return 0
+    fi
     if [ "$name" = "g-ir-scanner" ]; then
         cat > "$WRAP_DIR/$name" <<EOF
 #!/bin/sh
@@ -351,9 +359,13 @@ ninja -C "$WORK_DIR/build-mutter" -j"$JOBS"
 DESTDIR="$STAGE_DIR" ninja -C "$WORK_DIR/build-mutter" install
 
 # Mirror staged mutter-mobile headers/libs/pc/gir into sysroot so gnome-shell
-# pkg-config (--sysroot) and g-ir-scanner resolve mutter 51.1.mobile.23 seamlessly.
+# pkg-config (--sysroot) and g-ir-scanner resolve mutter-mobile seamlessly.
 echo "== 3. Syncing staged mutter-mobile into sysroot for gnome-shell build =="
-cp -a "$STAGE_DIR/usr/." "$SYSROOT/usr/"
+if [ -w "$SYSROOT/usr" ]; then
+    cp -a "$STAGE_DIR/usr/." "$SYSROOT/usr/"
+else
+    sudo cp -a "$STAGE_DIR/usr/." "$SYSROOT/usr/"
+fi
 
 echo "== 4. Building gnome-shell-mobile ($SHELL_TAG) with Google Clang =="
 rm -rf "$WORK_DIR/build-gnome-shell"
@@ -408,6 +420,8 @@ for line in lines:
         out.append(line)
 p.write_text('\n'.join(out).rstrip() + '\n')
 PYEOF
+else
+    echo "  [warn] $MOBILE_OVERRIDE not found; skipping pmOS toggle-blank strip" >&2
 fi
 
 # Rewrite build-time wrapper & meson-venv paths in installed text/script/dbus files
@@ -444,7 +458,7 @@ done < <(find "$STAGE_DIR/usr" -type f -print0)
 [ "$LEAK_FOUND" -eq 0 ] || exit 1
 echo "  PASS: zero leaked sysroot/CI paths in ALL ELF binaries and text files"
 
-echo "== 7. Packaging advan-x1-gnome-mobile_${MUTTER_TAG}_arm64.deb (with dpkg-divert) =="
+echo "== 7. Packaging advan-x1-gnome-mobile_${PKG_VER}_arm64.deb (with dpkg-divert) =="
 PKG_STAGE="$WORK_DIR/deb-stage"
 rm -rf "$PKG_STAGE"
 mkdir -p "$PKG_STAGE/DEBIAN"
@@ -456,11 +470,11 @@ echo "  Diverting $(wc -l < "$DIVERT_LIST") target paths cleanly via dpkg-divert
 
 cat > "$PKG_STAGE/DEBIAN/control" <<EOF
 Package: advan-x1-gnome-mobile
-Version: ${MUTTER_TAG}
+Version: ${PKG_VER}
 Section: x11
 Priority: optional
 Architecture: arm64
-Maintainer: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Maintainer: sysretq0 <sysretq0@proton.me>
 Depends: gdm3, gnome-session, gnome-shell, gnome-shell-common, mutter, mutter-common, mutter-common-bin, xwayland, gir1.2-modemmanager-1.0
 Recommends: ibus, rtkit, gnome-console, nautilus, gnome-text-editor, loupe, gnome-calculator, gnome-control-center, fonts-cantarell, adwaita-icon-theme, advan-x1-support
 Description: GNOME Mobile (mutter-mobile + gnome-shell-mobile) for Advan X1
@@ -500,9 +514,9 @@ chmod 0755 "$PKG_STAGE/DEBIAN/preinst"
 cat > "$PKG_STAGE/DEBIAN/postinst" <<'POST_EOF'
 #!/bin/sh
 set -e
-ldconfig
+ldconfig || true
 if command -v glib-compile-schemas >/dev/null 2>&1 && [ -d /usr/share/glib-2.0/schemas ]; then
-    glib-compile-schemas /usr/share/glib-2.0/schemas
+    glib-compile-schemas /usr/share/glib-2.0/schemas || true
 fi
 if command -v gtk4-update-icon-cache >/dev/null 2>&1 && [ -d /usr/share/icons/hicolor ]; then
     gtk4-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
@@ -542,7 +556,7 @@ POSTRM_TAIL
 } > "$PKG_STAGE/DEBIAN/postrm"
 chmod 0755 "$PKG_STAGE/DEBIAN/postrm"
 
-DEB_NAME="advan-x1-gnome-mobile_${MUTTER_TAG}_arm64.deb"
+DEB_NAME="advan-x1-gnome-mobile_${PKG_VER}_arm64.deb"
 dpkg-deb -Zxz --build --root-owner-group "$PKG_STAGE" "$OUT_DIR/$DEB_NAME"
 dpkg-deb --info "$OUT_DIR/$DEB_NAME"
 
@@ -558,7 +572,15 @@ sudo env -i HOME=/root PATH=/usr/sbin:/usr/bin:/sbin:/bin chroot "$SYSROOT" /bin
     echo \"    \$MVER\"
     echo \"    \$SVER\"
     echo \"\$MVER\" | grep -q '${MUTTER_TAG}'
-    echo \"\$SVER\" | grep -q '${MUTTER_TAG}'
+    echo \"\$SVER\" | grep -q '${SHELL_TAG}'
+    for target in \
+        /usr/bin/gnome-shell \
+        /usr/bin/mutter \
+        /usr/lib/aarch64-linux-gnu/libmutter-51.so.0 \
+        /usr/lib/aarch64-linux-gnu/gnome-shell/libshell-51.so \
+        /usr/lib/aarch64-linux-gnu/gnome-shell/libst-51.so; do
+        [ -e \"\$target\" ] || { echo \"FATAL: missing expected ELF \$target\" >&2; exit 1; }
+    done
     MISSING=\$(ldd \
         /usr/bin/gnome-shell \
         /usr/bin/mutter \
@@ -596,7 +618,7 @@ fi
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
 DEB="${1:-$(ls -1 "$DIR"/advan-x1-gnome-mobile_*_arm64.deb | head -n 1)}"
-TARGET_USER="${TARGET_USER:-diky}"
+TARGET_USER="${TARGET_USER:-${SUDO_USER:-$(awk -F: '$3 >= 1000 && $3 < 65534 { print $1; exit }' /etc/passwd)}}"
 
 [ -f "$DEB" ] || { echo "FATAL: advan-x1-gnome-mobile .deb not found" >&2; exit 1; }
 
@@ -624,7 +646,7 @@ chmod 0644 /etc/gdm3/daemon.conf
 ln -sf /usr/lib/systemd/system/graphical.target /etc/systemd/system/default.target
 ln -sf /usr/lib/systemd/system/gdm.service /etc/systemd/system/display-manager.service
 
-if id "$TARGET_USER" >/dev/null 2>&1; then
+if [ -n "$TARGET_USER" ] && id "$TARGET_USER" >/dev/null 2>&1; then
     for g in audio video render input netdev sudo; do
         if getent group "$g" >/dev/null; then
             usermod -aG "$g" "$TARGET_USER"
@@ -636,7 +658,15 @@ echo "=== 3. Verify versions, dpkg status, and ldd ==="
 dpkg -s advan-x1-gnome-mobile | grep -E '^(Package|Status|Version):'
 mutter --version
 gnome-shell --version
-MISSING=$(ldd /usr/bin/gnome-shell /usr/bin/mutter /usr/lib/aarch64-linux-gnu/libmutter-51.so.0 /usr/lib/aarch64-linux-gnu/gnome-shell/libshell-51.so /usr/lib/aarch64-linux-gnu/gnome-shell/libst-51.so 2>/dev/null | grep "not found" || true)
+for target in \
+    /usr/bin/gnome-shell \
+    /usr/bin/mutter \
+    /usr/lib/aarch64-linux-gnu/libmutter-51.so.0 \
+    /usr/lib/aarch64-linux-gnu/gnome-shell/libshell-51.so \
+    /usr/lib/aarch64-linux-gnu/gnome-shell/libst-51.so; do
+    [ -e "$target" ] || { echo "ERROR: Missing expected ELF $target" >&2; exit 1; }
+done
+MISSING=$(ldd /usr/bin/gnome-shell /usr/bin/mutter /usr/lib/aarch64-linux-gnu/libmutter-51.so.0 /usr/lib/aarch64-linux-gnu/gnome-shell/libshell-51.so /usr/lib/aarch64-linux-gnu/gnome-shell/libst-51.so 2>&1 | grep "not found" || true)
 if [ -n "$MISSING" ]; then
     echo "ERROR: Missing shared libs:" >&2
     echo "$MISSING" >&2

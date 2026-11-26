@@ -3,7 +3,7 @@
 # dtc compilation, and dt-validate schema compliance.
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-K=${K:-/work/mainline/linux}
+K=${K:-$REPO/../linux}
 BASE=${BASE:-666539eecdf4db623f5e3c3e55cf9f2dfad24aa4}
 TMP=${TMP:-/tmp/advan-plan/verify-tree}
 
@@ -34,7 +34,7 @@ clang -E -nostdinc -undef -D__DTS__ -x assembler-with-cpp \
 dtc -I dts -O dtb -o "$TMP/board.dtb" "$TMP/board.pp.dts"
 echo "DTC compile check: OK"
 
-DT_VALIDATE=${DT_VALIDATE:-$(command -v dt-validate || echo /work/.venv/bin/dt-validate)}
+DT_VALIDATE=${DT_VALIDATE:-$(command -v dt-validate || true)}
 if [ -x "$DT_VALIDATE" ]; then
 	"$DT_VALIDATE" -s "$TMP/Documentation/devicetree/bindings" -m "$TMP/board.dtb"
 	echo "dt-validate check: OK (0 schema errors)"

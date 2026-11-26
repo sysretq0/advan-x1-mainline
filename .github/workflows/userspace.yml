@@ -8,6 +8,7 @@ on:
       - 'tools/ccci_rpcd/**'
       - 'tools/modemmanager-mtk-ccci/**'
       - 'tools/mtk-wwan-connect/**'
+      - 'tools/pipewire/**'
       - 'tools/ucm2/**'
       - 'rootfs/**'
       - 'scripts/build-userspace-tools.sh'
@@ -21,10 +22,12 @@ on:
       - 'tools/ccci_rpcd/**'
       - 'tools/modemmanager-mtk-ccci/**'
       - 'tools/mtk-wwan-connect/**'
+      - 'tools/pipewire/**'
       - 'tools/ucm2/**'
       - 'rootfs/**'
       - 'scripts/build-userspace-tools.sh'
       - 'scripts/build-gnome-mobile.sh'
+      - 'scripts/setup-google-clang.sh'
       - '.github/workflows/userspace.yml'
   workflow_dispatch:
     inputs:
@@ -50,7 +53,7 @@ jobs:
   userspace:
     name: Build advan-x1-support.deb & GNOME Mobile (arm64, Google Clang)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     permissions:
       contents: read
       actions: write
@@ -58,6 +61,7 @@ jobs:
       CLANG_VERSION: r614150
       TOOLCHAIN_ROOT: ${{ github.workspace }}/toolchain
       SYSROOT: ${{ github.workspace }}/debian-sid-arm64-sysroot
+      SYSROOT_PKGS: ca-certificates,dpkg-dev,xz-utils,gcc,g++,libc6-dev,pkg-config,gobject-introspection,libgirepository-2.0-dev,libadwaita-1-dev,sassc,gettext,python3,wayland-protocols,libwayland-bin,libglib2.0-dev-bin,gjs,libgjs-dev,x11-xkb-utils,xcvt,xwayland,modemmanager-dev,libmm-glib-dev,libqmi-glib-dev,libmbim-glib-dev,libqrtr-glib-dev,libgudev-1.0-dev
       MUTTER_TAG: ${{ inputs.mutter_tag || '51.1.mobile.23' }}
       SHELL_TAG: ${{ inputs.shell_tag || '51.1.mobile.23' }}
 
@@ -101,12 +105,18 @@ jobs:
           path: toolchain/clang-${{ env.CLANG_VERSION }}
           key: aosp-clang-${{ env.CLANG_VERSION }}-userspace-${{ runner.os }}
 
+      - name: Compute Debian sid arm64 sysroot cache key
+        id: sysroot-key
+        run: |
+          HASH="$(printf '%s\n' "$SYSROOT_PKGS" | sha256sum | cut -c1-12)"
+          echo "key=debian-sid-arm64-userspace-v2-${HASH}-${{ runner.os }}" >> "$GITHUB_OUTPUT"
+
       - name: Restore Debian sid arm64 userspace sysroot cache
         id: sysroot-cache
         uses: actions/cache/restore@v6
         with:
           path: ${{ github.workspace }}/sysroot-cache
-          key: debian-sid-arm64-userspace-v1-${{ runner.os }}
+          key: ${{ steps.sysroot-key.outputs.key }}
 
       - name: Prepare Debian sid arm64 sysroot
         timeout-minutes: 25
@@ -116,12 +126,14 @@ jobs:
           if [ -f "$SYSROOT_TAR" ]; then
             echo "== Unpacking cached Debian sid arm64 sysroot =="
             sudo tar --zstd -xf "$SYSROOT_TAR" -C "$SYSROOT"
+            # Refresh runner DNS inside restored sysroot so apt-get never uses stale resolv.conf
+            sudo cp -L /etc/resolv.conf "$SYSROOT/etc/resolv.conf"
           else
             echo "== Bootstrapping Debian sid arm64 sysroot with mmdebstrap =="
             sudo mmdebstrap --arch=arm64 --variant=minbase \
               --components=main \
               --aptopt='Acquire::Retries "3"' \
-              --include=ca-certificates,dpkg-dev,xz-utils,gcc,g++,libc6-dev,pkg-config,gobject-introspection,libgirepository-2.0-dev,libadwaita-1-dev,sassc,gettext,python3,wayland-protocols,libwayland-bin,libglib2.0-dev-bin,gjs,libgjs-dev,x11-xkb-utils,xcvt,modemmanager-dev,libmm-glib-dev,libqmi-glib-dev,libmbim-glib-dev,libqrtr-glib-dev,libgudev-1.0-dev \
+              --include="$SYSROOT_PKGS" \
               sid "$SYSROOT" http://deb.debian.org/debian
             printf 'deb http://deb.debian.org/debian sid main\ndeb-src http://deb.debian.org/debian sid main\n' \
               | sudo tee "$SYSROOT/etc/apt/sources.list" >/dev/null
@@ -147,7 +159,7 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: ${{ github.workspace }}/sysroot-cache
-          key: debian-sid-arm64-userspace-v1-${{ runner.os }}
+          key: ${{ steps.sysroot-key.outputs.key }}
 
       - name: Build & verify advan-x1-support .deb (CCCI, MM Plugin, UCM2, configs — Google Clang)
         timeout-minutes: 15

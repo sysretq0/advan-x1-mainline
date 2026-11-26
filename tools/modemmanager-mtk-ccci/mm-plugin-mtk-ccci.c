@@ -114,12 +114,15 @@ configure_apn (MMBaseModem *modem, const gchar *apn,
 {
     /*
      * Sequence verified against stock Android /vendor/lib64/libmtk-ril.so:
+     *   +EGTYPE=4:         enable MTK 4G/EPS data mode
      *   lockAndClearApn(): AT+EAPNLOCK=1 -> AT+EAPNSET (clears APN table)
      *   syncApnItem():     AT+EAPNSET="<apn>",1,"<user>","<pwd>"
      *                      AT+EAPNSET="<apn>",2,"type=...;protocol=...;authtype=..."
      *   unlockApn():       AT+EAPNLOCK=0
+     *   +ECNCFG=1,,,1,1,1: enable MTK cellular network config
      *   handleSetInitialAttachApnRequest():
      *                      AT+EIAAPN="<apn>",0,"<proto>","<proto>",<authtype>,"<user>","<pwd>"
+     *   +EIAREG=1:         enable initial-EPS-attach registration URC
      */
     static const MMBaseModemAtCommand commands[] = {
         { "+EGTYPE=4", 10, FALSE, mm_base_modem_response_processor_no_result_continue },

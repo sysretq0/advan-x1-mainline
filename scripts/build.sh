@@ -2,7 +2,7 @@
 # Advan X1 port — clean build pipeline (U-Boot FIT + boot.scr).
 # Pristine mainline checkout + patches/ series + config frags + DTs ->
 #   Image, DTB, SHA-256 FIT (advan-x1.itb), boot.scr, uEnv.txt (<=32 MiB single or 2-space split).
-# Kernel tree: /work/mainline/linux (stays pristine; patches apply on worktree).
+# Kernel tree: $K (defaults to ../linux; stays pristine; patches apply on worktree).
 # Toolchain: Google's pinned AOSP clang (default clang-r614150, from the
 # android-mainline build config) on PATH; LLVM=1. GOOGLE_CLANG=0 falls back
 # to the host LLVM install. CI caches the toolchain under toolchain/.
@@ -18,8 +18,8 @@
 #   INITRD=/path/to/initramfs.cpio.gz
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-K=${K:-/work/mainline/linux}
-WORK=${WORK:-/work/mainline/linux-worktree}
+K=${K:-$REPO/../linux}
+WORK=${WORK:-$REPO/../linux-worktree}
 OUT=${OUT:-$REPO/build}
 JOBS=${JOBS:-1}
 BASE=${BASE:-666539eecdf4db623f5e3c3e55cf9f2dfad24aa4}
@@ -131,7 +131,6 @@ BOOT_MODE=${BOOT_MODE:-auto}
 MAX_SIZE=${MAX_SIZE:-32M}
 PAYLOAD_LABEL=${PAYLOAD_LABEL:-linux_boot}
 PYTHON_BIN=${PYTHON_BIN:-python3}
-[ -x /work/.venv/bin/python ] && PYTHON_BIN=/work/.venv/bin/python
 
 "$PYTHON_BIN" "$REPO/tools/pack_uboot_boot.py" \
     --kernel "$OUT/arch/arm64/boot/Image" \

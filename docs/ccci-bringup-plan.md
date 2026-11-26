@@ -1,14 +1,14 @@
 # Phase 5: Clean Mainline CCCI Modem Bring-up Plan — ADVAN X1 (MT6789 / Helio G99)
 
-**Status:** Phase 5.0–5.5 COMPLETE & HARDWARE-VERIFIED (MD HS2 READY, `/dev/wwan0at0` AT, DPMAIF v1 + SMEM UL `wwan0` 4G LTE IP data, Native ModemManager 1.24.2 + NetworkManager auto-connect)  
-**Companion Docs:** [`docs/ccci-sip-abi.md`](ccci-sip-abi.md) (EL3 SiP SMC & Loki/LK handover contract) · [`docs/hardware-status.md`](hardware-status.md) (overall device status)  
+**Status:** Phase 5.0–5.5 COMPLETE & HARDWARE-VERIFIED (MD HS2 READY, `/dev/wwan0at0` AT, DPMAIF v1 + SMEM UL `wwan0` 4G LTE IP data, Native ModemManager + NetworkManager auto-connect; see [`docs/modem-full-bringup.md`](modem-full-bringup.md) for Wave 1 voice/SMS/suspend-resume updates)  
+**Companion Docs:** [`docs/modem-full-bringup.md`](modem-full-bringup.md) (full modem Internet/Call/SMS/VoLTE architecture) · [`docs/ccci-sip-abi.md`](ccci-sip-abi.md) (EL3 SiP SMC & Loki/LK handover contract) · [`docs/hardware-status.md`](hardware-status.md) (overall device status)  
 **Target Kernel:** Pristine upstream Linux (`drivers/net/wwan/wwan_core.c` + `t7xx`-style DPMAIF NAPI rings; modular patch series in `advan-x1-mainline`)  
 **Reference Cross-Checks:**
-- Advan X1 stock firmware & dumps: `/work/firmware/advan_x1/` (`dtb/runtime_merged.dts`, `ondevice_dumps/pl_lk.txt`, `tee.img` BL31, `scp.img` RV55, `lk.img`, `md1img.img`)
-- Advan X1 live Android 14 oracle (`INOI_A750_ID_U_V7_20260822_user`, kernel `5.10.233`): `/work/mainline/ref/advan-x1-oracle/` (`modules/ccci_*.ko`, `bin/ccci_fsd`, `bin/ccci_mdinit`, `bin/libmtk-ril.so`, `bl31.bin`, `scp_rv55.bin`, `ccci_dump.log`, `dmesg_ccci.log`, `radio.log`)
-- MT6789 Android 5.10 reference source: `/work/android-kernel/mp01-kernel/drivers/misc/mediatek/eccci/`
-- MT6789 Linux 7.3.3 reference repo: [`zinwa-q25-linux`](https://github.com/wolf109909/zinwa-q25-linux) (`/work/mainline/ref/zinwa-q25-linux`)
-- Upstream Linux WWAN/DPMAIF reference: `/work/mainline/linux/drivers/net/wwan/wwan_core.c` and `/work/mainline/linux/drivers/net/wwan/t7xx/`
+- Advan X1 stock firmware & dumps: `runtime_merged.dts`, `pl_lk.txt`, `tee.img` (BL31), `scp.img` (RV55), `lk.img`, `md1img.img`
+- Advan X1 live stock Android 14 oracle (kernel `5.10.233`): stock `ccci_*.ko`, `ccci_fsd`, `ccci_mdinit`, `libmtk-ril.so`, `bl31.bin`, `scp_rv55.bin`, and local untracked capture logs (`ccci_dump.log`, `dmesg_ccci.log`, `radio.log`)
+- MT6789 Android 5.10 downstream reference (`drivers/misc/mediatek/eccci/`)
+- MT6789 Linux reference repo: [`zinwa-q25-linux`](https://github.com/wolf109909/zinwa-q25-linux)
+- Upstream Linux WWAN/DPMAIF reference: `drivers/net/wwan/wwan_core.c` and `drivers/net/wwan/t7xx/`
 
 ---
 
@@ -44,7 +44,7 @@
 | SCPSYS MD `.caps` | `MTK_SCPD_MODEM_PWRSEQ \| MTK_SCPD_EXT_BUCK_ISO \| MTK_SCPD_KEEP_DEFAULT_OFF` (`mp01`: `MTK_SCPD_MD_OPS \| MTK_SCPD_BYPASS_INIT_ON`) | `patches/03-soc-power/0002*:108-109` (note: `zinwa` also adds `MTK_SCPD_SKIP_RESET_B`, which is a no-op under `MTK_SCPD_MODEM_PWRSEQ` in upstream `mtk-pm-domains.c:634,716,813`) | **Yes** (functional match; see §1.2 for `KEEP_DEFAULT_OFF` caveat) |
 | MD Regulators (`mddriver`) | `md_vmodem-supply = <&mt6358_vmodem_reg>` (`buck_vmodem`, phandle `0x5d`, fixed `825000 uV` / `0xc96a8`); `md_vsram-supply = <&mt6358_vsram_core_reg>` (`ldo_vsram_core`, phandle `0x5e`, fixed `825000 uV` / `0xc96a8`) | `runtime_merged.dts:4694-4697` + phandle resolution `L3975`, `L4110` | **Yes** (`mt8781-zinwa-q25.dts:1666-1669`; Q25 also adds `dvfsrc-vcore-supply`) |
 | SPM `srclken_o1` & `power_flow_config` | `mediatek,srclken_o1 = <0x200000>` (`BIT(21)` in SPM `0x10006000`); `mediatek,power_flow_config = <0x12>` (`BIT(1)=SRCLKEN_O1_BIT \| BIT(4)=SKIP_TOPCLK_BIT`) | `runtime_merged.dts:4686-4687`, `mp01-kernel/drivers/misc/mediatek/eccci/platform/md_sys1_platform.h:84-90`, `ccci_dump.log` (`bypass md_cd_topclkgen_on`, `bypass md_cd_srcclkena_setting`, `set srclken_o1_on done`) | **Yes** (`mt8781-zinwa-q25.dts:1656-1657`) |
-| DPMAIF Clocks (`dpmaif@10014000`) | `<&infracfg_ao 55>` (`0x37`, `CLK_IFRAO_DPMAIF_MAIN`, gate `IFRAO3` bit 26, parent `top_dpmaif_main` = `CLK_TOP_DPMAIF_MAIN` `160` / mux `CLK_TOP_DPMAIF_MAIN_SEL` `42`) | `runtime_merged.dts:4652-4653` (`clocks = <0x2b 0x37>`, `"infra-dpmaif-clk"`), `patches/01-clk/0001*:192,310,378`, `patches/01-clk/0002*:375,1088` | **Yes** (`mt8781-zinwa-q25.dts:1618-1619`) |
+| DPMAIF Clocks (`dpmaif@10014000`) | `<&infracfg_ao 55>` (`0x37`, `CLK_IFRAO_DPMAIF_MAIN`, gate `IFRAO3` bit 26, parent `top_dpmaif_main` = `CLK_TOP_DPMAIF_MAIN` `160` / mux `CLK_TOP_DPMAIF_MAIN_SEL` `42`) | `runtime_merged.dts:4652-4653` (`clocks = <0x2b 0x37>`, `"infra-dpmaif-clk"`), `patches/01-clk/0001*:195,313,381`, `patches/01-clk/0002*:378,588,1103` | **Yes** (`mt8781-zinwa-q25.dts:1618-1619`) |
 | CCIF0 Clocks (`ccifdriver@10209000`) | `<&infracfg_ao 30>` (`0x1e`, `CLK_IFRAO_CCIF_AP` bit 23), `<&infracfg_ao 33>` (`0x21`, `CLK_IFRAO_CCIF_MD` bit 26), `<&infracfg_ao 25>` (`0x19`, `CLK_IFRAO_CCIF1_AP` bit 12), `<&infracfg_ao 26>` (`0x1a`, `CLK_IFRAO_CCIF1_MD` bit 13), `<&infracfg_ao 57>` (`0x39`, `CLK_IFRAO_CCIF4_MD` bit 29), `<&infracfg_ao 51>` (`0x33`, `CLK_IFRAO_CCIF5_MD` bit 10) | `runtime_merged.dts:4664-4665`, `patches/01-clk/0001*:348-380`, `patches/01-clk/0002*:343-377` | **Yes** (`mt8781-zinwa-q25.dts:1631-1642`) |
 | CCIF2 / SCP Clocks (`ccci_scp`) | `<&infracfg_ao 52>` (`0x34`, `CLK_IFRAO_CCIF2_AP` `IFRAO3` bit 16), `<&infracfg_ao 53>` (`0x35`, `CLK_IFRAO_CCIF2_MD` `IFRAO3` bit 17) | `runtime_merged.dts:4704-4705`, `patches/01-clk/0001*:375-376`, `patches/01-clk/0002*:372-373` | **Yes** (`mt8781-zinwa-q25.dts:1677-1679`) |
 
@@ -55,14 +55,14 @@
 ### 1.2 Bootloader MD State & `MTK_SCPD_KEEP_DEFAULT_OFF` AXI Bus-Protection Analysis
 
 **1. Why `PWR_STATUS(0x1000616c) = 0xF83A1BC1` has `MD` (`BIT(0)`) ON at Linux boot:**
-- Verified directly in Advan X1's own bootloader log (`/work/firmware/advan_x1/ondevice_dumps/pl_lk.txt:1852-1886`) and live `/sys/kernel/ccci/lk_md` (`LK Load MD:[Enabled](0x00000001) / LK load MD success!`):
+- Verified directly in Advan X1's own bootloader log (stock `pl_lk.txt:1852-1886`) and live `/sys/kernel/ccci/lk_md` (`LK Load MD:[Enabled](0x00000001) / LK load MD success!`):
   1. Stock LK reads `md1img_a` (`/dev/block/sdc19`), loads it into DRAM at `0xdc000000`, configures BANK0/BANK1/BANK4 HW remaps, applies EMI MPU regions `10..16` and `22..25`, frees unused holes back to `mblock`, and **permanently locks** MD HW remap via `MTK_SIP_LK_CCCI_CONTROL(MD_HW_REMAP_LOCKED=8)` (`pl_lk.txt:1876-1877`).
   2. LK then calls `ccci_md_power_on` (`pl_lk.txt:1881-1884`: sets SPM O1 `0x80215860` and powers ON MD MTCMOS).
   3. LK then calls `ccci_let_md_go` (`pl_lk.txt:1885-1886`: `"Trigger MD run"`), releasing MD from reset **before** jumping to Linux!
   4. When Android boots later, `ccci_md_all.ko` first checks `MD_CHECK_DONE` (BL31 `0x1001a824..0x1001a830 == {1,1,1,1}`), logs `[POWER ON] dummy: MD MTCMOS ON`, triggers `MD_KERNEL_BOOT_UP` (`0x20000024 = 1`), and synchronizes via CCIF0 SRAM handshake (`HS1`/`HS2`).
 
 **2. Does `MTK_SCPD_KEEP_DEFAULT_OFF` hang AXI bus protection without an EL3 MD-stop SMC?**
-- **At Linux boot (`late_initcall_sync`):** **NO hang** — verified in upstream `/work/mainline/linux/drivers/pmdomain/mediatek/mtk-pm-domains.c:993-1021` and proven on hardware (`0c39203`, `c7286ac`):
+- **At Linux boot (`late_initcall_sync`):** **NO hang** — verified in upstream `drivers/pmdomain/mediatek/mtk-pm-domains.c:993-1021` and proven on hardware (`0c39203`, `c7286ac`):
   - `scpsys_add_one_domain()` sees `MTK_SCPD_KEEP_DEFAULT_OFF`, logs `"A default off power domain has been ON"`, does **not** touch hardware, and calls `pm_genpd_init(&pd->genpd, NULL, true)` (marking `is_off = true` in genpd software state). Because genpd believes `MD` is already OFF, `genpd_power_off_unused()` never invokes `scpsys_power_off()` at boot.
 - **On runtime power-off (`pm_runtime_put_sync()` / module unload / `scpsys_remove_one_domain()`):** **YES — CRITICAL HAZARD!**
   - Disassembly of Advan X1 BL31 (`bl31.bin`, `0x48205668`) proves there is **NO EL3 MD-stop SMC** (only `MD_KERNEL_BOOT_UP=0`, `MD_CHECK_FLAG=2`, `MD_CHECK_DONE=3`, `MD_BOOT_STATUS=4`, `MD_LK_BOOT_PLAT=8`, and `MD_FLIGHT_MODE_SET=7` which only updates an ATF/SPM flag).
@@ -119,7 +119,7 @@ Verified from live Advan X1 `/proc/ccci_dump` (`ccci_dump.log:120-149`) and `pl_
 
 ### 1.4 EL3 / BL31 SiP SMCs (Verified Directly from Advan X1 `tee.img` BL31 + `ccci_*.ko`)
 
-Disassembled directly from Advan X1 BL31 (`/work/firmware/advan_x1/tee.img`, MKIMG `atf`, `off=0x200`, `size=0x30558`, load base `0x48200000`) and cross-verified against Advan X1 `ccci_md_all.ko`, `ccci_ccif.ko`, `ccci_dpmaif.ko`, `ccci_fsm_scp.ko`, `mp01-kernel`, and `zinwa-q25-linux`:
+Disassembled directly from Advan X1 BL31 (stock `tee.img`, MKIMG `atf`, `off=0x200`, `size=0x30558`, load base `0x48200000`) and cross-verified against Advan X1 `ccci_md_all.ko`, `ccci_ccif.ko`, `ccci_dpmaif.ko`, `ccci_fsm_scp.ko`, MT6789 downstream reference, and `zinwa-q25-linux`:
 
 | SMC Name | SMC32 / SMC64 ID | BL31 Table Off & Handler VA | Role | Matches `zinwa` / `mp01`? |
 | :--- | :--- | :--- | :--- | :--- |
@@ -197,7 +197,7 @@ struct ccci_header {
 
 ### 1.7 Emulated SCP CCISM Ring (Binary-Verified from Advan X1 `scp.img` RV55 + `bl31.bin` + `ccci_fsm_scp.ko`)
 
-Disassembled directly from Advan X1's own SCP RISC-V firmware (`/work/firmware/advan_x1/scp.img`, `tinysys-scp-RV55_A` at `0x0b19a..0x0b608`, `0x0ba92..0x0bb10`, tables at `0x4e03c` and `0x4e06c`) and BL31 (`0x48215804`):
+Disassembled directly from Advan X1's own SCP RISC-V firmware (stock `scp.img`, `tinysys-scp-RV55_A` at `0x0b19a..0x0b608`, `0x0ba92..0x0bb10`, tables at `0x4e03c` and `0x4e06c`) and BL31 (`0x48215804`):
 
 #### A. Shared-Memory Layout (`SMEM_USER_CCISM_SCP`: AP `0x8e810000`, MD `0x40810000`, Size `0x8000` = 32 KiB)
 From `scp_rv55.bin` `0x4e06c` (`rx_queue_buffer_size[md0] = {0x4000, 0x0}`) and `0x4e03c` (`tx_queue_buffer_size[md0] = {0x0400, 0x0}`): **MD1 uses exactly ONE `ccci_ringbuf` (Queue 0)** starting at offset `0x0000` (Queue 1 has size 0 and is skipped at `0x0b2be`/`0x0b2d0`):
@@ -303,8 +303,8 @@ From `scp_rv55.bin` `0x4e06c` (`rx_queue_buffer_size[md0] = {0x4000, 0x0}`) and 
 
 ### 1.9 Stock RIL AT Init Sequence & `zinwa-q25-linux` ModemManager Plugin Notes
 
-#### A. Advan X1 Complete Cold-Boot Chronological AT Sequence (`docs/reference/radio.log`, `L1..L7400`, `07:04:02.284..07:05:31.471`)
-Verified end-to-end from Advan X1 cold-boot `docs/reference/radio.log` (single USIM in Slot 0, XL Axiata `51011` LTE, Slot 1 empty):
+#### A. Advan X1 Complete Cold-Boot Chronological AT Sequence (Stock Android `logcat -b radio` capture, `L1..L7400`, `07:04:02.284..07:05:31.471`)
+Verified end-to-end from a stock Advan X1 cold-boot `radio.log` capture (untracked local device log, not committed to git; single USIM in Slot 0, LTE carrier `51011`, Slot 1 empty):
 
 1. **Stage 0 — MD Boot & `/dev/ttyC0` Readiness (`L2..L43`, `07:04:02.284..07:04:04.626`):**
    - MD1 transitions `init` (`07:04:02.284`) → `reset` (`07:04:02.288`) → `bootup` (`07:04:02.806`) → **`ready` (`07:04:03.777`, 0.97s)** (`L2..L13`).
@@ -369,7 +369,7 @@ Verified end-to-end from Advan X1 cold-boot `docs/reference/radio.log` (single U
 
 ### 1.10 DPMAIF Hardware Version, Register Map, Descriptors & Exact Diff vs Upstream `drivers/net/wwan/t7xx/`
 
-Verified directly from Advan X1 `runtime_merged.dts:4647-4656`, Advan X1 `ccci_dpmaif.ko` disassembly (`dpmaif_late_init.1003`, `dpmaif_bat_init.1045`, `.rodata:0x72c0`), `mp01-kernel` (`ccci_hif_dpmaif_v1.[ch]`, `dpmaif_reg_v1.h`), `zinwa-q25-linux`, and upstream Linux `/work/mainline/linux/drivers/net/wwan/t7xx/`.
+Verified directly from Advan X1 `runtime_merged.dts:4647-4656`, Advan X1 `ccci_dpmaif.ko` disassembly (`dpmaif_late_init.1003`, `dpmaif_bat_init.1045`, `.rodata:0x72c0`), MT6789 downstream reference (`ccci_hif_dpmaif_v1.[ch]`, `dpmaif_reg_v1.h`), `zinwa-q25-linux`, and upstream Linux `drivers/net/wwan/t7xx/`.
 
 #### A. MT6789 / Advan X1 DPMAIF Hardware Parameters (Binary-Verified)
 

@@ -69,11 +69,13 @@ def find_mkimage(explicit: str | None) -> str:
         if os.path.isfile(explicit) and os.access(explicit, os.X_OK):
             return explicit
         raise FileNotFoundError(f"mkimage not executable: {explicit}")
+    repo_parent = Path(__file__).resolve().parents[2]
     candidates = [
+        os.environ.get("MKIMAGE"),
         shutil.which("mkimage"),
-        "/work/bootloader/u-boot-build/tools/mkimage",
-        "/work/bootloader/advan-x1-uboot/build/tools/mkimage",
-        "/work/bootloader/u-boot-worktree/tools/mkimage",
+        str(repo_parent / "bootloader/u-boot-build/tools/mkimage"),
+        str(repo_parent / "bootloader/advan-x1-uboot/build/tools/mkimage"),
+        str(repo_parent / "u-boot/tools/mkimage"),
     ]
     for c in candidates:
         if c and os.path.isfile(c) and os.access(c, os.X_OK):

@@ -198,6 +198,7 @@ for bin in \
     "$STAGE_DIR/usr/local/sbin/ccci_fsd" \
     "$STAGE_DIR/usr/local/sbin/ccci_rpcd" \
     "$STAGE_DIR/usr/lib/aarch64-linux-gnu/ModemManager/libmm-plugin-mtk-ccci.so"; do
+    [ -f "$bin" ] || { echo "FATAL: missing expected binary $bin" >&2; exit 1; }
     echo "  ldd check: $(basename "$bin")"
     LDD_OUT="$(QEMU_LD_PREFIX="$SYSROOT" "$QEMU_AARCH64" -L "$SYSROOT" \
         "$SYSROOT/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1" --list "$bin")"
@@ -217,15 +218,16 @@ Priority: optional
 Architecture: arm64
 Maintainer: sysretq0 <sysretq0@proton.me>
 Depends: libc6, libglib2.0-0t64 | libglib2.0-0, libmm-glib0, util-linux, python3, alsa-ucm-conf, mobile-broadband-provider-info
-Recommends: modemmanager, network-manager, pipewire-audio | pipewire
+Recommends: modemmanager, network-manager, pipewire-audio | pipewire, systemd-zram-generator
 Description: Advan X1 (MediaTek MT6789) mainline Linux userspace support
  Self-contained device support package built with Google Clang:
   - ccci_fsd & ccci_rpcd read-only NVRAM overlay modem daemons
   - ModemManager mtk-ccci plugin + udev rules + service drop-in
-  - mtk-wwan-connect standalone helper
+  - mtk-wwan-connect standalone fallback helper (active when ModemManager is absent)
+  - USB ConfigFS composite gadget (NCM usb0 + ACM ttyGS0) + networkd config
   - ALSA UCM2 HiFi + Voice Call profiles for mt6789-mt6366 (FS1599 + MT6366)
   - PipeWire / WirePlumber MT6789 AFE latency & headroom drop-ins
-  - Clean 0644 systemd journald/logind/usb0/udev and GNOME Mobile defaults
+  - Clean 0644 systemd journald/logind/zram/usb0/udev and GNOME Mobile defaults
 EOF
 
 cat > "$STAGE_DIR/DEBIAN/postinst" <<'EOF'
@@ -244,6 +246,19 @@ rm -f /etc/systemd/system/multi-user.target.wants/advan-power-screen.service \
 mkdir -p /etc/systemd/system/multi-user.target.wants
 ln -sf /etc/systemd/system/ccci-fsd.service \
        /etc/systemd/system/multi-user.target.wants/ccci-fsd.service
+ln -sf /etc/systemd/system/advan-x1-usb-gadget.service \
+       /etc/systemd/system/multi-user.target.wants/advan-x1-usb-gadget.service
+ln -sf /etc/systemd/system/mtk-wwan-connect.service \
+       /etc/systemd/system/multi-user.target.wants/mtk-wwan-connect.service
+
+# Enable systemd-networkd so /etc/systemd/network/10-usb0.network configures usb0
+if [ -f /usr/lib/systemd/system/systemd-networkd.service ]; then
+    ln -sf /usr/lib/systemd/system/systemd-networkd.service \
+           /etc/systemd/system/multi-user.target.wants/systemd-networkd.service
+elif [ -f /lib/systemd/system/systemd-networkd.service ]; then
+    ln -sf /lib/systemd/system/systemd-networkd.service \
+           /etc/systemd/system/multi-user.target.wants/systemd-networkd.service
+fi
 
 if command -v glib-compile-schemas >/dev/null 2>&1 && [ -d /usr/share/glib-2.0/schemas ]; then
     glib-compile-schemas /usr/share/glib-2.0/schemas || true
@@ -251,22 +266,48 @@ fi
 if [ -d /run/systemd/system ]; then
     systemctl daemon-reload || true
     udevadm control --reload-rules || true
+    systemctl try-restart ModemManager.service || true
 fi
 exit 0
 EOF
 chmod 0755 "$STAGE_DIR/DEBIAN/postinst"
 
+cat > "$STAGE_DIR/DEBIAN/postrm" <<'EOF'
+#!/bin/sh
+set -e
+case "$1" in
+    purge|remove)
+        rm -f /etc/systemd/system/multi-user.target.wants/ccci-fsd.service \
+              /etc/systemd/system/multi-user.target.wants/advan-x1-usb-gadget.service \
+              /etc/systemd/system/multi-user.target.wants/mtk-wwan-connect.service
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload || true
+        fi
+        ;;
+esac
+exit 0
+EOF
+chmod 0755 "$STAGE_DIR/DEBIAN/postrm"
+
 DEB_NAME="advan-x1-support_${PKG_VER}_arm64.deb"
-dpkg-deb --build --root-owner-group "$STAGE_DIR" "$OUT_DIR/$DEB_NAME"
+dpkg-deb -Zxz --build --root-owner-group "$STAGE_DIR" "$OUT_DIR/$DEB_NAME"
 dpkg-deb --info "$OUT_DIR/$DEB_NAME"
 dpkg-deb --contents "$OUT_DIR/$DEB_NAME"
 
-# Gate D: Verify the .deb installs cleanly inside the Debian sid arm64 sysroot!
-echo "== 7. Testing .deb installation inside Debian sid arm64 sysroot =="
+# Gate D: Verify the .deb unpacks, configures (exercising postinst), and purges cleanly inside the Debian sid arm64 sysroot!
+echo "== 7. Testing .deb installation & postinst inside Debian sid arm64 sysroot =="
 sudo cp "$OUT_DIR/$DEB_NAME" "$SYSROOT/tmp/$DEB_NAME"
 sudo chroot "$SYSROOT" /bin/bash -c "
-    set -e
-    dpkg --unpack '/tmp/$DEB_NAME'
+    set -euo pipefail
+    dpkg --unpack --force-depends '/tmp/$DEB_NAME'
+    dpkg --configure --force-depends advan-x1-support
+    test -L /etc/systemd/system/multi-user.target.wants/ccci-fsd.service
+    test -L /etc/systemd/system/multi-user.target.wants/advan-x1-usb-gadget.service
+    test -L /etc/systemd/system/multi-user.target.wants/mtk-wwan-connect.service
+    test -x /usr/local/sbin/advan-x1-usb-gadget.sh
+    test -f /etc/pipewire/pipewire-pulse.conf.d/50-mt6789-latency.conf
+    test -f /etc/wireplumber/wireplumber.conf.d/50-mt6789-alsa.conf
+    test -f /etc/systemd/zram-generator.conf
     dpkg --audit || true
     dpkg --purge advan-x1-support
     rm -f '/tmp/$DEB_NAME'

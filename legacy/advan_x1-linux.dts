@@ -25,7 +25,7 @@
 	// place, so this string IS the published cmdline. Do not shrink below
 	// what we need; length here is capacity.
 	chosen {
-		bootargs = "earlycon=uart8250,mmio32,0x11002000 console=tty0 console=ttyGS0,115200 clk_ignore_unused pd_ignore_unused nokaslr loglevel=7 initcall_debug=1 root=/dev/sdc72 rootwait rw";
+		bootargs = "earlycon=uart8250,mmio32,0x11002000 console=tty0 console=ttyGS0,115200 clk_ignore_unused pd_ignore_unused nokaslr loglevel=7 initcall_debug=1 root=PARTLABEL=linux rootwait rw";
 		// Loader publishes initrd coordinates ONLY when the DTB
 		// carries these stubs (boot.c/fdt.c FDT_NO_PROP otherwise).
 		// Boot 18 lost the initramfs entirely because these two

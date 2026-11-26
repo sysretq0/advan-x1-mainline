@@ -25,8 +25,8 @@
 #   BUSYBOX_ONLY=1           build/populate $BUSYBOX_ROOT only and exit (CI fail-fast)
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-K=${K:-/work/mainline/linux}
-WORK=${WORK:-/work/mainline/linux-worktree}
+K=${K:-$REPO/../linux}
+WORK=${WORK:-$REPO/../linux-worktree}
 OUT=${OUT:-$REPO/build}
 JOBS=${JOBS:-1}
 ROOTFS=${INITRAMFS_ROOT:-$OUT/initramfs-root}

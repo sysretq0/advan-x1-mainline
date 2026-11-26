@@ -5,7 +5,7 @@
 
 ## Why the mainline driver cannot do Re25/F0 today
 
-Stock `/work/mainline/ref/advan-x1-oracle/audio_modules/snd-soc-fs1599.ko` exports
+Stock `snd-soc-fs1599.ko` (extracted from Advan X1 vendor modules) exports
 (verified with `nm -n`) the measurement/calibration functions:
 
 | Symbol | Offset | Role |
@@ -31,7 +31,7 @@ preset data (header `00 01 66 73 ...`, I2C addr `0x34` at `0x3e`, LE DEVID
 `0x21a1` at `0x40`), parsed in kernel by `fsm_parse_preset()` after
 `request_firmware()`. It is **not** a portable measurement algorithm.
 
-Pristine upstream `/work/mainline/linux` has no `mediatek,snd_scp_audio`
+Pristine upstream Linux has no `mediatek,snd_scp_audio`
 driver, no `audio_ipi`, and no SCP speaker task firmware. A real port needs
 all of those plus the vendor DSP task binary — Phase B work, not a stable
 remediation.
@@ -49,15 +49,16 @@ actual transducer and adapting the drive.
 
 Reduce MT6366 LINEOUT drive into the FS1599 from 0 dB to −200 mB:
 
-- `tools/ucm2/MediaTek/mt6789-mt6366/HiFi.conf`:
-  `cset "name='Lineout Volume' 10"` → `8`.
+- `tools/ucm2/MediaTek/mt6789-mt6366/HiFi.conf` (and `VoiceCall.conf`):
+  `cset "name='Lineout Volume' 10"` → `8` (`HiFi.conf:12,49`; `VoiceCall.conf:23,114`).
   Scale from `sound/soc/codecs/mt6358.c`: `SOC_DOUBLE_EXT_TLV("Lineout Volume",
   MT6358_ZCD_CON1, 0, 7, 0x12, ...)` with 100 mB steps — value 10 = 0 dB,
   max 18 = +800 mB, 8 = −200 mB. The speaker path enables `LOL Mux` at
-  `HiFi.conf:42` and feeds FS1599, so this caps the analog input to the amp.
+  `HiFi.conf:50` (and `VoiceCall.conf:115`) and feeds FS1599, so this caps the
+  analog input to the amp across both HiFi playback and voice calls.
 - A note in patch `0035` records why no further gain change is made there:
   the driver has no FS1599-side gain control (`NULL, 0` controls at
-  `0035:342-343`), and blindly editing its static 8 Ω profile is not
+  `0035:358-359`), and blindly editing its static 8 Ω profile is not
   datasheet-backed.
 
 This costs up to 200 mB of speaker level but bounds voice-coil power for

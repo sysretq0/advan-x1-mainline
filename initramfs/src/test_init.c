@@ -59,8 +59,8 @@ static void test_cmdline_parser(void)
 	normalize_root_spec("/dev/disk/by-uuid/e8f59895-03e3-4f1c-a25a-2d7a8cd3b050",
 			    norm_root, sizeof(norm_root));
 	assert(strcmp(norm_root, "UUID=e8f59895-03e3-4f1c-a25a-2d7a8cd3b050") == 0);
-	normalize_root_spec("/dev/disk/by-partlabel/rootfs", norm_root, sizeof(norm_root));
-	assert(strcmp(norm_root, "PARTLABEL=rootfs") == 0);
+	normalize_root_spec("/dev/disk/by-partlabel/linux", norm_root, sizeof(norm_root));
+	assert(strcmp(norm_root, "PARTLABEL=linux") == 0);
 	normalize_root_spec("block:/dev/mmcblk0p2", norm_root, sizeof(norm_root));
 	assert(strcmp(norm_root, "/dev/mmcblk0p2") == 0);
 }
@@ -223,12 +223,12 @@ static void test_mod_normalize_and_uevent(void)
 		"DEVNAME=loop0p2\n"
 		"DEVTYPE=partition\n"
 		"PARTN=2\n"
-		"PARTNAME=rootfs\n"
+		"PARTNAME=linux\n"
 		"PARTUUID=1cd1f6a4-689e-4ce4-922c-749d9691cd48\n";
 	assert(parse_uevent_buf(uev, &pi) == true);
 	assert(pi.major == 259 && pi.minor == 72 && pi.partn == 2);
 	assert(strcmp(pi.devname, "loop0p2") == 0);
-	assert(strcmp(pi.partname, "rootfs") == 0);
+	assert(strcmp(pi.partname, "linux") == 0);
 	assert(strcmp(pi.partuuid, "1cd1f6a4-689e-4ce4-922c-749d9691cd48") == 0);
 }
 
