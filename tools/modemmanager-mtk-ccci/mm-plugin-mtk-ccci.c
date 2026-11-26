@@ -22,8 +22,9 @@
 #include "mm-modem-helpers-mtk-ccci.h"
 
 typedef struct {
-    MMBaseModemAtCommand commands[9];
-    gchar *set_apn;
+    MMBaseModemAtCommand commands[10];
+    gchar *set_apn_creds;
+    gchar *set_apn_params;
     gchar *initial_apn;
     GError *error;
 } ApnSetup;
@@ -31,7 +32,8 @@ typedef struct {
 static void
 apn_setup_free (ApnSetup *ctx)
 {
-    g_free (ctx->set_apn);
+    g_free (ctx->set_apn_creds);
+    g_free (ctx->set_apn_params);
     g_free (ctx->initial_apn);
     g_clear_error (&ctx->error);
     g_free (ctx);
@@ -72,11 +74,13 @@ mtk_auth_type (const gchar *user, const gchar *password, MMBearerAllowedAuth aut
         return 0;
     if (auth == MM_BEARER_ALLOWED_AUTH_PAP)
         return 1;
-    if (auth == MM_BEARER_ALLOWED_AUTH_CHAP)
-        return 2;
     if (auth == MM_BEARER_ALLOWED_AUTH_NONE)
         return 0;
-    return 3; /* PAP or CHAP */
+    /*
+     * Matches stock Android libmtk-ril.so RmcDcUtility::getAuthType():
+     * 0=NONE, 1=PAP, 2=CHAP (PAP_OR_CHAP=3 is mapped to 2).
+     */
+    return 2;
 }
 
 static void
@@ -84,10 +88,20 @@ configure_apn (MMBaseModem *modem, const gchar *apn,
                const gchar *user, const gchar *password, MMBearerAllowedAuth auth,
                GAsyncReadyCallback callback, gpointer user_data)
 {
+    /*
+     * Sequence verified against stock Android /vendor/lib64/libmtk-ril.so:
+     *   lockAndClearApn(): AT+EAPNLOCK=1 -> AT+EAPNSET (clears APN table)
+     *   syncApnItem():     AT+EAPNSET="<apn>",1,"<user>","<pwd>"
+     *                      AT+EAPNSET="<apn>",2,"type=...;protocol=...;authtype=..."
+     *   unlockApn():       AT+EAPNLOCK=0
+     *   handleSetInitialAttachApnRequest():
+     *                      AT+EIAAPN="<apn>",0,"IPV4V6","IPV4V6",<authtype>,"<user>","<pwd>"
+     */
     static const MMBaseModemAtCommand commands[] = {
         { "+EGTYPE=4", 10, FALSE, mm_base_modem_response_processor_no_result_continue },
         { "+EAPNLOCK=1", 10, FALSE, mm_base_modem_response_processor_no_result_continue },
-        { "+EAPNSET=\"\",1,\"\",\"\"", 10, FALSE, mm_base_modem_response_processor_no_result_continue },
+        { "+EAPNSET", 10, FALSE, mm_base_modem_response_processor_no_result_continue },
+        { NULL, 10, FALSE, mm_base_modem_response_processor_no_result_continue },
         { NULL, 10, FALSE, mm_base_modem_response_processor_no_result_continue },
         { "+EAPNLOCK=0", 10, FALSE, mm_base_modem_response_processor_no_result_continue },
         { "+ECNCFG=1,,,1,1,1", 10, FALSE, mm_base_modem_response_processor_no_result_continue },
@@ -103,21 +117,16 @@ configure_apn (MMBaseModem *modem, const gchar *apn,
 
     G_STATIC_ASSERT (G_N_ELEMENTS (commands) == G_N_ELEMENTS (ctx->commands));
     memcpy (ctx->commands, commands, sizeof (commands));
-    if (*u || *p) {
-        ctx->set_apn = g_strdup_printf (
-            "+EAPNSET=\"%s\",2,\"type=default,supl;protocol=IPV4V6;roaming_protocol=IPV4V6;"
-            "user=%s;password=%s;authtype=%u;carrier_enabled=1;max_conns=0;max_conns_time=0;"
-            "wait_time=0;bearer_bitmask=0;inactive_timer=0\"", apn, u, p, authtype);
-    } else {
-        ctx->set_apn = g_strdup_printf (
-            "+EAPNSET=\"%s\",2,\"type=default,supl;protocol=IPV4V6;roaming_protocol=IPV4V6;"
-            "authtype=0;carrier_enabled=1;max_conns=0;max_conns_time=0;wait_time=0;"
-            "bearer_bitmask=0;inactive_timer=0\"", apn);
-    }
+    ctx->set_apn_creds = g_strdup_printf ("+EAPNSET=\"%s\",1,\"%s\",\"%s\"", apn, u, p);
+    ctx->set_apn_params = g_strdup_printf (
+        "+EAPNSET=\"%s\",2,\"type=default,supl;protocol=IPV4V6;roaming_protocol=IPV4V6;"
+        "authtype=%u;carrier_enabled=1;max_conns=0;max_conns_time=0;wait_time=0;"
+        "bearer_bitmask=0;inactive_timer=0\"", apn, authtype);
     ctx->initial_apn = g_strdup_printf ("+EIAAPN=\"%s\",0,\"IPV4V6\",\"IPV4V6\",%u,\"%s\",\"%s\"",
                                         apn, authtype, u, p);
-    ctx->commands[3].command = ctx->set_apn;
-    ctx->commands[6].command = ctx->initial_apn;
+    ctx->commands[3].command = ctx->set_apn_creds;
+    ctx->commands[4].command = ctx->set_apn_params;
+    ctx->commands[7].command = ctx->initial_apn;
     g_task_set_task_data (task, ctx, (GDestroyNotify) apn_setup_free);
     mm_base_modem_at_sequence (modem, ctx->commands, NULL, NULL,
                                (GAsyncReadyCallback) apn_sequence_ready, task);
