@@ -360,11 +360,15 @@ p.write_text('\n'.join(out).rstrip() + '\n')
 PYEOF
 fi
 
-# Rewrite build-time wrapper paths in installed text/script/dbus files to target paths
-# (e.g. Meson embeds find_program('gjs').full_path() into D-Bus .service files).
+# Rewrite build-time wrapper & meson-venv paths in installed text/script/dbus files
+# to target paths (e.g. Meson embeds find_program('gjs') into D-Bus .service files
+# and its own venv python3 into gnome-shell-*-tool shebangs).
 while IFS= read -r -d '' f; do
     if grep -qF "$WRAP_DIR/gjs" "$f" 2>/dev/null; then
         sed -i "s|$WRAP_DIR/gjs|/usr/bin/gjs|g" "$f"
+    fi
+    if head -n 1 "$f" 2>/dev/null | grep -q '^#!/home/runner/.*python3'; then
+        sed -i '1s|^#!/home/runner/.*python3.*|#!/usr/bin/python3|' "$f"
     fi
 done < <(find "$STAGE_DIR/usr" -type f -print0)
 
