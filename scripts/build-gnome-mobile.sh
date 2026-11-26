@@ -360,6 +360,14 @@ p.write_text('\n'.join(out).rstrip() + '\n')
 PYEOF
 fi
 
+# Rewrite build-time wrapper paths in installed text/script/dbus files to target paths
+# (e.g. Meson embeds find_program('gjs').full_path() into D-Bus .service files).
+while IFS= read -r -d '' f; do
+    if grep -qF "$WRAP_DIR/gjs" "$f" 2>/dev/null; then
+        sed -i "s|$WRAP_DIR/gjs|/usr/bin/gjs|g" "$f"
+    fi
+done < <(find "$STAGE_DIR/usr" -type f -print0)
+
 echo "== 6. Static gate A: verify ZERO leaked CI/sysroot paths in staged files =="
 LEAK_FOUND=0
 while IFS= read -r -d '' f; do
@@ -370,21 +378,17 @@ while IFS= read -r -d '' f; do
             echo "$HITS" | head -n 10 >&2
             LEAK_FOUND=1
         fi
-    fi
-done < <(find "$STAGE_DIR/usr" -type f -print0)
-
-for txtdir in lib/systemd share/dbus-1 share/applications share/glib-2.0; do
-    if [ -d "$STAGE_DIR/usr/$txtdir" ]; then
-        THITS="$(grep -rnF -e "$SYSROOT" -e "$STAGE_DIR" -e "$WORK_DIR" -e "/home/runner" "$STAGE_DIR/usr/$txtdir" 2>/dev/null || true)"
+    else
+        THITS="$(grep -nIF -e "$SYSROOT" -e "$STAGE_DIR" -e "$WORK_DIR" -e "/home/runner" "$f" 2>/dev/null || true)"
         if [ -n "$THITS" ]; then
-            echo "FATAL: leaked host/sysroot path in text under usr/$txtdir:" >&2
+            echo "FATAL: leaked host/sysroot path in text file $f:" >&2
             echo "$THITS" | head -n 10 >&2
             LEAK_FOUND=1
         fi
     fi
-done
+done < <(find "$STAGE_DIR/usr" -type f -print0)
 [ "$LEAK_FOUND" -eq 0 ] || exit 1
-echo "  PASS: zero leaked sysroot/CI paths in ELF binaries and configs"
+echo "  PASS: zero leaked sysroot/CI paths in ALL ELF binaries and text files"
 
 echo "== 7. Packaging advan-x1-gnome-mobile_${MUTTER_TAG}_arm64.deb (with dpkg-divert) =="
 PKG_STAGE="$WORK_DIR/deb-stage"
@@ -490,7 +494,7 @@ dpkg-deb --info "$OUT_DIR/$DEB_NAME"
 
 echo "== 8. Static gate B: install .deb in arm64 chroot & verify runtime WITHOUT LD_LIBRARY_PATH =="
 sudo cp "$OUT_DIR/$DEB_NAME" "$SYSROOT/tmp/$DEB_NAME"
-sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin chroot "$SYSROOT" /bin/bash -c "
+sudo env -i HOME=/root PATH=/usr/sbin:/usr/bin:/sbin:/bin chroot "$SYSROOT" /bin/bash -c "
     set -euo pipefail
     dpkg --unpack --force-depends '/tmp/$DEB_NAME'
     dpkg --configure --force-depends advan-x1-gnome-mobile
