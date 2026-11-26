@@ -1,83 +1,150 @@
-From 7dc875d09e9c391683a21976bc06dc542d7edc26 Mon Sep 17 00:00:00 2001
+From 1d9f4ab066de283bc75368aa21f0b413d5f3fff6 Mon Sep 17 00:00:00 2001
 From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
-Date: Fri, 27 Nov 2026 00:38:48 +0700
-Subject: [PATCH] usb: musb: mediatek: Balance OTG PHY power and order
- phy_set_mode
+Date: Fri, 27 Nov 2026 00:57:32 +0700
+Subject: [PATCH] usb: musb: mediatek: Cleanly tear down and restore MUSB state
+ on OTG swaps
 
-In dual-role OTG mode, mtk_musb_probe() initializes glue->role to
-USB_ROLE_NONE, yet mtk_musb_init() unconditionally calls
-phy_power_on(). Subsequent transitions to HOST/DEVICE call
-phy_power_on() again (power_count = 2), so phy_power_off() on
-USB_ROLE_NONE never reaches 0 and never cycles VBUSVALID/SESSEND.
+In dual-role OTG mode, drivers/usb/musb/mediatek.c has three bugs that
+break live USB-C DR_SWAP between gadget and host modes:
 
-Additionally, mtk_otg_switch_set() asserts MUSB_DEVCTL_SESSION before
-calling phy_set_mode(PHY_MODE_USB_HOST), so IDDIG is still high
-(B-device) when SESSION is set, causing Babble and a_wait_vrise
-disconnect errors on role switches. On a direct HOST -> DEVICE DR_SWAP
-(where external VBUS never drops), clearing MUSB_DEVCTL_SESSION without
-power-cycling the PHY leaves DevCtl stuck at 0x98 (SESSION=0) and deaf
-to host resets.
+1. mtk_musb_init() calls phy_power_on() even when glue->role starts as
+   USB_ROLE_NONE, leaking phy->power_count (+1) so phy_power_off()
+   never actually powers down the PHY or cycles VBUSVALID/SESSEND.
+2. Entering USB_ROLE_HOST while a gadget is bound leaves
+   MUSB_POWER_SOFTCONN asserted (D+ pull-up still active) and sets
+   MUSB_DEVCTL_SESSION before phy_set_mode(PHY_MODE_USB_HOST),
+   triggering Babble, a_wait_vrise disconnect, and stuck a_wait_bcon.
+3. Returning to USB_ROLE_DEVICE after host mode never restores
+   MUSB_POWER_SOFTCONN when musb->softconnect is set (leaving Power at
+   0xa0 with D+ pull-up off so the peer host cannot detect the gadget).
 
-Only call phy_power_on()/phy_power_off() at init/exit when glue->role
-is not USB_ROLE_NONE, call phy_set_mode() before asserting
-MUSB_DEVCTL_SESSION in host mode, and power-cycle the PHY on direct
-HOST -> DEVICE swaps so MUSB latches a fresh B-device session.
+Balance phy_power_on()/phy_power_off() for USB_ROLE_NONE, cleanly tear
+down gadget (clear SOFTCONN + musb_g_disconnect) or host (clear SESSION
++ musb_root_disconnect) before power-cycling the PHY and calling
+phy_set_mode(), and restore MUSB_POWER_SOFTCONN when re-entering device
+mode with a bound gadget.
 
 Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
 ---
- drivers/usb/musb/mediatek.c | 26 ++++++++++++++++++++------
- 1 file changed, 20 insertions(+), 6 deletions(-)
+ drivers/usb/musb/mediatek.c | 90 +++++++++++++++++++++++++++----------
+ 1 file changed, 66 insertions(+), 24 deletions(-)
 
 diff --git a/drivers/usb/musb/mediatek.c b/drivers/usb/musb/mediatek.c
-index 45eea9a..571768f 100644
+index 45eea9a..86d8bb3 100644
 --- a/drivers/usb/musb/mediatek.c
 +++ b/drivers/usb/musb/mediatek.c
-@@ -80,6 +80,7 @@ static int mtk_otg_switch_set(struct mtk_glue *glue, enum usb_role role)
- 		if (glue->role == USB_ROLE_NONE)
- 			phy_power_on(glue->phy);
+@@ -66,51 +66,90 @@ static int mtk_musb_clks_get(struct mtk_glue *glue)
+ static int mtk_otg_switch_set(struct mtk_glue *glue, enum usb_role role)
+ {
+ 	struct musb *musb = glue->musb;
+-	u8 devctl = readb(musb->mregs + MUSB_DEVCTL);
+-	enum usb_role new_role;
++	enum usb_role old_role = glue->role;
++	unsigned long flags;
++	u8 devctl, power;
  
+-	if (role == glue->role)
++	if (role == old_role)
+ 		return 0;
+ 
++	if (role != USB_ROLE_HOST && role != USB_ROLE_DEVICE &&
++	    role != USB_ROLE_NONE) {
++		dev_err(glue->dev, "Invalid State\n");
++		return -EINVAL;
++	}
++
++	/* Cleanly tear down the previous role before changing PHY state. */
++	spin_lock_irqsave(&musb->lock, flags);
++	if (old_role == USB_ROLE_DEVICE) {
++		power = musb_readb(musb->mregs, MUSB_POWER);
++		power &= ~MUSB_POWER_SOFTCONN;
++		musb_writeb(musb->mregs, MUSB_POWER, power);
++		musb_g_disconnect(musb);
++	} else if (old_role == USB_ROLE_HOST) {
++		devctl = musb_readb(musb->mregs, MUSB_DEVCTL);
++		devctl &= ~MUSB_DEVCTL_SESSION;
++		musb_writeb(musb->mregs, MUSB_DEVCTL, devctl);
++		musb_root_disconnect(musb);
++	}
++	spin_unlock_irqrestore(&musb->lock, flags);
++
+ 	switch (role) {
+ 	case USB_ROLE_HOST:
+-		musb->xceiv->otg->state = OTG_STATE_A_WAIT_VRISE;
+ 		glue->phy_mode = PHY_MODE_USB_HOST;
+-		new_role = USB_ROLE_HOST;
+-		if (glue->role == USB_ROLE_NONE)
++		if (old_role == USB_ROLE_DEVICE) {
++			phy_power_off(glue->phy);
+ 			phy_power_on(glue->phy);
++		} else if (old_role == USB_ROLE_NONE) {
++			phy_power_on(glue->phy);
++		}
 +		phy_set_mode(glue->phy, glue->phy_mode);
+ 
++		spin_lock_irqsave(&musb->lock, flags);
++		musb->xceiv->otg->state = OTG_STATE_A_WAIT_VRISE;
++		power = musb_readb(musb->mregs, MUSB_POWER);
++		power &= ~MUSB_POWER_SOFTCONN;
++		musb_writeb(musb->mregs, MUSB_POWER, power);
++		devctl = musb_readb(musb->mregs, MUSB_DEVCTL);
  		devctl |= MUSB_DEVCTL_SESSION;
  		musb_writeb(musb->mregs, MUSB_DEVCTL, devctl);
  		MUSB_HST_MODE(musb);
-@@ -90,9 +91,19 @@ static int mtk_otg_switch_set(struct mtk_glue *glue, enum usb_role role)
- 		new_role = USB_ROLE_DEVICE;
- 		devctl &= ~MUSB_DEVCTL_SESSION;
- 		musb_writeb(musb->mregs, MUSB_DEVCTL, devctl);
++		spin_unlock_irqrestore(&musb->lock, flags);
+ 		break;
+ 	case USB_ROLE_DEVICE:
+-		musb->xceiv->otg->state = OTG_STATE_B_IDLE;
+ 		glue->phy_mode = PHY_MODE_USB_DEVICE;
+-		new_role = USB_ROLE_DEVICE;
+-		devctl &= ~MUSB_DEVCTL_SESSION;
+-		musb_writeb(musb->mregs, MUSB_DEVCTL, devctl);
 -		if (glue->role == USB_ROLE_NONE)
-+		if (glue->role == USB_ROLE_HOST) {
-+			/*
-+			 * Power-cycle the PHY when leaving host mode via
-+			 * DR_SWAP so VBUSVALID/SESSEND cleanly edge-triggers
-+			 * a fresh B-device session in MUSB.
-+			 */
++		if (old_role == USB_ROLE_HOST) {
 +			phy_power_off(glue->phy);
  			phy_power_on(glue->phy);
-+		} else if (glue->role == USB_ROLE_NONE) {
++		} else if (old_role == USB_ROLE_NONE) {
 +			phy_power_on(glue->phy);
 +		}
- 
 +		phy_set_mode(glue->phy, glue->phy_mode);
+ 
++		spin_lock_irqsave(&musb->lock, flags);
++		musb->xceiv->otg->state = OTG_STATE_B_IDLE;
++		devctl = musb_readb(musb->mregs, MUSB_DEVCTL);
++		devctl &= ~MUSB_DEVCTL_SESSION;
++		musb_writeb(musb->mregs, MUSB_DEVCTL, devctl);
  		MUSB_DEV_MODE(musb);
++		if (musb->softconnect) {
++			power = musb_readb(musb->mregs, MUSB_POWER);
++			power |= MUSB_POWER_SOFTCONN | MUSB_POWER_HSENAB;
++			musb_writeb(musb->mregs, MUSB_POWER, power);
++		}
++		spin_unlock_irqrestore(&musb->lock, flags);
  		break;
  	case USB_ROLE_NONE:
-@@ -103,6 +114,7 @@ static int mtk_otg_switch_set(struct mtk_glue *glue, enum usb_role role)
- 		if (glue->role != USB_ROLE_NONE)
+ 		glue->phy_mode = PHY_MODE_USB_OTG;
+-		new_role = USB_ROLE_NONE;
+-		devctl &= ~MUSB_DEVCTL_SESSION;
+-		musb_writeb(musb->mregs, MUSB_DEVCTL, devctl);
+-		if (glue->role != USB_ROLE_NONE)
++		if (old_role != USB_ROLE_NONE)
  			phy_power_off(glue->phy);
- 
+-
 +		phy_set_mode(glue->phy, glue->phy_mode);
  		break;
  	default:
- 		dev_err(glue->dev, "Invalid State\n");
-@@ -110,7 +122,6 @@ static int mtk_otg_switch_set(struct mtk_glue *glue, enum usb_role role)
+-		dev_err(glue->dev, "Invalid State\n");
+-		return -EINVAL;
++		break;
  	}
  
- 	glue->role = new_role;
+-	glue->role = new_role;
 -	phy_set_mode(glue->phy, glue->phy_mode);
++	glue->role = role;
  
  	return 0;
  }
-@@ -278,9 +289,11 @@ static int mtk_musb_init(struct musb *musb)
+@@ -278,9 +317,11 @@ static int mtk_musb_init(struct musb *musb)
  	if (ret)
  		goto err_phy_init;
  
@@ -92,7 +159,7 @@ index 45eea9a..571768f 100644
  
  	phy_set_mode(glue->phy, glue->phy_mode);
  
-@@ -337,7 +350,8 @@ static int mtk_musb_exit(struct musb *musb)
+@@ -337,7 +378,8 @@ static int mtk_musb_exit(struct musb *musb)
  	struct mtk_glue *glue = dev_get_drvdata(dev->parent);
  
  	mtk_otg_switch_exit(glue);
