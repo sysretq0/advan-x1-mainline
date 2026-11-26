@@ -47,7 +47,7 @@ index 8ad116b..1d550b7 100644
 -			dev_dbg(ccci->dev, "CCIF Q%u IMSM RX len=%d\n",
 -				q, ret);
 +			dev_dbg(ccci->dev, "CCIF Q%u ch=%u RX len=%d\n",
-+				q, hdr->channel, ret);
++				q, hdr.channel, ret);
  			break;
  		default:
  			if (__ratelimit(&ccci->unhandled_rs)) {

@@ -1,0 +1,65 @@
+From cb34ca1dd4698e83e71ac93759099ea0606884a5 Mon Sep 17 00:00:00 2001
+From: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 00:38:48 +0700
+Subject: [PATCH] power: supply: bq25890: Disable charging before SC89601A OTG
+ boost
+
+On Southchip SC89601A, enabling OTG_CONFIG (REG03[5]) while CHG_CONFIG
+(REG03[4]) remains set prevents the 5 V OTG boost converter from
+bringing up VBUS. When USB-C TCPM enters SRC_ATTACHED, VBUS fails to
+rise within 480 ms and TCPM aborts back to SRC_UNATTACHED.
+
+Clear F_CHG_CFG before enabling F_OTG_CFG in bq25890_vbus_enable(),
+and restore F_CHG_CFG after disabling F_OTG_CFG in
+bq25890_vbus_disable(), matching the downstream Southchip OTG sequence.
+
+Signed-off-by: sysretq0 <324514544+sysretq0@users.noreply.github.com>
+---
+ drivers/power/supply/bq25890_charger.c | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/drivers/power/supply/bq25890_charger.c b/drivers/power/supply/bq25890_charger.c
+index 4d38f06..b74d7cd 100644
+--- a/drivers/power/supply/bq25890_charger.c
++++ b/drivers/power/supply/bq25890_charger.c
+@@ -1262,6 +1262,7 @@ static int bq25890_vbus_enable(struct regulator_dev *rdev)
+ 	union power_supply_propval val = {
+ 		.intval = 0,
+ 	};
++	int ret;
+ 
+ 	/*
+ 	 * When enabling 5V boost / Vbus output, we need to put the secondary
+@@ -1271,6 +1272,16 @@ static int bq25890_vbus_enable(struct regulator_dev *rdev)
+ 	if (bq->secondary_chrg)
+ 		power_supply_set_property(bq->secondary_chrg, POWER_SUPPLY_PROP_ONLINE, &val);
+ 
++	/*
++	 * Southchip SC89601A requires CHG_CONFIG=0 before enabling OTG boost,
++	 * otherwise VBUS never rises and TCPM times out in SRC_ATTACHED.
++	 */
++	if (bq->chip_version == SC89601A) {
++		ret = bq25890_field_write(bq, F_CHG_CFG, 0);
++		if (ret < 0)
++			return ret;
++	}
++
+ 	return bq25890_set_otg_cfg(bq, 1);
+ }
+ 
+@@ -1286,6 +1297,12 @@ static int bq25890_vbus_disable(struct regulator_dev *rdev)
+ 	if (ret)
+ 		return ret;
+ 
++	if (bq->chip_version == SC89601A) {
++		ret = bq25890_field_write(bq, F_CHG_CFG, 1);
++		if (ret < 0)
++			return ret;
++	}
++
+ 	if (bq->secondary_chrg)
+ 		power_supply_set_property(bq->secondary_chrg, POWER_SUPPLY_PROP_ONLINE, &val);
+ 
+-- 
+2.55.0
+
