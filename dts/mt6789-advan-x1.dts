@@ -119,6 +119,7 @@
 		};
 
 		consys_emi_mem: memory@7f000000 {
+			compatible = "mediatek,consys_emi_reserved";
 			reg = <0x00 0x7f000000 0x00 0x00500000>;
 			no-map;
 		};
@@ -175,6 +176,7 @@
 		};
 
 		wifi_dma_mem: memory@bf000000 {
+			compatible = "shared-dma-pool";
 			reg = <0x00 0xbf000000 0x00 0x00600000>;
 			no-map;
 		};
@@ -1255,6 +1257,24 @@
 			};
 		};
 	};
+};
+
+&consys {
+	emi-addr = <0x7f000000>;
+	emi-size = <0x00500000>;
+	emi-alignment = <0x01000000>;
+	emi-max-addr = <0x80000000>;
+	pmic = <&pmic>;
+	vcn18-supply = <&mt6366_vcn18_reg>;
+	vcn28-supply = <&mt6366_vcn28_reg>;
+	vcn33_bt-supply = <&mt6366_vcn33_reg>;
+	vcn33_wifi-supply = <&mt6366_vcn33_reg>;
+	status = "okay";
+};
+
+&wifi {
+	memory-region = <&wifi_dma_mem>;
+	status = "okay";
 };
 
 &dsi0_out {

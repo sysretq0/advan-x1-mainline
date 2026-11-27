@@ -172,6 +172,25 @@ if [ -f "$KCFG" ] && [ -f "$MOD_MANIFEST" ]; then
             done
         fi
 
+        if [ -f "$REPO/drivers/connsys/Makefile" ] && [ "${BUILD_CONNSYS:-1}" = "1" ]; then
+            echo "== out-of-tree MT6789 CONNSYS kmods for $KVER =="
+            kmake -j"$JOBS" M="$REPO/drivers/connsys" modules
+            for _ko_rel in \
+                btif/common/btif_drv.ko \
+                connectivity/connadp.ko \
+                connectivity/common/wmt_drv.ko \
+                connectivity/wlan/adaptor/wmt_chrdev_wifi.ko \
+                connectivity/wlan/core/gen4m/wlan_drv_gen4m_6789.ko; do
+                _src="$REPO/drivers/connsys/$_ko_rel"
+                [ -f "$_src" ] || { echo "FATAL: expected $_src not built" >&2; exit 1; }
+                _base=$(basename "$_src")
+                cp -f "$_src" "$MOD_DEST/$_base"
+                strip_ko "$MOD_DEST/$_base"
+                STAGED_ORDER+=("extra/$_base")
+                echo "  staged $_base ($(du -h "$MOD_DEST/$_base" | cut -f1))"
+            done
+        fi
+
         for _dir in ${INITRAMFS_MOD_DIRS:-}; do
             kmake -j"$JOBS" M="$_dir" modules
             MOD_OUT="$KOBJ_ROOT/$_dir"

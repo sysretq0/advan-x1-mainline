@@ -108,6 +108,14 @@ ln -sf /usr/local/lib/mtk-imsd/mtk-imsd.py \
 install -m 0644 "$REPO/tools/mtk_imsd/mtk-imsd.service" \
     "$STAGE_DIR/etc/systemd/system/mtk-imsd.service"
 
+echo "== 2d. Building mtk-wmt-init (Google Clang arm64) =="
+"${CLANG_AARCH64[@]}" -O2 -Wall -Wextra -Werror -std=c11 \
+    "$REPO/tools/mtk_connsys/mtk-wmt-init.c" \
+    -o "$STAGE_DIR/usr/local/sbin/mtk-wmt-init"
+"$CLANG_DIR/bin/llvm-strip" --strip-all "$STAGE_DIR/usr/local/sbin/mtk-wmt-init"
+install -m 0644 "$REPO/tools/mtk_connsys/mtk-connsys.service" \
+    "$STAGE_DIR/etc/systemd/system/mtk-connsys.service"
+
 echo "== 3. Building ModemManager mtk-ccci plugin (Google Clang arm64) =="
 MM_WORK="$WORK_DIR/mm-src"
 rm -rf "$MM_WORK"
@@ -230,6 +238,7 @@ for bin in \
     "$STAGE_DIR/usr/local/sbin/ccci_rpcd" \
     "$STAGE_DIR/usr/local/sbin/ccci_audd" \
     "$STAGE_DIR/usr/local/sbin/mtk_volte_rtp" \
+    "$STAGE_DIR/usr/local/sbin/mtk-wmt-init" \
     "$STAGE_DIR/usr/lib/aarch64-linux-gnu/ModemManager/libmm-plugin-mtk-ccci.so"; do
     [ -f "$bin" ] || { echo "FATAL: missing expected binary $bin" >&2; exit 1; }
     echo "  ldd check: $(basename "$bin")"
@@ -285,6 +294,8 @@ ln -sf /etc/systemd/system/ccci-audd.service \
        /etc/systemd/system/multi-user.target.wants/ccci-audd.service
 ln -sf /etc/systemd/system/advan-x1-usb-gadget.service \
        /etc/systemd/system/multi-user.target.wants/advan-x1-usb-gadget.service
+ln -sf /etc/systemd/system/mtk-connsys.service \
+       /etc/systemd/system/multi-user.target.wants/mtk-connsys.service
 
 # Enable ModemManager at boot when installed so cellular data/voice/SMS come up automatically;
 # otherwise enable standalone mtk-wwan-connect fallback (mutually exclusive in multi-user.target).

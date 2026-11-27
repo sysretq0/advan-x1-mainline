@@ -5,6 +5,7 @@ on:
     branches: [ main, master ]
     paths:
       - 'patches/**'
+      - 'drivers/**'
       - 'dts/**'
       - 'config/**'
       - 'initramfs/**'
@@ -19,6 +20,7 @@ on:
     branches: [ main, master ]
     paths:
       - 'patches/**'
+      - 'drivers/**'
       - 'dts/**'
       - 'config/**'
       - 'initramfs/**'

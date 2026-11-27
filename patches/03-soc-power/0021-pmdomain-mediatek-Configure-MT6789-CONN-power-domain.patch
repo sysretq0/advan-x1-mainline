@@ -1,0 +1,55 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Fri, 27 Nov 2026 14:35:00 +0700
+Subject: [PATCH] pmdomain: mediatek: Configure MT6789 CONN power domain for CONNSYS
+
+MediaTek MT6789's integrated CONNSYS connectivity subsystem
+(mediatek,mt6789-consys) requires its SCPSYS power domain
+(MT6789_POWER_DOMAIN_CONN) to remain powered off across driver attach
+until the CONNSYS driver has configured EMI address remapping, enabled
+the CCIF4 AP clock, and brought up the VCN PMIC rails, after which it
+explicitly powers CONN on via pm_runtime_get_sync() and marks the device
+as a wakeup source.
+
+1. Skip automatic attach-time power-on in genpd_dev_pm_attach() for
+   mediatek,mt6789-consys so CONN stays off until runtime-resumed.
+2. Add MTK_SCPD_ACTIVE_WAKEUP to MT6789_POWER_DOMAIN_CONN so genpd
+   keeps CONN MTCMOS active across s2idle while Wi-Fi/CONNSYS is live.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+--- a/drivers/pmdomain/core.c
++++ b/drivers/pmdomain/core.c
+@@ -3565,6 +3565,8 @@
+  */
+ int genpd_dev_pm_attach(struct device *dev)
+ {
++	bool power_on = true;
++
+ 	if (!dev->of_node)
+ 		return 0;
+ 
+@@ -3576,7 +3578,10 @@
+ 				       "#power-domain-cells") != 1)
+ 		return 0;
+ 
+-	return __genpd_dev_pm_attach(dev, dev, 0, 1, true);
++	if (of_device_is_compatible(dev->of_node, "mediatek,mt6789-consys"))
++		power_on = false;
++
++	return __genpd_dev_pm_attach(dev, dev, 0, 1, power_on);
+ }
+ EXPORT_SYMBOL_GPL(genpd_dev_pm_attach);
+ 
+--- a/drivers/pmdomain/mediatek/mt6789-pm-domains.h
++++ b/drivers/pmdomain/mediatek/mt6789-pm-domains.h
+@@ -109,7 +109,8 @@
+ 					MT6789_TOP_AXI_PROT_EN_1_CLR,
+ 					MT6789_TOP_AXI_PROT_EN_1_STA1),
+ 		},
+-		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
++		.caps = MTK_SCPD_KEEP_DEFAULT_OFF |
++			MTK_SCPD_ACTIVE_WAKEUP,
+ 	},
+ 	[MT6789_POWER_DOMAIN_MFG0] = {
+ 		.name = "mfg0",

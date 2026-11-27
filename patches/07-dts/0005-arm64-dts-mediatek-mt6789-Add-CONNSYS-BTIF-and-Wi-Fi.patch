@@ -1,0 +1,137 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Fri, 27 Nov 2026 14:37:00 +0700
+Subject: [PATCH] arm64: dts: mediatek: mt6789: Add CONNSYS, BTIF, and Wi-Fi nodes for Advan X1
+
+Instantiate MT6789_POWER_DOMAIN_CONN and add the MT6789 integrated
+CONNSYS connectivity nodes (btif@1100c000, wifi@18000000,
+consys@18002000) in mt6789.dtsi, and enable them on Advan X1 with the
+board's verified EMI reservation (0x7f000000, 5 MiB), Wi-Fi DMA pool
+(0xbf000000, 6 MiB), and MT6366 PMIC/VCN rails.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+diff --git a/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
+index bca9188..b51d6bb 100644
+--- a/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
++++ b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
+@@ -119,6 +119,7 @@
+ 		};
+ 
+ 		consys_emi_mem: memory@7f000000 {
++			compatible = "mediatek,consys_emi_reserved";
+ 			reg = <0x00 0x7f000000 0x00 0x00500000>;
+ 			no-map;
+ 		};
+@@ -175,6 +176,7 @@
+ 		};
+ 
+ 		wifi_dma_mem: memory@bf000000 {
++			compatible = "shared-dma-pool";
+ 			reg = <0x00 0xbf000000 0x00 0x00600000>;
+ 			no-map;
+ 		};
+@@ -1257,6 +1259,24 @@
+ 	};
+ };
+ 
++&consys {
++	emi-addr = <0x7f000000>;
++	emi-size = <0x00500000>;
++	emi-alignment = <0x01000000>;
++	emi-max-addr = <0x80000000>;
++	pmic = <&pmic>;
++	vcn18-supply = <&mt6366_vcn18_reg>;
++	vcn28-supply = <&mt6366_vcn28_reg>;
++	vcn33_bt-supply = <&mt6366_vcn33_reg>;
++	vcn33_wifi-supply = <&mt6366_vcn33_reg>;
++	status = "okay";
++};
++
++&wifi {
++	memory-region = <&wifi_dma_mem>;
++	status = "okay";
++};
++
+ &dsi0_out {
+ 	remote-endpoint = <&panel_in>;
+ };
+diff --git a/arch/arm64/boot/dts/mediatek/mt6789.dtsi b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
+index ac0e77c..fb2060d 100644
+--- a/arch/arm64/boot/dts/mediatek/mt6789.dtsi
++++ b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
+@@ -425,6 +425,12 @@
+ 					#power-domain-cells = <0>;
+ 				};
+ 
++				conn: power-domain@1 {
++					reg = <MT6789_POWER_DOMAIN_CONN>;
++					mediatek,infracfg = <&infracfg_ao>;
++					#power-domain-cells = <0>;
++				};
++
+ 				mfg0: power-domain@2 {
+ 					reg = <MT6789_POWER_DOMAIN_MFG0>;
+ 					clocks = <&topckgen CLK_TOP_MFG_PLL_SEL>,
+@@ -809,6 +815,19 @@
+ 			#thermal-sensor-cells = <1>;
+ 		};
+ 
++		btif: btif@1100c000 {
++			compatible = "mediatek,btif";
++			reg = <0x00 0x1100c000 0x00 0x1000>,
++			      <0x00 0x10217b00 0x00 0x0080>,
++			      <0x00 0x10217b80 0x00 0x0080>;
++			interrupts = <GIC_SPI 190 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 184 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 185 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&infracfg_ao CLK_IFRAO_BTIF>,
++				 <&infracfg_ao CLK_IFRAO_AP_DMA>;
++			clock-names = "btifc", "apdmac";
++		};
++
+ 		disp_pwm0: pwm@1100e000 {
+ 			compatible = "mediatek,mt6789-disp-pwm";
+ 			reg = <0x00 0x1100e000 0x00 0x1000>;
+@@ -1417,6 +1436,41 @@
+ 			clock-names = "apb", "smi", "gals0", "gals1";
+ 			power-domains = <&spm MT6789_POWER_DOMAIN_DISP>;
+ 		};
++
++		wifi: wifi@18000000 {
++			compatible = "mediatek,wifi";
++			reg = <0x00 0x18000000 0x00 0x00100000>;
++			interrupts = <GIC_SPI 409 IRQ_TYPE_LEVEL_HIGH>;
++			emi-addr = <0x00>;
++			emi-size = <0x00600000>;
++			emi-alignment = <0x01000000>;
++			emi-max-addr = <0xc0000000>;
++			status = "disabled";
++		};
++
++		consys: consys@18002000 {
++			compatible = "mediatek,mt6789-consys";
++			#thermal-sensor-cells = <0>;
++			reg = <0x00 0x18002000 0x00 0x1000>,
++			      <0x00 0x10007000 0x00 0x0100>,
++			      <0x00 0x10001000 0x00 0x1000>,
++			      <0x00 0x10006000 0x00 0x1000>,
++			      <0x00 0x18007000 0x00 0x1000>,
++			      <0x00 0x180b1000 0x00 0x1000>,
++			      <0x00 0x180a3000 0x00 0x1000>,
++			      <0x00 0x180a5000 0x00 0x0800>,
++			      <0x00 0x180c1000 0x00 0x1000>,
++			      <0x00 0x18004000 0x00 0x1000>,
++			      <0x00 0x1024c000 0x00 0x0040>,
++			      <0x00 0x10003000 0x00 0x1000>;
++			interrupts = <GIC_SPI 410 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 111 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 411 IRQ_TYPE_LEVEL_HIGH>;
++			power-domains = <&spm MT6789_POWER_DOMAIN_CONN>;
++			clocks = <&infracfg_ao CLK_IFRAO_CCIF4_AP>;
++			clock-names = "ccif";
++			status = "disabled";
++		};
+ 	};
+ 
+ 	tboard_thermistor1: thermal-ntc1 {

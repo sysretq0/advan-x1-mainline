@@ -1,0 +1,15 @@
+[Unit]
+Description=MediaTek MT6789 CONNSYS Wi-Fi power-on and firmware initialization
+After=ccci-fsd.service local-fs.target
+Wants=ccci-fsd.service
+Before=NetworkManager.service wpa_supplicant.service
+ConditionPathExists=/dev/wmtdetect
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/mtk-wmt-init
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target

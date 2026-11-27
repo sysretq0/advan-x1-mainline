@@ -425,6 +425,12 @@
 					#power-domain-cells = <0>;
 				};
 
+				conn: power-domain@1 {
+					reg = <MT6789_POWER_DOMAIN_CONN>;
+					mediatek,infracfg = <&infracfg_ao>;
+					#power-domain-cells = <0>;
+				};
+
 				mfg0: power-domain@2 {
 					reg = <MT6789_POWER_DOMAIN_MFG0>;
 					clocks = <&topckgen CLK_TOP_MFG_PLL_SEL>,
@@ -807,6 +813,19 @@
 			nvmem-cells = <&lvts_e_data>;
 			nvmem-cell-names = "lvts-calib-data-1";
 			#thermal-sensor-cells = <1>;
+		};
+
+		btif: btif@1100c000 {
+			compatible = "mediatek,btif";
+			reg = <0x00 0x1100c000 0x00 0x1000>,
+			      <0x00 0x10217b00 0x00 0x0080>,
+			      <0x00 0x10217b80 0x00 0x0080>;
+			interrupts = <GIC_SPI 190 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 184 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 185 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&infracfg_ao CLK_IFRAO_BTIF>,
+				 <&infracfg_ao CLK_IFRAO_AP_DMA>;
+			clock-names = "btifc", "apdmac";
 		};
 
 		disp_pwm0: pwm@1100e000 {
@@ -1416,6 +1435,41 @@
 				 <&mmsys CLK_MM_SMI_IOMMU>;
 			clock-names = "apb", "smi", "gals0", "gals1";
 			power-domains = <&spm MT6789_POWER_DOMAIN_DISP>;
+		};
+
+		wifi: wifi@18000000 {
+			compatible = "mediatek,wifi";
+			reg = <0x00 0x18000000 0x00 0x00100000>;
+			interrupts = <GIC_SPI 409 IRQ_TYPE_LEVEL_HIGH>;
+			emi-addr = <0x00>;
+			emi-size = <0x00600000>;
+			emi-alignment = <0x01000000>;
+			emi-max-addr = <0xc0000000>;
+			status = "disabled";
+		};
+
+		consys: consys@18002000 {
+			compatible = "mediatek,mt6789-consys";
+			#thermal-sensor-cells = <0>;
+			reg = <0x00 0x18002000 0x00 0x1000>,
+			      <0x00 0x10007000 0x00 0x0100>,
+			      <0x00 0x10001000 0x00 0x1000>,
+			      <0x00 0x10006000 0x00 0x1000>,
+			      <0x00 0x18007000 0x00 0x1000>,
+			      <0x00 0x180b1000 0x00 0x1000>,
+			      <0x00 0x180a3000 0x00 0x1000>,
+			      <0x00 0x180a5000 0x00 0x0800>,
+			      <0x00 0x180c1000 0x00 0x1000>,
+			      <0x00 0x18004000 0x00 0x1000>,
+			      <0x00 0x1024c000 0x00 0x0040>,
+			      <0x00 0x10003000 0x00 0x1000>;
+			interrupts = <GIC_SPI 410 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 111 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 411 IRQ_TYPE_LEVEL_HIGH>;
+			power-domains = <&spm MT6789_POWER_DOMAIN_CONN>;
+			clocks = <&infracfg_ao CLK_IFRAO_CCIF4_AP>;
+			clock-names = "ccif";
+			status = "disabled";
 		};
 	};
 
