@@ -49,7 +49,6 @@
 #include <memory/mediatek/emi.h>
 #endif
 #include <linux/arm-smccc.h>
-#include <linux/soc/mediatek/mtk_sip_svc.h>
 
 #if CONSYS_PMIC_CTRL_ENABLE
 #include <linux/regulator/consumer.h>
@@ -1077,6 +1076,11 @@ static INT32 consys_hw_vcn_ctrl_after_idle(VOID)
 	return 0;
 }
 
+#ifndef MTK_SIP_EMIMPU_CONTROL
+#define MTK_SIP_EMIMPU_CONTROL \
+	ARM_SMCCC_CALL_VAL(ARM_SMCCC_FAST_CALL, ARM_SMCCC_SMC_64, \
+			   ARM_SMCCC_OWNER_SIP, 0x50B)
+#endif
 #define MT6789_EMIMPU_REGION_CONN	27
 #define MT6789_EMIMPU_DOMAIN_AP		0
 #define MT6789_EMIMPU_DOMAIN_CONN	2
