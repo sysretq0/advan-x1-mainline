@@ -10,18 +10,18 @@ Advan X1 (MT6789) mainline Linux port.
 
 ---
 
-## 1. Patch Series Layout (122 Upstream-Targeted Patches)
+## 1. Patch Series Layout (125 Upstream-Targeted Patches)
 
 | Directory | Count | Scope |
 |---|---:|---|
 | `patches/01-clk/` | 9 | MT6789 clock/reset bindings (including all 8 multimedia controllers), core clocks (`apmixedsys`, `topckgen`, `infra_ao` + MFGPLL mux-park notifier), `imp_iic_wrap`, `mmsys`, `mfgcfg`, multimedia subsystem drivers (`mdpsys`, `camsys_{main,rawa,rawb}`, `imgsys1`, `ipesys`, `vdecsys`, `vencsys` — 100% of MT6789 silicon clock gates), and Linux 7.4 `mtk_clk_simple_probe` conversions |
 | `patches/02-pinctrl/` | 2 | MT6789 pinctrl binding and 188-pin pinctrl/EINT driver |
 | `patches/03-soc-power/` | 22 | SCPSYS power domains (all 15 MT6789 domains including `CONN` with generic `GENPD_FLAG_NO_ATTACH_POWER_ON` and `M8` multimedia domains with `MTK_SCPD_KEEP_DEFAULT_OFF`), MT6789 PMIC wrapper (`mt6789_regs[]`), regulator coupler, MMSYS, disp-mutex (+ probe deferral), SMI (common + 2×1 sub-commons + larb sleep-ctrl restore), socinfo, disp IOMMU (`mtk-iommu`), and Linux 7.4 typed-allocator / PM-ops modernization |
-| `patches/04-peripherals/` | 67 | SPI, I²C (`mt6789_compat`, `dma_sync=1`), eFuse, watchdog, LVTS thermal (+ per-SoC zero-MSR guard & STAGE3 hw reboot), MT6366 PMIC thermal + MT6358/MT6366 PMIC eFuse + MT6366 DCXO `XO_NFC` CCF clkbuf, DISP PWM, MT6358 long-press fix, MMC, SC89601A charger (+ 18W/3A PD unlock), CW2217 fuel gauge, Chipone ICNL9922C SPI touch, MT6789 AFE/MT6366 audio + `PCM 2` / `Hostless_Speech` voice crossbar + FourSemi FS1599 + MT6358 ACCDET (+ eFuse/moisture/CDD), UFS/USB PHY bindings + T-PHY wake/OTG, `tps65132` wakeup, CCCI/CCIF0/RPC/FS/Audio (`/dev/ccci_aud`)/WWAN AT/DPMAIF v1 + SMEM UL modem stack (+ suspend/resume restore & bring-up log cleanup) |
+| `patches/04-peripherals/` | 69 | SPI, I²C (`mt6789_compat`, `dma_sync=1`), eFuse, watchdog, LVTS thermal (+ per-SoC zero-MSR guard & STAGE3 hw reboot), MT6366 PMIC thermal + MT6358/MT6366 PMIC eFuse + MT6366 DCXO `XO_NFC` CCF clkbuf, DISP PWM, MT6358 long-press fix, MMC, SC89601A charger (+ 18W/3A PD unlock), CW2217 fuel gauge, Chipone ICNL9922C SPI touch, MT6789 AFE/MT6366 audio + `PCM 2` / `Hostless_Speech` voice crossbar + FourSemi FS1599 + MT6358 ACCDET (+ eFuse/moisture/CDD), UFS/USB PHY bindings + T-PHY wake/OTG, `tps65132` wakeup, CCCI/CCIF0/RPC/FS/Audio (`/dev/ccci_aud`)/WWAN AT/DPMAIF v1 + SMEM UL modem stack (+ suspend/resume restore & bring-up log cleanup), and MT6789 SCP RV55 sensorhub IIO binding & driver |
 | `patches/05-gpu/` | 2 | Mali-G57 MC2 (`panfrost`) binding and compatible |
 | `patches/06-display/` | 14 | MIPI-TX DSI PHY (+ s2idle cold-start resume), `mediatek-drm` pipeline + OVL0 splash DMA halt + CRTC vblank drain fix, DSI + hardware DSC 1.1, Chipone ICNL9922C panel binding & driver, disp-mutex bind deferral |
-| `patches/07-dts/` | 6 | SoC/board binding, `mt6789.dtsi`, `mt6789-advan-x1.dts`, Linux 7.4 DTS/binding alignment, ConnSys/BTIF/Wi-Fi DT nodes, and all 8 multimedia clock controllers + `M8` power domains |
-| **Total (`patches/`)** | **122** | **Upstream submission series** (out-of-tree `patches-extra/` removed) |
+| `patches/07-dts/` | 7 | SoC/board binding, `mt6789.dtsi`, `mt6789-advan-x1.dts`, Linux 7.4 DTS/binding alignment, ConnSys/BTIF/Wi-Fi DT nodes, all 8 multimedia clock controllers + `M8` power domains, and SCP RV55 sensorhub |
+| **Total (`patches/`)** | **125** | **Upstream submission series** (out-of-tree `patches-extra/` removed) |
 
 ---
 

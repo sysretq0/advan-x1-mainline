@@ -49,7 +49,7 @@ Status legend:
 | **GPS (MT6789 ConnSys)** | MT6789 `SOC2_2` | — | **Not started** | `gps_drv_stp` / NMEA bridge not yet wired |
 | **Cameras & Flash** | `camsys` / `imgsensor` / `aw3641e` / `lm3643` | `clk-mt6789-{cam,img}` + `M8` PDs ready | **Not started** | Clocks & `M8` PDs wired; needs V4L2/CSI-2 sensor & ISP drivers |
 | **Video Codec (HW)** | `vdecsys` / `vencsys` / `mdpsys` | `clk-mt6789-{vcodec,mdp}` + `M8` PDs ready | **Not started** | Clocks & `M8` PDs wired; needs V4L2 stateless codec & MDP drivers |
-| **Sensors (IMU/ALS/Prox)** | SCP RV55 sensor hub (`scp`) | — | **Not started** | Needs `mtk-scp` remoteproc + IIO sensor bridge |
+| **Sensors (IMU/ALS/Prox)** | SCP RV55 sensor hub (`icm-42607-p`, `af6133e`, `STK3335-X`, `stk3a5x`) | `mtk-scp-sensorhub` (`10724000.sensorhub` → Linux IIO) | **WIP** | Driver + DT wired (EL3 reset-release/DVFS SMC + mbox1..3 + DRAM rings → IIO accel/gyro/mag/light/prox); awaiting live mainline test |
 | **Fingerprint** | Goodix (`goodix-fp` SPI5) / FocalTech | — | **Not started** | Not wired in DTS or driver stack |
 
 ---
@@ -138,9 +138,10 @@ Status legend:
 3. **Hardware Video Decode / Encode & MDP (`vdecsys`, `vencsys`, `mdpsys`):**
    Multimedia clock controllers and `M8` power domains are wired; V4L2 stateless
    codec and MDP drivers are not yet implemented.
-4. **Sensors (Accelerometer, Gyroscope, Magnetometer, ALS/Proximity):** Routed
-   through the MT6789 SCP RV55 coprocessor on stock firmware; requires
-   `mtk-scp` remoteproc and an IIO sensor bridge.
+4. **Sensors (Accelerometer, Gyroscope, Magnetometer, ALS/Proximity):**
+   `mtk-scp-sensorhub` Linux IIO driver and DT node (`10724000.sensorhub`) are
+   now wired (see WIP above) and awaiting live mainline verification with
+   `iio-sensor-proxy`.
 5. **Fingerprint Reader (`goodix-fp` / `focaltech,fp`):** Not wired in mainline
    DT or userspace.
 

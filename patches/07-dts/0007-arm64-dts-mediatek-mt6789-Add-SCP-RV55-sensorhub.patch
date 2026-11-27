@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Sat, 28 Nov 2026 00:15:00 +0700
+Subject: [PATCH] arm64: dts: mediatek: mt6789: Add SCP RV55 sensorhub
+
+Add the MediaTek MT6789 SCP RV55 sensorhub node (cfg + mbox1..3,
+GIC_SPI 469..471, CLK_TOP_SCP_SEL, SCPSYS awake-lock syscon) to
+mt6789.dtsi and enable it with scp_share_mem on Advan X1.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+diff --git a/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
+index b51d6bb..c48700c 100644
+--- a/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
++++ b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
+@@ -1008,6 +1008,11 @@
+ 	status = "okay";
+ };
+ 
++&scp_sensorhub {
++	memory-region = <&scp_share_mem>;
++	status = "okay";
++};
++
+ &pio {
+ 	charger_pins: charger-default-pins {
+ 		pins-irq {
+diff --git a/arch/arm64/boot/dts/mediatek/mt6789.dtsi b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
+index 113f07b..5eefe12 100644
+--- a/arch/arm64/boot/dts/mediatek/mt6789.dtsi
++++ b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
+@@ -855,6 +855,23 @@
+ 			status = "disabled";
+ 		};
+ 
++		scp_sensorhub: sensorhub@10724000 {
++			compatible = "mediatek,mt6789-scp-sensorhub";
++			reg = <0x00 0x10724000 0x00 0x1000>,
++			      <0x00 0x107fc000 0x00 0x1000>,
++			      <0x00 0x107fd000 0x00 0x1000>,
++			      <0x00 0x107fe000 0x00 0x1000>;
++			reg-names = "cfg", "mbox1", "mbox2", "mbox3";
++			interrupts = <GIC_SPI 469 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 470 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 471 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-names = "mbox1", "mbox2", "mbox3";
++			clocks = <&topckgen CLK_TOP_SCP_SEL>;
++			clock-names = "scp";
++			mediatek,scpsys = <&scpsys>;
++			status = "disabled";
++		};
++
+ 		uart0: serial@11002000 {
+ 			compatible = "mediatek,mt6577-uart";
+ 			reg = <0x00 0x11002000 0x00 0x1000>;
+-- 
+2.47.2

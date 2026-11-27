@@ -270,6 +270,9 @@ CONFIG_GNSS=y
 CONFIG_WWAN=y
 CONFIG_MTK_CCCI=y
 
+# MediaTek MT6789 SCP RV55 sensorhub (accelerometer, gyro, mag, ALS, proximity)
+CONFIG_IIO_MTK_SCP_SENSORHUB=y
+
 # IPsec / XFRM and policy routing for 3GPP IMS / VoLTE (RFC 3329 / TS 33.203)
 CONFIG_XFRM_USER=y
 CONFIG_INET_AH=y

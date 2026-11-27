@@ -855,6 +855,23 @@
 			status = "disabled";
 		};
 
+		scp_sensorhub: sensorhub@10724000 {
+			compatible = "mediatek,mt6789-scp-sensorhub";
+			reg = <0x00 0x10724000 0x00 0x1000>,
+			      <0x00 0x107fc000 0x00 0x1000>,
+			      <0x00 0x107fd000 0x00 0x1000>,
+			      <0x00 0x107fe000 0x00 0x1000>;
+			reg-names = "cfg", "mbox1", "mbox2", "mbox3";
+			interrupts = <GIC_SPI 469 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 470 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 471 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "mbox1", "mbox2", "mbox3";
+			clocks = <&topckgen CLK_TOP_SCP_SEL>;
+			clock-names = "scp";
+			mediatek,scpsys = <&scpsys>;
+			status = "disabled";
+		};
+
 		uart0: serial@11002000 {
 			compatible = "mediatek,mt6577-uart";
 			reg = <0x00 0x11002000 0x00 0x1000>;

@@ -1008,6 +1008,11 @@
 	status = "okay";
 };
 
+&scp_sensorhub {
+	memory-region = <&scp_share_mem>;
+	status = "okay";
+};
+
 &pio {
 	charger_pins: charger-default-pins {
 		pins-irq {
