@@ -112,9 +112,10 @@ btmtk
 btusb
 hci_uart
 
-# MediaTek MT6789 integrated CONNSYS Wi-Fi (BTIF -> connadp -> WMT -> Wi-Fi chardev -> Gen4m)
+# MediaTek MT6789 integrated CONNSYS Wi-Fi & Bluetooth (BTIF -> connadp -> WMT -> Wi-Fi/BT)
 btif_drv
 connadp
 wmt_drv
 wmt_chrdev_wifi
 wlan_drv_gen4m_6789
+hci_mtk_stp

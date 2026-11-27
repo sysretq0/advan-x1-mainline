@@ -44,7 +44,9 @@ Status legend:
 | **microSD Card** | MT6789 MSDC1 | `mtk-msdc` (`11240000.mmc`, `GPIO 7` `GPIO_ACTIVE_LOW` CD) | **WIP** | Controller + CD polarity fixed (`2abd89e`); live card I/O test pending |
 | **Fast Charging** | SC8547 charge pump (`i2c7@6a`) + PE | — | **WIP** | Standard SC89601A charging works; HV charge pump not implemented |
 | **NFC** | STMicro ST21NFCD | `st-nci-i2c` (`&i2c3` / `nfc@8`) + `mt6366-clkbuf` (`XO_NFC`) | **On hold** | `nfc0` probes + IRQ 16 fires; intentionally paused to prioritize modem & core features |
-| **Wi-Fi / Bluetooth / GPS** | MT6789 ConnSys (`consys@18002000`) | — | **Not started** | No mainline MT6789 ConnSys/WMT driver |
+| **Wi-Fi (MT6789 ConnSys)** | MT6789 `SOC2_2` + `MT6631` A-die | `btif_drv` + `wmt_drv` + `wlan_drv_gen4m_6789` + `mtk-wmt-init` | **Working** | Live WPA2/WPA3 STA (`wlan0`) + 4G LTE coexistence verified; Loki LK `consys_init()` opens EMI MPU Regions 27 & 18; `15-mtk-wifi.conf` keeps NM on `wlan0` |
+| **Bluetooth (MT6789 ConnSys)** | MT6789 `SOC2_2` + `MT6631` A-die | `hci_mtk_stp` (native BlueZ `hci0` over STP/WMT) | **WIP** | Native H4 HCI transport over `wmt_drv` (`BT_TASK_INDX`, `0xFC1A` BD_ADDR); awaiting live mainline BlueZ test |
+| **GPS (MT6789 ConnSys)** | MT6789 `SOC2_2` | — | **Not started** | `gps_drv_stp` / NMEA bridge not yet wired |
 | **Cameras & Flash** | `camsys` / `imgsensor` / `aw3641e` / `lm3643` | — | **Not started** | Needs `camsys`/`imgsys` clocks, `M8` power domains, V4L2 stack |
 | **Video Codec (HW)** | `vdecsys` / `vencsys` / `mdpsys` | — | **Not started** | Needs multimedia clock controllers & `M8` power domains |
 | **Sensors (IMU/ALS/Prox)** | SCP RV55 sensor hub (`scp`) | — | **Not started** | Needs `mtk-scp` remoteproc + IIO sensor bridge |

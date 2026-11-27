@@ -1,0 +1,3 @@
+# SPDX-License-Identifier: GPL-2.0
+ccflags-y += $(CONNSYS_CCFLAGS) -DMTK_WCN_WMT_STP_EXP_SYMBOL_ABSTRACT -DWMT_IDC_SUPPORT=0
+obj-$(CONFIG_MTK_COMBO) += hci_mtk_stp.o

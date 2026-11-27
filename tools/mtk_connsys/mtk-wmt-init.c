@@ -142,6 +142,16 @@ static int init_wifi(void)
 	return (w == 1) ? 0 : -1;
 }
 
+static void init_bluetooth(void)
+{
+	int fd = open("/sys/module/hci_mtk_stp/parameters/enable", O_WRONLY);
+	if (fd < 0)
+		return;
+	ssize_t w = write(fd, "1\n", 2);
+	printf("[mtk-wmt-init] Enabled native Bluetooth HCI (hci_mtk_stp): %zd\n", w);
+	close(fd);
+}
+
 int main(int argc, char **argv)
 {
 	int do_wifi = 1;
@@ -163,6 +173,8 @@ int main(int argc, char **argv)
 		if (init_wifi() != 0)
 			return 1;
 	}
+
+	init_bluetooth();
 
 	return 0;
 }

@@ -635,7 +635,7 @@ static int axiAllocHifMem(struct platform_device *pdev,
 	       &grMem.pucRsvMemBase,
 	       &grMem.pucRsvMemVirBase);
 
-	/* Always configure Wi-Fi DMA EMI MPU region (U-Boot/mainline does not set it in LK) */
+	/* Log/verify Wi-Fi DMA EMI MPU region (configured at LK stage on MT6789) */
 	kalSetDrvEmiMpuProtection(grMem.pucRsvMemBase, 0, grMem.u4RsvMemSize);
 
 	for (u4Idx = 0; u4Idx < NUM_OF_TX_RING; u4Idx++) {

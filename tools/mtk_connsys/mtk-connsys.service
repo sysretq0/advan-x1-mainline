@@ -1,13 +1,15 @@
 [Unit]
-Description=MediaTek MT6789 CONNSYS Wi-Fi power-on and firmware initialization
+Description=MediaTek MT6789 CONNSYS Wi-Fi & Bluetooth power-on and firmware initialization
 After=ccci-fsd.service local-fs.target
 Wants=ccci-fsd.service
-Before=NetworkManager.service wpa_supplicant.service
+Before=NetworkManager.service wpa_supplicant.service bluetooth.service
 ConditionPathExists=/dev/wmtdetect
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+# Wait for MD1 to finish HS2 boot before powering on CONNSYS / RF calibration
+ExecStartPre=/bin/sh -c 'f=/sys/bus/platform/devices/d0cf000.modem/state; [ -r "$f" ] || exit 0; i=0; while [ "$i" -lt 40 ]; do [ "$(cat "$f" 2>/dev/null)" = "ready" ] && { sleep 2; exit 0; }; sleep 0.5; i=$((i+1)); done; exit 0'
 ExecStart=/usr/local/sbin/mtk-wmt-init
 TimeoutStartSec=60
 
