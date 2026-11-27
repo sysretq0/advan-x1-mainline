@@ -1,7 +1,6 @@
 [Unit]
 Description=MediaTek MT6789 Mainline WWAN 4G LTE Standalone Connect Helper
 After=ccci-fsd.service systemd-resolved.service
-Conflicts=ModemManager.service
 ConditionPathExists=!/usr/sbin/ModemManager
 
 [Service]

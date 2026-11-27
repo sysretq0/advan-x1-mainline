@@ -265,16 +265,20 @@ ln -sf /etc/systemd/system/ccci-audd.service \
        /etc/systemd/system/multi-user.target.wants/ccci-audd.service
 ln -sf /etc/systemd/system/advan-x1-usb-gadget.service \
        /etc/systemd/system/multi-user.target.wants/advan-x1-usb-gadget.service
-ln -sf /etc/systemd/system/mtk-wwan-connect.service \
-       /etc/systemd/system/multi-user.target.wants/mtk-wwan-connect.service
 
-# Enable ModemManager at boot when installed so cellular data/voice/SMS come up automatically
+# Enable ModemManager at boot when installed so cellular data/voice/SMS come up automatically;
+# otherwise enable standalone mtk-wwan-connect fallback (mutually exclusive in multi-user.target).
 if [ -f /usr/lib/systemd/system/ModemManager.service ]; then
     ln -sf /usr/lib/systemd/system/ModemManager.service \
            /etc/systemd/system/multi-user.target.wants/ModemManager.service
+    rm -f /etc/systemd/system/multi-user.target.wants/mtk-wwan-connect.service
 elif [ -f /lib/systemd/system/ModemManager.service ]; then
     ln -sf /lib/systemd/system/ModemManager.service \
            /etc/systemd/system/multi-user.target.wants/ModemManager.service
+    rm -f /etc/systemd/system/multi-user.target.wants/mtk-wwan-connect.service
+else
+    ln -sf /etc/systemd/system/mtk-wwan-connect.service \
+           /etc/systemd/system/multi-user.target.wants/mtk-wwan-connect.service
 fi
 
 # Enable systemd-networkd so /etc/systemd/network/10-usb0.network configures usb0
@@ -334,7 +338,12 @@ sudo chroot "$SYSROOT" /bin/bash -c "
     test -L /etc/systemd/system/multi-user.target.wants/ccci-fsd.service
     test -L /etc/systemd/system/multi-user.target.wants/ccci-audd.service
     test -L /etc/systemd/system/multi-user.target.wants/advan-x1-usb-gadget.service
-    test -L /etc/systemd/system/multi-user.target.wants/mtk-wwan-connect.service
+    if [ -f /usr/lib/systemd/system/ModemManager.service ] || [ -f /lib/systemd/system/ModemManager.service ]; then
+        test -L /etc/systemd/system/multi-user.target.wants/ModemManager.service
+        test ! -e /etc/systemd/system/multi-user.target.wants/mtk-wwan-connect.service
+    else
+        test -L /etc/systemd/system/multi-user.target.wants/mtk-wwan-connect.service
+    fi
     test -x /usr/local/sbin/ccci_audd
     test -x /usr/local/sbin/advan-x1-usb-gadget.sh
     test -f /etc/pipewire/pipewire-pulse.conf.d/50-mt6789-latency.conf
