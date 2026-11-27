@@ -8,6 +8,7 @@
 #   - /usr/local/sbin/ccci_fsd
 #   - /usr/local/sbin/ccci_rpcd
 #   - /usr/local/sbin/ccci_audd
+#   - /usr/local/sbin/mtk_volte_rtp
 #   - /usr/lib/aarch64-linux-gnu/ModemManager/libmm-plugin-mtk-ccci.so
 #
 # Output in $OUT_DIR:
@@ -39,6 +40,7 @@ mkdir -p "$WORK_DIR" "$STAGE_DIR" "$OUT_DIR" \
     "$STAGE_DIR/DEBIAN" \
     "$STAGE_DIR/usr/local/sbin" \
     "$STAGE_DIR/usr/local/bin" \
+    "$STAGE_DIR/usr/local/lib/mtk-imsd" \
     "$STAGE_DIR/etc/systemd/system" \
     "$STAGE_DIR/etc/systemd/system/ModemManager.service.d" \
     "$STAGE_DIR/etc/udev/rules.d" \
@@ -90,6 +92,21 @@ echo "== 2b. Building ccci_audd (Google Clang arm64) =="
 "$CLANG_DIR/bin/llvm-strip" --strip-all "$STAGE_DIR/usr/local/sbin/ccci_audd"
 install -m 0644 "$REPO/tools/ccci_audd/ccci-audd.service" \
     "$STAGE_DIR/etc/systemd/system/ccci-audd.service"
+
+echo "== 2c. Building mtk_volte_rtp (Google Clang arm64) =="
+"${CLANG_AARCH64[@]}" -O2 -Wall -Wextra -Werror -std=c11 -pthread \
+    "$REPO/tools/mtk_imsd/mtk_volte_rtp.c" \
+    -o "$STAGE_DIR/usr/local/sbin/mtk_volte_rtp" \
+    -Wl,--as-needed -ldl -lpthread
+"$CLANG_DIR/bin/llvm-strip" --strip-all "$STAGE_DIR/usr/local/sbin/mtk_volte_rtp"
+install -m 0755 "$REPO/tools/mtk_imsd/mtk-imsd.py" \
+    "$STAGE_DIR/usr/local/lib/mtk-imsd/mtk-imsd.py"
+install -m 0644 "$REPO/tools/mtk_imsd/smspdu.py" \
+    "$STAGE_DIR/usr/local/lib/mtk-imsd/smspdu.py"
+ln -sf /usr/local/lib/mtk-imsd/mtk-imsd.py \
+    "$STAGE_DIR/usr/local/bin/mtk-imsd"
+install -m 0644 "$REPO/tools/mtk_imsd/mtk-imsd.service" \
+    "$STAGE_DIR/etc/systemd/system/mtk-imsd.service"
 
 echo "== 3. Building ModemManager mtk-ccci plugin (Google Clang arm64) =="
 MM_WORK="$WORK_DIR/mm-src"
@@ -152,6 +169,7 @@ python3 "$SYSROOT/usr/bin/glib-mkenums" \
     $GLIB_CFLAGS \
     "$REPO/tools/modemmanager-mtk-ccci/mm-plugin-mtk-ccci.c" \
     "$REPO/tools/modemmanager-mtk-ccci/mm-modem-helpers-mtk-ccci.c" \
+    "$REPO/tools/modemmanager-mtk-ccci/mm-ims-bridge-mtk-ccci.c" \
     -o "$STAGE_DIR/usr/lib/aarch64-linux-gnu/ModemManager/libmm-plugin-mtk-ccci.so" \
     -Wl,--as-needed $GLIB_LIBS -lmm-glib
 
@@ -211,6 +229,7 @@ for bin in \
     "$STAGE_DIR/usr/local/sbin/ccci_fsd" \
     "$STAGE_DIR/usr/local/sbin/ccci_rpcd" \
     "$STAGE_DIR/usr/local/sbin/ccci_audd" \
+    "$STAGE_DIR/usr/local/sbin/mtk_volte_rtp" \
     "$STAGE_DIR/usr/lib/aarch64-linux-gnu/ModemManager/libmm-plugin-mtk-ccci.so"; do
     [ -f "$bin" ] || { echo "FATAL: missing expected binary $bin" >&2; exit 1; }
     echo "  ldd check: $(basename "$bin")"
@@ -232,12 +251,13 @@ Priority: optional
 Architecture: arm64
 Maintainer: sysretq0 <sysretq0@proton.me>
 Depends: libc6, libglib2.0-0t64 | libglib2.0-0, libmm-glib0, util-linux, python3, alsa-ucm-conf, mobile-broadband-provider-info
-Recommends: modemmanager, network-manager, pipewire-audio | pipewire, systemd-zram-generator
+Recommends: modemmanager, network-manager, pipewire-audio | pipewire, systemd-zram-generator, iproute2, libopencore-amrwb0, libvo-amrwbenc0, libopencore-amrnb0
 Description: Advan X1 (MediaTek MT6789) mainline Linux userspace support
  Self-contained device support package built with Google Clang:
   - ccci_fsd & ccci_rpcd read-only NVRAM overlay modem daemons
   - ccci_audd Gen95 voice speech mailbox & Hostless_Speech PCM2 bridge
-  - ModemManager mtk-ccci plugin + udev rules + service drop-in
+  - mtk-imsd & mtk_volte_rtp native VoLTE / SMS-over-IMS SIP + IPsec + RTP stack
+  - ModemManager mtk-ccci plugin + IMS bridge + udev rules + service drop-in
   - mtk-wwan-connect standalone fallback helper (active when ModemManager is absent)
   - USB ConfigFS composite gadget (NCM usb0 + ACM ttyGS0) + networkd config
   - ALSA UCM2 HiFi + Voice Call profiles for mt6789-mt6366 (FS1599 + MT6366)
@@ -271,14 +291,19 @@ ln -sf /etc/systemd/system/advan-x1-usb-gadget.service \
 if [ -f /usr/lib/systemd/system/ModemManager.service ]; then
     ln -sf /usr/lib/systemd/system/ModemManager.service \
            /etc/systemd/system/multi-user.target.wants/ModemManager.service
+    ln -sf /etc/systemd/system/mtk-imsd.service \
+           /etc/systemd/system/multi-user.target.wants/mtk-imsd.service
     rm -f /etc/systemd/system/multi-user.target.wants/mtk-wwan-connect.service
 elif [ -f /lib/systemd/system/ModemManager.service ]; then
     ln -sf /lib/systemd/system/ModemManager.service \
            /etc/systemd/system/multi-user.target.wants/ModemManager.service
+    ln -sf /etc/systemd/system/mtk-imsd.service \
+           /etc/systemd/system/multi-user.target.wants/mtk-imsd.service
     rm -f /etc/systemd/system/multi-user.target.wants/mtk-wwan-connect.service
 else
     ln -sf /etc/systemd/system/mtk-wwan-connect.service \
            /etc/systemd/system/multi-user.target.wants/mtk-wwan-connect.service
+    rm -f /etc/systemd/system/multi-user.target.wants/mtk-imsd.service
 fi
 
 # Enable systemd-networkd so /etc/systemd/network/10-usb0.network configures usb0
@@ -300,6 +325,9 @@ if [ -d /run/systemd/system ]; then
     if [ -e /dev/ccci_aud ]; then
         systemctl restart ccci-audd.service || true
     fi
+    if [ -e /dev/wwan0at0 ] && [ -L /etc/systemd/system/multi-user.target.wants/mtk-imsd.service ]; then
+        systemctl restart mtk-imsd.service || true
+    fi
 fi
 exit 0
 EOF
@@ -312,6 +340,7 @@ case "$1" in
     purge|remove)
         rm -f /etc/systemd/system/multi-user.target.wants/ccci-fsd.service \
               /etc/systemd/system/multi-user.target.wants/ccci-audd.service \
+              /etc/systemd/system/multi-user.target.wants/mtk-imsd.service \
               /etc/systemd/system/multi-user.target.wants/advan-x1-usb-gadget.service \
               /etc/systemd/system/multi-user.target.wants/mtk-wwan-connect.service
         if [ -d /run/systemd/system ]; then

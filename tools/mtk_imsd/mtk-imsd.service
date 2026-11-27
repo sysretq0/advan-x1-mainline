@@ -1,0 +1,15 @@
+[Unit]
+Description=MediaTek MT6789 Native Linux VoLTE / IMS Daemon (SIP + IPsec + RTP)
+After=ModemManager.service ccci-fsd.service sound.target
+BindsTo=ModemManager.service
+ConditionPathExists=/dev/wwan0at0
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/lib/mtk-imsd/mtk-imsd.py run
+Restart=always
+RestartSec=5
+StateDirectory=mtk-imsd
+
+[Install]
+WantedBy=multi-user.target

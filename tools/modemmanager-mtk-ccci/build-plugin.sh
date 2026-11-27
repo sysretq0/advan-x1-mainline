@@ -68,13 +68,14 @@ python3 "$MKENUMS" \
     "$MM_SRC/src/mm-port-serial-at.h" \
     "$MM_SRC/src/mm-base-bearer.h" \
     "$MM_SRC/src/mm-iface-modem-3gpp.h" \
+    "$MM_SRC/src/mm-iface-modem-messaging.h" \
     > "$OUT_DIR/gen/mm-daemon-enums-types.h" 2>/dev/null || true
 
 if [ "$SYSROOT" != "/" ]; then
     export PKG_CONFIG_SYSROOT_DIR="$SYSROOT"
     export PKG_CONFIG_LIBDIR="$SYSROOT/usr/lib/aarch64-linux-gnu/pkgconfig:$SYSROOT/usr/share/pkgconfig"
 fi
-GLIB_CFLAGS="$(pkg-config --cflags glib-2.0 gio-2.0 gobject-2.0 gmodule-2.0 gudev-1.0)"
+GLIB_CFLAGS="$(pkg-config --cflags glib-2.0 gio-2.0 gio-unix-2.0 gobject-2.0 gmodule-2.0 gudev-1.0)"
 GLIB_LIBS="$(pkg-config --libs glib-2.0 gio-2.0 gobject-2.0 gmodule-2.0)"
 
 SYSROOT_FLAGS=()
@@ -103,6 +104,7 @@ fi
     $GLIB_CFLAGS \
     "$SCRIPT_DIR/mm-plugin-mtk-ccci.c" \
     "$SCRIPT_DIR/mm-modem-helpers-mtk-ccci.c" \
+    "$SCRIPT_DIR/mm-ims-bridge-mtk-ccci.c" \
     -o "$OUT_DIR/libmm-plugin-mtk-ccci.so" \
     -Wl,--as-needed $GLIB_LIBS -lmm-glib
 
