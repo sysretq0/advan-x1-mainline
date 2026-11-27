@@ -59,8 +59,14 @@ static void test_cmdline_parser(void)
 	normalize_root_spec("/dev/disk/by-uuid/e8f59895-03e3-4f1c-a25a-2d7a8cd3b050",
 			    norm_root, sizeof(norm_root));
 	assert(strcmp(norm_root, "UUID=e8f59895-03e3-4f1c-a25a-2d7a8cd3b050") == 0);
+	normalize_root_spec("/dev/disk/by-partlabel/rootfs", norm_root, sizeof(norm_root));
+	assert(strcmp(norm_root, "PARTLABEL=rootfs") == 0);
 	normalize_root_spec("/dev/disk/by-partlabel/linux", norm_root, sizeof(norm_root));
 	assert(strcmp(norm_root, "PARTLABEL=linux") == 0);
+	assert(is_preferred_root_name("rootfs") == true);
+	assert(is_preferred_root_name("linux") == true);
+	assert(is_preferred_root_name("root") == true);
+	assert(is_preferred_root_name("esp") == false);
 	normalize_root_spec("block:/dev/mmcblk0p2", norm_root, sizeof(norm_root));
 	assert(strcmp(norm_root, "/dev/mmcblk0p2") == 0);
 }

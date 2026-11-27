@@ -24,8 +24,8 @@
  *        - Automatic nested-GPT loop attach (BLKSSZGET + LOOP_CONFIGURE with
  *          LO_FLAGS_PARTSCAN -> /dev/loopNpM, zero hardcoded byte offsets)
  *          when the resolved root partition holds a GPT-partitioned OS image
- *        - Generic fallback probe on standard Linux labels (linux / root)
- *          when root= is omitted from the kernel command line
+ *        - Generic fallback probe on standard Linux labels (rootfs / linux /
+ *          root) when root= is omitted from the kernel command line
  *   6. Mount rootfs on /sysroot with auto-detected fstype and split VFS/FS
  *      mount flags (no mutation of /sysroot)
  *   7. Native C switch_root -> /sbin/init (systemd), forwarding `--` args
@@ -971,6 +971,18 @@ static int stage_initramfs_firmware_from(const char *src_dir, const char *dst_di
 	return count;
 }
 
+static bool is_preferred_root_name(const char *name)
+{
+	static const char *const names[] = {
+		"rootfs", "root", "linux", "mainline", "system"
+	};
+	for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+		if (strcasecmp(name, names[i]) == 0)
+			return true;
+	}
+	return false;
+}
+
 #ifndef INIT_UNIT_TEST
 
 /* ----------------------------------------------------- Stage 1: Base Mounts */
@@ -1358,18 +1370,6 @@ static bool resolve_root_spec(const char *root_spec, const char *only_disk,
 		}
 	}
 	closedir(d);
-	return false;
-}
-
-static bool is_preferred_root_name(const char *name)
-{
-	static const char *const names[] = {
-		"root", "linux", "mainline", "system"
-	};
-	for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
-		if (strcasecmp(name, names[i]) == 0)
-			return true;
-	}
 	return false;
 }
 
@@ -1910,12 +1910,14 @@ int main(void)
 	 *  1. Explicit root= from kernel cmdline (direct filesystem, or nested
 	 *     GPT container if root= points at a GPT-partitioned OS image).
 	 *  2. If root= is omitted, probe standard generic Linux partition
-	 *     labels (PARTLABEL=linux, LABEL=linux, PARTLABEL=root, LABEL=root)
-	 *     for either a direct filesystem or a nested GPT container.
+	 *     labels (PARTLABEL=rootfs, LABEL=rootfs, PARTLABEL=linux,
+	 *     LABEL=linux, PARTLABEL=root, LABEL=root) for either a direct
+	 *     filesystem or a nested GPT container.
 	 */
 	static const char *const default_specs[] = {
-		"PARTLABEL=linux", "LABEL=linux",
-		"PARTLABEL=root",  "LABEL=root",
+		"PARTLABEL=rootfs", "LABEL=rootfs",
+		"PARTLABEL=linux",  "LABEL=linux",
+		"PARTLABEL=root",   "LABEL=root",
 	};
 	int max_polls = cfg.rootdelay * 5;
 	if (max_polls < 1)
