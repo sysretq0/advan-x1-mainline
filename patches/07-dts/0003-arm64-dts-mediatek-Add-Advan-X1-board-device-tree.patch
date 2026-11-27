@@ -18,7 +18,7 @@ new file mode 100644
 index 000000000..111111111
 --- /dev/null
 +++ b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
-@@ -0,0 +1,1299 @@
+@@ -0,0 +1,1300 @@
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +/*
 + * Device Tree Source for the Advan X1 smartphone (MediaTek MT6789).
@@ -52,7 +52,7 @@ index 000000000..111111111
 +		voltage-min-design-microvolt = <3400000>;
 +		voltage-max-design-microvolt = <4450000>;
 +		constant-charge-voltage-max-microvolt = <4450000>;
-+		constant-charge-current-max-microamp = <2000000>;
++		constant-charge-current-max-microamp = <3000000>;
 +	};
 +
 +	backlight_lcd: backlight {
@@ -518,8 +518,9 @@ index 000000000..111111111
 +			data-role = "dual";
 +			try-power-role = "sink";
 +			source-pdos = <PDO_FIXED(5000, 1000, PDO_FIXED_USB_COMM)>;
-+			sink-pdos = <PDO_FIXED(5000, 2000, PDO_FIXED_USB_COMM)>;
-+			op-sink-microwatt = <10000000>;
++			sink-pdos = <PDO_FIXED(5000, 3000, PDO_FIXED_USB_COMM)
++				     PDO_FIXED(9000, 2000, PDO_FIXED_USB_COMM)>;
++			op-sink-microwatt = <18000000>;
 +
 +			port {
 +				usb_c_ep: endpoint {
@@ -537,7 +538,7 @@ index 000000000..111111111
 +		interrupt-parent = <&pio>;
 +		interrupts = <12 IRQ_TYPE_EDGE_FALLING>;
 +		ti,battery-regulation-voltage = <4450000>;
-+		ti,charge-current = <2000000>;
++		ti,charge-current = <3000000>;
 +		ti,termination-current = <250000>;
 +		ti,precharge-current = <480000>;
 +		ti,minimum-sys-voltage = <3500000>;
@@ -1318,5 +1319,6 @@ index 000000000..111111111
 +		thermal-sensors = <&mt6366_temp 3>;
 +	};
 +};
+
 -- 
 2.55.0

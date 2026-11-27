@@ -1,0 +1,91 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Fri, 27 Nov 2026 12:50:00 +0700
+Subject: [PATCH] power: supply: bq25890: Configure SC89601A absolute VINDPM
+ and track PD VBUS
+
+Because SC89601A skips REG_RST to preserve USB D+/D- gadget coexistence,
+REG0D (FORCE_VINDPM/VINDPM) is left at the bootloader's relative-VINDPM
+configuration (FORCE_VINDPM=0 with VINDPM_OFS=100 mV). On a 5 V adapter,
+normal cable voltage drop triggers VDPM_STAT (REG13[7]) around 4.6 V and
+throttles charging down to ~200-380 mA even when IINLIM is 2000 mA.
+
+Switch SC89601A to absolute VINDPM mode (REG0D[7]=1) at 4.3 V (0x11)
+during init, matching the downstream Southchip driver, and synchronize
+absolute VINDPM from the TCPM supplier's negotiated voltage (8.2 V for
+9 V USB-PD, 4.3 V for 5 V/unplugged) while clamping IINLIM to SC89601A's
+3.0 A hardware maximum.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+diff --git a/drivers/power/supply/bq25890_charger.c b/drivers/power/supply/bq25890_charger.c
+index b74d7cd..b6137e1 100644
+--- a/drivers/power/supply/bq25890_charger.c
++++ b/drivers/power/supply/bq25890_charger.c
+@@ -790,9 +790,11 @@ static void bq25890_sc89601a_psy_work(struct work_struct *work)
+ {
+ 	struct bq25890_device *bq =
+ 		container_of(work, struct bq25890_device, psy_work);
+-	union power_supply_propval online, cur;
++	union power_supply_propval online, cur, volt;
+ 	struct power_supply *supplier;
+ 	int iinlim_ua = 500000;
++	int vbus_uv = 5000000;
++	u8 vindpm_val;
+ 	int ret;
+ 
+ 	supplier = power_supply_get_by_reference(dev_fwnode(bq->dev),
+@@ -807,13 +809,31 @@ static void bq25890_sc89601a_psy_work(struct work_struct *work)
+ 						POWER_SUPPLY_PROP_CURRENT_MAX,
+ 						&cur);
+ 		if (!ret && cur.intval > 0)
+-			iinlim_ua = clamp(cur.intval, 100000, 3250000);
++			iinlim_ua = clamp(cur.intval, 100000, 3000000);
++
++		if (!power_supply_get_property(supplier,
++					       POWER_SUPPLY_PROP_VOLTAGE_NOW,
++					       &volt) && volt.intval > 0)
++			vbus_uv = volt.intval;
++		else if (!power_supply_get_property(supplier,
++						    POWER_SUPPLY_PROP_VOLTAGE_MAX,
++						    &volt) && volt.intval > 0)
++			vbus_uv = volt.intval;
+ 	}
+ 	power_supply_put(supplier);
+ 
+ 	if (ret)
+ 		return;
+ 
++	/*
++	 * Keep SC89601A in absolute VINDPM mode (REG0D[7]=1), matching the
++	 * downstream driver: 4.3 V (0x11) for 5 V / unplugged and 8.2 V (0x38)
++	 * for 9 V USB-PD, preventing relative-VINDPM throttling on cable droop.
++	 */
++	vindpm_val = (vbus_uv >= 8500000) ? 0x38 : 0x11;
++	bq25890_field_write(bq, F_FORCE_VINDPM, 1);
++	bq25890_field_write(bq, F_VINDPM, vindpm_val);
++
+ 	ret = bq25890_field_write(bq, F_IINLIM,
+ 				  bq25890_charger_get_scaled_iinlim_regval(bq, iinlim_ua));
+ 	if (!ret)
+@@ -1060,6 +1080,18 @@ static int bq25890_hw_init(struct bq25890_device *bq)
+ 			if (ret < 0)
+ 				return ret;
+ 		}
++
++		/*
++		 * Switch SC89601A from bootloader relative VINDPM to absolute
++		 * 4.3 V VINDPM (REG0D[7]=1, 0x11 = 2600 + 17 * 100 mV).
++		 */
++		ret = bq25890_field_write(bq, F_FORCE_VINDPM, 1);
++		if (ret < 0)
++			return ret;
++
++		ret = bq25890_field_write(bq, F_VINDPM, 0x11);
++		if (ret < 0)
++			return ret;
+ 	}
+ 
+ 	/* initialize currents/voltages and other parameters */
+-- 
+2.55.0
