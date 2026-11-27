@@ -1,0 +1,77 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Fri, 27 Nov 2026 23:38:00 +0700
+Subject: [PATCH] pmdomain: mediatek: Keep MT6789 multimedia domains default off
+
+Mark MT6789 ISP, IPE, VDEC, VENC, CAM, CAM_RAWA, and CAM_RAWB power
+domains with MTK_SCPD_KEEP_DEFAULT_OFF (matching upstream MT8186 and
+stock MT6789 SCPSYS) so unused camera, imaging, and video-codec domains
+remain powered down at boot until requested by consumers.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ drivers/pmdomain/mediatek/mt6789-pm-domains.h | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/drivers/pmdomain/mediatek/mt6789-pm-domains.h b/drivers/pmdomain/mediatek/mt6789-pm-domains.h
+index a92c6f41b..c5019f7d0 100644
+--- a/drivers/pmdomain/mediatek/mt6789-pm-domains.h
++++ b/drivers/pmdomain/mediatek/mt6789-pm-domains.h
+@@ -220,6 +220,7 @@ static const struct scpsys_domain_data scpsys_domain_data_mt6789[] = {
+ 					MT6789_TOP_AXI_PROT_EN_MM_2_CLR,
+ 					MT6789_TOP_AXI_PROT_EN_MM_2_STA1),
+ 		},
++		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
+ 	},
+ 	[MT6789_POWER_DOMAIN_IPE] = {
+ 		.name = "ipe",
+@@ -241,6 +242,7 @@ static const struct scpsys_domain_data scpsys_domain_data_mt6789[] = {
+ 					MT6789_TOP_AXI_PROT_EN_MM_CLR,
+ 					MT6789_TOP_AXI_PROT_EN_MM_STA1),
+ 		},
++		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
+ 	},
+ 	[MT6789_POWER_DOMAIN_VDEC] = {
+ 		.name = "vdec",
+@@ -262,6 +264,7 @@ static const struct scpsys_domain_data scpsys_domain_data_mt6789[] = {
+ 					MT6789_TOP_AXI_PROT_EN_MM_CLR,
+ 					MT6789_TOP_AXI_PROT_EN_MM_STA1),
+ 		},
++		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
+ 	},
+ 	[MT6789_POWER_DOMAIN_VENC] = {
+ 		.name = "venc",
+@@ -283,6 +286,7 @@ static const struct scpsys_domain_data scpsys_domain_data_mt6789[] = {
+ 					MT6789_TOP_AXI_PROT_EN_MM_CLR,
+ 					MT6789_TOP_AXI_PROT_EN_MM_STA1),
+ 		},
++		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
+ 	},
+ 	[MT6789_POWER_DOMAIN_DISP] = {
+ 		.name = "disp",
+@@ -341,6 +345,7 @@ static const struct scpsys_domain_data scpsys_domain_data_mt6789[] = {
+ 					MT6789_TOP_AXI_PROT_EN_MM_CLR,
+ 					MT6789_TOP_AXI_PROT_EN_MM_STA1),
+ 		},
++		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
+ 	},
+ 	[MT6789_POWER_DOMAIN_CAM_RAWA] = {
+ 		.name = "cam_rawa",
+@@ -350,6 +355,7 @@ static const struct scpsys_domain_data scpsys_domain_data_mt6789[] = {
+ 		.pwr_sta2nd_offs = 0x170,
+ 		.sram_pdn_bits = BIT(8),
+ 		.sram_pdn_ack_bits = BIT(12),
++		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
+ 	},
+ 	[MT6789_POWER_DOMAIN_CAM_RAWB] = {
+ 		.name = "cam_rawb",
+@@ -359,6 +365,7 @@ static const struct scpsys_domain_data scpsys_domain_data_mt6789[] = {
+ 		.pwr_sta2nd_offs = 0x170,
+ 		.sram_pdn_bits = BIT(8),
+ 		.sram_pdn_ack_bits = BIT(12),
++		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
+ 	},
+ };
+ 
+-- 
+2.47.2

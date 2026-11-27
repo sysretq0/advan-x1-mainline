@@ -1,55 +1,110 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: sysretq0 <sysretq0@proton.me>
-Date: Fri, 27 Nov 2026 14:35:00 +0700
-Subject: [PATCH] pmdomain: mediatek: Configure MT6789 CONN power domain for CONNSYS
+Date: Fri, 27 Nov 2026 23:37:00 +0700
+Subject: [PATCH] pmdomain: mediatek: Configure MT6789 CONN power domain via
+ generic NO_ATTACH_POWER_ON flag
 
 MediaTek MT6789's integrated CONNSYS connectivity subsystem
 (mediatek,mt6789-consys) requires its SCPSYS power domain
-(MT6789_POWER_DOMAIN_CONN) to remain powered off across driver attach
-until the CONNSYS driver has configured EMI address remapping, enabled
-the CCIF4 AP clock, and brought up the VCN PMIC rails, after which it
-explicitly powers CONN on via pm_runtime_get_sync() and marks the device
-as a wakeup source.
+(MT6789_POWER_DOMAIN_CONN) to stay powered off across driver attach
+until the consumer has configured EMI remapping, enabled the CCIF4 AP
+clock, and sequenced the external VCN PMIC rails, after which it powers
+CONN on explicitly via pm_runtime_get_sync() and marks itself as a
+wakeup source.
 
-1. Skip automatic attach-time power-on in genpd_dev_pm_attach() for
-   mediatek,mt6789-consys so CONN stays off until runtime-resumed.
-2. Add MTK_SCPD_ACTIVE_WAKEUP to MT6789_POWER_DOMAIN_CONN so genpd
-   keeps CONN MTCMOS active across s2idle while Wi-Fi/CONNSYS is live.
+Instead of matching a SoC compatible string inside core genpd, add a
+generic GENPD_FLAG_NO_ATTACH_POWER_ON flag in pm_domain.h / pmdomain/core.c
+and wire MTK_SCPD_NO_ATTACH_POWER_ON + MTK_SCPD_ACTIVE_WAKEUP on
+MT6789_POWER_DOMAIN_CONN.
 
 Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
+ drivers/pmdomain/core.c                       |  2 +-
+ drivers/pmdomain/mediatek/mt6789-pm-domains.h |  4 +++-
+ drivers/pmdomain/mediatek/mtk-pm-domains.c    |  3 +++
+ drivers/pmdomain/mediatek/mtk-pm-domains.h    |  1 +
+ include/linux/pm_domain.h                     | 10 ++++++++++
+ 5 files changed, 18 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/pmdomain/core.c b/drivers/pmdomain/core.c
+index 98377c97a..b5e3e12d4 100644
 --- a/drivers/pmdomain/core.c
 +++ b/drivers/pmdomain/core.c
-@@ -3565,6 +3565,8 @@
-  */
- int genpd_dev_pm_attach(struct device *dev)
- {
-+	bool power_on = true;
-+
- 	if (!dev->of_node)
- 		return 0;
+@@ -3526,7 +3526,7 @@ static int __genpd_dev_pm_attach(struct device *dev, struct device *base_dev,
+ 	if (ret)
+ 		goto err;
  
-@@ -3576,7 +3578,10 @@
- 				       "#power-domain-cells") != 1)
- 		return 0;
- 
--	return __genpd_dev_pm_attach(dev, dev, 0, 1, true);
-+	if (of_device_is_compatible(dev->of_node, "mediatek,mt6789-consys"))
-+		power_on = false;
-+
-+	return __genpd_dev_pm_attach(dev, dev, 0, 1, power_on);
- }
- EXPORT_SYMBOL_GPL(genpd_dev_pm_attach);
- 
+-	if (power_on) {
++	if (power_on && !(pd->flags & GENPD_FLAG_NO_ATTACH_POWER_ON)) {
+ 		genpd_lock(pd);
+ 		ret = genpd_power_on(pd, dev, 0);
+ 		genpd_unlock(pd);
+diff --git a/drivers/pmdomain/mediatek/mt6789-pm-domains.h b/drivers/pmdomain/mediatek/mt6789-pm-domains.h
+index 24189d837..a92c6f41b 100644
 --- a/drivers/pmdomain/mediatek/mt6789-pm-domains.h
 +++ b/drivers/pmdomain/mediatek/mt6789-pm-domains.h
-@@ -109,7 +109,8 @@
+@@ -109,7 +109,9 @@ static const struct scpsys_domain_data scpsys_domain_data_mt6789[] = {
  					MT6789_TOP_AXI_PROT_EN_1_CLR,
  					MT6789_TOP_AXI_PROT_EN_1_STA1),
  		},
 -		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
 +		.caps = MTK_SCPD_KEEP_DEFAULT_OFF |
-+			MTK_SCPD_ACTIVE_WAKEUP,
++			MTK_SCPD_ACTIVE_WAKEUP |
++			MTK_SCPD_NO_ATTACH_POWER_ON,
  	},
  	[MT6789_POWER_DOMAIN_MFG0] = {
  		.name = "mfg0",
+diff --git a/drivers/pmdomain/mediatek/mtk-pm-domains.c b/drivers/pmdomain/mediatek/mtk-pm-domains.c
+index 5b21bc46b..6b99a1204 100644
+--- a/drivers/pmdomain/mediatek/mtk-pm-domains.c
++++ b/drivers/pmdomain/mediatek/mtk-pm-domains.c
+@@ -1013,6 +1013,9 @@ static struct generic_pm_domain *scpsys_add_one_domain(struct scpsys *scpsys,
+ 	if (MTK_SCPD_CAPS(pd, MTK_SCPD_ACTIVE_WAKEUP))
+ 		pd->genpd.flags |= GENPD_FLAG_ACTIVE_WAKEUP;
+ 
++	if (MTK_SCPD_CAPS(pd, MTK_SCPD_NO_ATTACH_POWER_ON))
++		pd->genpd.flags |= GENPD_FLAG_NO_ATTACH_POWER_ON;
++
+ 	if (MTK_SCPD_CAPS(pd, MTK_SCPD_KEEP_DEFAULT_OFF))
+ 		pm_genpd_init(&pd->genpd, NULL, true);
+ 	else
+diff --git a/drivers/pmdomain/mediatek/mtk-pm-domains.h b/drivers/pmdomain/mediatek/mtk-pm-domains.h
+index 24c48a102..a9d8174f2 100644
+--- a/drivers/pmdomain/mediatek/mtk-pm-domains.h
++++ b/drivers/pmdomain/mediatek/mtk-pm-domains.h
+@@ -19,6 +19,7 @@
+ #define MTK_SCPD_INFRA_PWR_CTL		BIT(12)
+ #define MTK_SCPD_SIMPLE_PWRSEQ		BIT(13)
+ #define MTK_SCPD_MODEM_SECURE_PWRSEQ	BIT(14)
++#define MTK_SCPD_NO_ATTACH_POWER_ON	BIT(15)
+ #define MTK_SCPD_CAPS(_scpd, _x)	((_scpd)->data ?		\
+ 					 (_scpd)->data->caps & (_x) :	\
+ 					 (_scpd)->hwv_data->caps & (_x))
+diff --git a/include/linux/pm_domain.h b/include/linux/pm_domain.h
+index 139e05f11..e41d9c0c8 100644
+--- a/include/linux/pm_domain.h
++++ b/include/linux/pm_domain.h
+@@ -129,6 +129,13 @@
+  *				powered on during boot, genpd will prevent it
+  *				from being powered off until the ->sync_state
+  *				callback is invoked for it.
++ *
++ * GENPD_FLAG_NO_ATTACH_POWER_ON:
++ *				Do not automatically power on this PM domain
++ *				during genpd_dev_pm_attach(). Intended for
++ *				domains whose consumer must sequence external
++ *				regulators, clocks, or EMI remaps before
++ *				requesting power-on via runtime PM.
+  */
+ #define GENPD_FLAG_PM_CLK	 (1U << 0)
+ #define GENPD_FLAG_IRQ_SAFE	 (1U << 1)
+@@ -142,6 +151,7 @@
+ #define GENPD_FLAG_NO_SYNC_STATE (1U << 9)
+ #define GENPD_FLAG_NO_STAY_ON	 (1U << 10)
+ #define GENPD_FLAG_POWER_UNKNOWN (1U << 11)
++#define GENPD_FLAG_NO_ATTACH_POWER_ON (1U << 12)
+ 
+ enum gpd_status {
+ 	GENPD_STATE_ON = 0,	/* PM domain is on */
+-- 
+2.47.2

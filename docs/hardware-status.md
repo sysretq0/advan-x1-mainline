@@ -1,6 +1,6 @@
 # Advan X1 (MT6789 / Helio G99) — Hardware Support & Bring-Up Status
 
-**Latest hardware-verified baseline:** `f1cc338` (7.4 modernized kernel, full 7.69 GiB RAM, live 4G LTE auto-connect + NTP sync, audio playback, `s2idle` suspend-to-RAM survival, clean shutdown). Modem Wave 1 + userspace cleanup commits (`f492bf9`+) are CI-verified and awaiting live operator testing in order **Internet → Call → SMS → VoLTE**.  
+**Latest hardware-verified baseline:** `205a6ec`+ (7.4 modernized kernel, full 7.69 GiB RAM, live Wi-Fi STA + 4G LTE coexistence, audio playback, `s2idle` suspend-to-RAM survival, clean shutdown). All 100% of MT6789 clock controllers and all 15 `M8` SCPSYS power domains are now wired; Voice/SMS/VoLTE and native BlueZ BT (`hci_mtk_stp`) are implemented and awaiting live verification.  
 **Upstream kernel baseline:** Linux v7.4-rc3/rc4 (`666539eecdf4db623f5e3c3e55cf9f2dfad24aa4`)  
 **Boot chain:** Stock LK → Loki Stage-1 (EL1) → [`advan-x1-uboot`](https://github.com/sysretq0/advan-x1-uboot) (EL2) → U-Boot FIT (`advan-x1.itb`)
 
@@ -18,8 +18,8 @@ Status legend:
 |---|---|---|---|---|
 | **CPU / SMP** | MT6789 (2×A76 + 6×A55) | PSCI + `mtk-cpufreq-hw` | **Working** | 8 CPUs online (`2.0 GHz` little, `2.2 GHz` big) |
 | **RAM & pstore** | 8 GiB LPDDR4X (`7.69 GiB` usable) | `memory@40000000` + 31 `no-map` carveouts, `ramoops@48090000` | **Working** | Full `7714360K/8388608K` (~7.69 GiB) verified on HW; ramoops works |
-| **Clocks** | `apmixedsys`, `topckgen`, `infra_ao`, `imp_iic_wrap`, `mmsys`, `mfgcfg` | `clk-mt6789-*` (`patches/01-clk/`) | **Working** | 0 HW-on clock leaks; `clk_disable_unused` clean |
-| **Power Domains** | SCPSYS (`md`, `mfg0..3`, `disp`, `audio`) | `mtk-pm-domains` (`10006000.syscon`) | **Working** | `mfg0/1` regulator-coupled; 0 deferred probes |
+| **Clocks** | All MT6789 CCF controllers (`apmixedsys`, `topckgen`, `infra_ao`, `imp_iic_wrap`, `mmsys`, `mfgcfg`, `mdpsys`, `camsys_*`, `imgsys1`, `ipesys`, `vdecsys`, `vencsys`) | `clk-mt6789-*` (`patches/01-clk/`) | **Working** | 100% of MT6789 silicon clock gates mapped; 0 HW-on clock leaks; `clk_disable_unused` clean |
+| **Power Domains** | All 15 SCPSYS domains (`md`, `conn`, `mfg0..3`, `disp`, `audio`, `isp`, `ipe`, `vdec`, `venc`, `cam`, `cam_rawa`, `cam_rawb`) | `mtk-pm-domains` (`10006000.syscon`) | **Working** | Full `M8` hierarchy wired; `mfg0/1` regulator-coupled; `conn` uses generic `GENPD_FLAG_NO_ATTACH_POWER_ON`; multimedia domains `KEEP_DEFAULT_OFF` |
 | **Suspend-to-RAM** | SPM deep sleep + MIPI-TX/SMI restore | PSCI `0x01011f01` `s2idle` | **Working** | Survives full suspend/resume cycle on hardware; post-suspend cellular reconnect hardened in Wave 1 |
 | **Pinctrl / GPIO / EINT** | 188 pins + EINT | `pinctrl-mt6789` (`10005000.pinctrl`) | **Working** | Verified pinmux, active-low resets, EINT IRQs |
 | **PMIC & Regulators** | MT6366 (MT6358 family) | `mtk-pmic-wrap` (`10026000.pwrap`) + `mt6358-regulator` + `mt6358-efuse` + `mt6366-thermal` | **Working** | MT6789 pwrap register map; regulators, RTC, AUXADC, PMIC eFuse, 4 PMIC thermal zones |
@@ -39,7 +39,7 @@ Status legend:
 | **Audio** | MT6789 AFE + MT6366 + FourSemi FS1599 + ACCDET | `mt6789-mt6366-sound`, `fs1599`, `mt6358-accdet` + UCM2 + PipeWire drop-ins | **Working** | Playback verified; `-200 mB` LINEOUT cap for FS1599; PipeWire/WirePlumber AFE latency drop-ins packaged; `PCM 2` / `VoiceCall.conf` wired for CS calls |
 | **Cellular Modem — Data** | MT6789 Gen95 Modem (`md1img`) | `mtk-ccci` (`d0cf000.modem`) + DPMAIF v1 + ModemManager `mtk-ccci` | **Working** | Live 4G LTE auto-connect (`wwan0` + `/dev/wwan0at0`), IPv4/IPv6 + post-suspend DPMAIF restore & `+CGACT?` reconnect in Wave 1 |
 | **Cellular Modem — Voice / SMS** | MT6789 Gen95 Modem + AFE `PCM 2` | `/dev/ccci_aud`, `Hostless_Speech` (`hw:*,5`), UCM2 `VoiceCall.conf`, MM plugin | **WIP** | Wave 1 kernel/AT/UCM2 wired; awaiting live call/SMS verification and Wave 2 speech-mailbox helper (`docs/modem-full-bringup.md`) |
-| **Cellular Modem — VoLTE/IMS** | MT6789 Gen95 IMS channels | `mtk-ccci` channel drains wired | **Not started** | Needs open-source SIP/IMS + XFRM IPsec userspace stack (Stage 4) |
+| **Cellular Modem — VoLTE/IMS** | MT6789 Gen95 IMS channels | `mtk-ccci` + native IMS/RTP/AMR-WB daemon + XFRM IPsec + MM IMS bridge | **WIP** | Native userspace SIP/IMS + RTP/AMR-WB + XFRM stack wired (`0a20256`, `e0141c4`); awaiting live carrier VoLTE verification |
 | **USB-C Host / OTG / PD** | Richtek RT1711H TCPC + SC89601A VBUS boost | `rt1711h` (`4-004e`) + `charger_vbus` + `usb-role-switch` (`usb0`) | **WIP** | Dual-role VBUS boost & OF graph role-switch wired; bidirectional charging works, host data enumeration still WIP |
 | **microSD Card** | MT6789 MSDC1 | `mtk-msdc` (`11240000.mmc`, `GPIO 7` `GPIO_ACTIVE_LOW` CD) | **WIP** | Controller + CD polarity fixed (`2abd89e`); live card I/O test pending |
 | **Fast Charging** | SC8547 charge pump (`i2c7@6a`) + PE | — | **WIP** | Standard SC89601A charging works; HV charge pump not implemented |
@@ -47,8 +47,8 @@ Status legend:
 | **Wi-Fi (MT6789 ConnSys)** | MT6789 `SOC2_2` + `MT6631` A-die | `btif_drv` + `wmt_drv` + `wlan_drv_gen4m_6789` + `mtk-wmt-init` | **Working** | Live WPA2/WPA3 STA (`wlan0`) + 4G LTE coexistence verified; Loki LK `consys_init()` opens EMI MPU Regions 27 & 18; `15-mtk-wifi.conf` keeps NM on `wlan0` |
 | **Bluetooth (MT6789 ConnSys)** | MT6789 `SOC2_2` + `MT6631` A-die | `hci_mtk_stp` (native BlueZ `hci0` over STP/WMT) | **WIP** | Native H4 HCI transport over `wmt_drv` (`BT_TASK_INDX`, `0xFC1A` BD_ADDR); awaiting live mainline BlueZ test |
 | **GPS (MT6789 ConnSys)** | MT6789 `SOC2_2` | — | **Not started** | `gps_drv_stp` / NMEA bridge not yet wired |
-| **Cameras & Flash** | `camsys` / `imgsensor` / `aw3641e` / `lm3643` | — | **Not started** | Needs `camsys`/`imgsys` clocks, `M8` power domains, V4L2 stack |
-| **Video Codec (HW)** | `vdecsys` / `vencsys` / `mdpsys` | — | **Not started** | Needs multimedia clock controllers & `M8` power domains |
+| **Cameras & Flash** | `camsys` / `imgsensor` / `aw3641e` / `lm3643` | `clk-mt6789-{cam,img}` + `M8` PDs ready | **Not started** | Clocks & `M8` PDs wired; needs V4L2/CSI-2 sensor & ISP drivers |
+| **Video Codec (HW)** | `vdecsys` / `vencsys` / `mdpsys` | `clk-mt6789-{vcodec,mdp}` + `M8` PDs ready | **Not started** | Clocks & `M8` PDs wired; needs V4L2 stateless codec & MDP drivers |
 | **Sensors (IMU/ALS/Prox)** | SCP RV55 sensor hub (`scp`) | — | **Not started** | Needs `mtk-scp` remoteproc + IIO sensor bridge |
 | **Fingerprint** | Goodix (`goodix-fp` SPI5) / FocalTech | — | **Not started** | Not wired in DTS or driver stack |
 
@@ -59,13 +59,21 @@ Status legend:
 - **Core SoC, SMP & CPUfreq:** All 8 cores online (`policy0`: 6× Cortex-A55
   500–2000 MHz, `policy6`: 2× Cortex-A76 725–2200 MHz via `mtk-cpufreq-hw`),
   SoC identity exported via `mtk-socinfo` (`MediaTek Helio G99 / MT6789`).
-- **Clocks, Power Domains & Suspend-to-RAM:** All active clock controllers
-  (`apmixedsys`, `topckgen`, `infra_ao`, `imp_iic_wrap`, `mmsys`, `mfgcfg`)
-  operate without `clk_ignore_unused` or `pd_ignore_unused` and with zero leaked
-  HW-on clocks in `clk_summary`. SCPSYS manages `md`, `mfg0`–`mfg3`, `disp`, and
-  `audio` power domains with `mfg0` (`vsram_gpu`) and `mfg1` (`vgpu`)
-  regulator-coupled. Full `s2idle` suspend/resume survives on hardware with
-  MIPI-TX/DSI cold-start resume and SMI 2×1 sub-common register restoration.
+- **Clocks, Power Domains & Suspend-to-RAM:** All 14 MT6789 clock controllers
+  (`apmixedsys`, `topckgen`, `infra_ao`, `imp_iic_wrap`, `mmsys`, `mfgcfg`,
+  `mdpsys`, `camsys_{main,rawa,rawb}`, `imgsys1`, `ipesys`, `vdecsys`,
+  `vencsys`) and all 15 SCPSYS power domains (`md`, `conn`, `mfg0`–`mfg3`,
+  `disp`, `audio`, `isp`, `ipe`, `vdec`, `venc`, `cam`, `cam_rawa`, `cam_rawb`)
+  are wired without `clk_ignore_unused` or `pd_ignore_unused` bootargs. `mfg0`
+  (`vsram_gpu`) and `mfg1` (`vgpu`) are regulator-coupled, `conn` defers
+  power-on cleanly via generic `GENPD_FLAG_NO_ATTACH_POWER_ON`, and multimedia
+  domains stay `MTK_SCPD_KEEP_DEFAULT_OFF` until consumers claim them. Full
+  `s2idle` suspend/resume survives on hardware with MIPI-TX/DSI cold-start
+  resume and SMI 2×1 sub-common register restoration.
+- **Wi-Fi (MT6789 ConnSys):** `btif_drv` + `wmt_drv` + `wlan_drv_gen4m_6789` +
+  `mtk-wmt-init` provide live WPA2/WPA3 STA connectivity (`wlan0`) coexisting
+  with 4G LTE (`wwan0`). Loki LK configures EMI MPU Regions 27 & 18 via
+  `MTK_SIP_BL_EMIMPU_CONTROL` (`0x82000415`) at boot.
 - **Display, IOMMU & Backlight:** Full `mediatek-drm` DDP pipeline
   (`OVL0 → RDMA0 → COLOR0 → CCORR0 → AAL0 → GAMMA0 → POSTMASK0 → DITHER0 →
   DSC0 → DSI0`) drives the Chipone ICNL9922C 1080×2460 4-lane VESA DSC 1.1
@@ -123,14 +131,13 @@ Status legend:
 
 ## 3. Not Yet Started / Unsupported
 
-1. **Wi-Fi, Bluetooth & GPS (`consys@18002000`, `wifi@18000000`, `gps@18c00000`):**
-   MT6789 integrated ConnSys/WMT subsystem has no upstream Linux driver.
+1. **GPS (`gps@18c00000`):** `gps_drv_stp` / NMEA bridge over ConnSys WMT not yet wired (Wi-Fi STA is working; native BlueZ Bluetooth `hci_mtk_stp` is WIP).
 2. **Cameras, ISP & LED Flash (`camsys`, `imgsensor`, `aw3641e` / `lm3643`):**
-   Requires multimedia clock controllers (`camsys`, `imgsys1`, `ipesys`), the
-   deferred `M8` power domains, and V4L2/CSI-2 sensor drivers.
+   Multimedia clock controllers (`camsys_*`, `imgsys1`, `ipesys`) and `M8`
+   power domains are wired; V4L2/CSI-2 sensor and ISP drivers are not yet implemented.
 3. **Hardware Video Decode / Encode & MDP (`vdecsys`, `vencsys`, `mdpsys`):**
-   Requires multimedia clock controllers, `M8` power domains, and V4L2 stateless
-   codec support.
+   Multimedia clock controllers and `M8` power domains are wired; V4L2 stateless
+   codec and MDP drivers are not yet implemented.
 4. **Sensors (Accelerometer, Gyroscope, Magnetometer, ALS/Proximity):** Routed
    through the MT6789 SCP RV55 coprocessor on stock firmware; requires
    `mtk-scp` remoteproc and an IIO sensor bridge.
@@ -141,11 +148,12 @@ Status legend:
 
 ## 4. Next Milestones
 
-1. **Full Modem Hardware Verification (Wave 1 → Wave 2):** Verify post-suspend
-   4G LTE internet, CS voice call (`PCM 2` + `/dev/ccci_aud` + `ccci-aud-helper`),
-   and 3GPP PDU SMS on hardware, then evaluate Stage 4 VoLTE/IMS.
+1. **Full Modem & Bluetooth Hardware Verification:** Verify CS voice calls
+   (`ccci_audd`), 3GPP PDU SMS, live carrier VoLTE/IMS, and native BlueZ
+   Bluetooth (`hci_mtk_stp`) on hardware.
 2. **Audio & Peripheral Polish:** Confirm zero-dropout playback with packaged
    PipeWire/WirePlumber drop-ins, verify headset jack switching, test physical
    microSD I/O, and complete USB-C OTG host data enumeration.
-3. **Upstream Submission Prep:** Clear remaining pre-LKML items (`M8`, `B2-02`,
-   `M2b` boundary) tracked in [`docs/upstream-status.md`](upstream-status.md).
+3. **Upstream Submission Prep:** Clear the last pre-LKML structural boundary
+   (`M2b` CCCI split; `M8` is now complete) tracked in
+   [`docs/upstream-status.md`](upstream-status.md).

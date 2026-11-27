@@ -10,18 +10,18 @@ Advan X1 (MT6789) mainline Linux port.
 
 ---
 
-## 1. Patch Series Layout (114 Upstream-Targeted Patches)
+## 1. Patch Series Layout (122 Upstream-Targeted Patches)
 
 | Directory | Count | Scope |
 |---|---:|---|
-| `patches/01-clk/` | 7 | MT6789 clock/reset bindings, core clocks (`apmixedsys`, `topckgen`, `infra_ao` + MFGPLL mux-park notifier), `imp_iic_wrap`, `mmsys`, `mfgcfg`, and Linux 7.4 `mtk_clk_simple_probe` conversions (`apmixedsys`, `infra_ao`, `imp_iic_wrap`, `mmsys`; `topckgen` intentionally left untouched to avoid style-only churn) |
+| `patches/01-clk/` | 9 | MT6789 clock/reset bindings (including all 8 multimedia controllers), core clocks (`apmixedsys`, `topckgen`, `infra_ao` + MFGPLL mux-park notifier), `imp_iic_wrap`, `mmsys`, `mfgcfg`, multimedia subsystem drivers (`mdpsys`, `camsys_{main,rawa,rawb}`, `imgsys1`, `ipesys`, `vdecsys`, `vencsys` — 100% of MT6789 silicon clock gates), and Linux 7.4 `mtk_clk_simple_probe` conversions |
 | `patches/02-pinctrl/` | 2 | MT6789 pinctrl binding and 188-pin pinctrl/EINT driver |
-| `patches/03-soc-power/` | 20 | SCPSYS power domains, MT6789 PMIC wrapper (`mt6789_regs[]`), regulator coupler, MMSYS, disp-mutex (+ probe deferral), SMI (common + 2×1 sub-commons + larb sleep-ctrl restore), socinfo, disp IOMMU (`mtk-iommu`), and Linux 7.4 typed-allocator / PM-ops modernization |
-| `patches/04-peripherals/` | 65 | SPI, I²C (`mt6789_compat`, `dma_sync=1`), eFuse, watchdog, LVTS thermal (+ per-SoC zero-MSR guard & STAGE3 hw reboot), MT6366 PMIC thermal + MT6358/MT6366 PMIC eFuse + MT6366 DCXO `XO_NFC` CCF clkbuf, DISP PWM, MT6358 long-press fix, MMC, SC89601A charger, CW2217 fuel gauge, Chipone ICNL9922C SPI touch, MT6789 AFE/MT6366 audio + `PCM 2` / `Hostless_Speech` voice crossbar + FourSemi FS1599 + MT6358 ACCDET (+ eFuse/moisture/CDD), UFS/USB PHY bindings + T-PHY wake/OTG, `tps65132` wakeup, CCCI/CCIF0/RPC/FS/Audio (`/dev/ccci_aud`)/WWAN AT/DPMAIF v1 + SMEM UL modem stack (+ suspend/resume restore & bring-up log cleanup) |
+| `patches/03-soc-power/` | 22 | SCPSYS power domains (all 15 MT6789 domains including `CONN` with generic `GENPD_FLAG_NO_ATTACH_POWER_ON` and `M8` multimedia domains with `MTK_SCPD_KEEP_DEFAULT_OFF`), MT6789 PMIC wrapper (`mt6789_regs[]`), regulator coupler, MMSYS, disp-mutex (+ probe deferral), SMI (common + 2×1 sub-commons + larb sleep-ctrl restore), socinfo, disp IOMMU (`mtk-iommu`), and Linux 7.4 typed-allocator / PM-ops modernization |
+| `patches/04-peripherals/` | 67 | SPI, I²C (`mt6789_compat`, `dma_sync=1`), eFuse, watchdog, LVTS thermal (+ per-SoC zero-MSR guard & STAGE3 hw reboot), MT6366 PMIC thermal + MT6358/MT6366 PMIC eFuse + MT6366 DCXO `XO_NFC` CCF clkbuf, DISP PWM, MT6358 long-press fix, MMC, SC89601A charger (+ 18W/3A PD unlock), CW2217 fuel gauge, Chipone ICNL9922C SPI touch, MT6789 AFE/MT6366 audio + `PCM 2` / `Hostless_Speech` voice crossbar + FourSemi FS1599 + MT6358 ACCDET (+ eFuse/moisture/CDD), UFS/USB PHY bindings + T-PHY wake/OTG, `tps65132` wakeup, CCCI/CCIF0/RPC/FS/Audio (`/dev/ccci_aud`)/WWAN AT/DPMAIF v1 + SMEM UL modem stack (+ suspend/resume restore & bring-up log cleanup) |
 | `patches/05-gpu/` | 2 | Mali-G57 MC2 (`panfrost`) binding and compatible |
 | `patches/06-display/` | 14 | MIPI-TX DSI PHY (+ s2idle cold-start resume), `mediatek-drm` pipeline + OVL0 splash DMA halt + CRTC vblank drain fix, DSI + hardware DSC 1.1, Chipone ICNL9922C panel binding & driver, disp-mutex bind deferral |
-| `patches/07-dts/` | 4 | SoC/board binding, `mt6789.dtsi`, `mt6789-advan-x1.dts`, and Linux 7.4 DTS/binding alignment (generic node names, thermal polling/trips, CCIF match-data cleanup) |
-| **Total (`patches/`)** | **114** | **Upstream submission series** (out-of-tree `patches-extra/` removed) |
+| `patches/07-dts/` | 6 | SoC/board binding, `mt6789.dtsi`, `mt6789-advan-x1.dts`, Linux 7.4 DTS/binding alignment, ConnSys/BTIF/Wi-Fi DT nodes, and all 8 multimedia clock controllers + `M8` power domains |
+| **Total (`patches/`)** | **122** | **Upstream submission series** (out-of-tree `patches-extra/` removed) |
 
 ---
 
@@ -40,20 +40,15 @@ has been remediated and verified:
 | **Phase A/B & Suspend-to-RAM** | `074d43d`..`2abd89e` | Added LVTS STAGE3 hw thermal reboot, 30 s CCCI HS1/HS2 timeout, MT6366 `XO_NFC` clkbuf, MT6358 eFuse NVMEM, MT6366 PMIC thermal, ACCDET eFuse/CDD, SMI 2×1 sub-common restore, MIPI-TX/DSI s2idle resume (hardware suspend/resume survived), and hardware-verified microSD CD polarity (`GPIO_ACTIVE_LOW` in `2abd89e`). |
 | **Linux 7.4 Modernization** | `d3e3b51`..`f1cc338` | Adopted 7.4 typed allocators (`kzalloc_obj`/`devm_kzalloc_obj`), `DEFINE_SIMPLE_DEV_PM_OPS`/`DEFINE_RUNTIME_DEV_PM_OPS`, `<linux/cleanup.h>` guards, `mtk_clk_simple_probe`, strict `__le*` sparse annotations in `mtk_ccci`, and dropped the out-of-tree `patches-extra/` vendor TDDI driver. Note: `01-clk/0002` (`topckgen`) was intentionally left on its existing helpers (`f1cc338` dropped `01-clk/0008` to avoid style-only churn on already-upstream patterns; commit `d3e3b51`'s historical message predates that drop). |
 | **Modem Wave 1 & Debug Cleanup** | `f492bf9` | Added `/dev/ccci_aud` speech mailbox, DPMAIF suspend/resume register restore, `PCM 2` / `Hostless_Speech` AFE voice crossbar, UCM2 `VoiceCall.conf`, PipeWire latency packaging, ModemManager IPv4/IPv6/`+CGACT?`/voice/SMS AT init, and stripped bring-up debug spam/services. |
+| **VoLTE/IMS, ConnSys Wi-Fi/BT, Full Clocks & M8** | `e505c0f`..HEAD | Added `ccci_audd`, native VoLTE/IMS + RTP/AMR-WB stack, ConnSys Wi-Fi (`wlan0` verified) + native BlueZ `hci_mtk_stp`, all 8 remaining MT6789 multimedia clock controllers (57 gates bit-exact from Tier-A stock `.ko`s), all 7 remaining `M8` power domains (`MTK_SCPD_KEEP_DEFAULT_OFF`), and replaced the `drivers/pmdomain/core.c` compatible string check with generic `GENPD_FLAG_NO_ATTACH_POWER_ON` / `MTK_SCPD_NO_ATTACH_POWER_ON`. |
 
 ---
 
 ## 3. Remaining Pre-Upstream Items (Deferred Tech Debt)
 
-Only two structural items remain before splitting the series for LKML
-submission:
+Only one structural item remains before splitting the series for LKML submission (`M8` is now complete):
 
-1. **`M8` — Multimedia / Connectivity Power Domains (8 deferred):**
-   `CONN`, `ISP`, `IPE`, `VDEC`, `VENC`, `CAM`, `CAM_RAWA`, and `CAM_RAWB` are
-   omitted from `mt6789-pm-domains` until their corresponding clock controllers
-   (`camsys`, `imgsys1`, `ipesys`, `vdecsys`, `vencsys`) are implemented in
-   `mt6789.dtsi`.
-2. **`M2b` — CCCI Driver Subsystem Boundary:**
+1. **`M2b` — CCCI Driver Subsystem Boundary:**
    `drivers/net/wwan/mtk_ccci/` stays under `drivers/net/wwan/` while full
    modem bring-up (data, CS voice, SMS, VoLTE) matures. Before LKML submission,
    split the SoC modem boot + CCIF0 transport into `drivers/soc/mediatek/` (or

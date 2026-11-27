@@ -1076,12 +1076,6 @@ static INT32 consys_hw_vcn_ctrl_after_idle(VOID)
 	return 0;
 }
 
-#ifndef MTK_SIP_EMIMPU_CONTROL
-#define MTK_SIP_EMIMPU_CONTROL \
-	ARM_SMCCC_CALL_VAL(ARM_SMCCC_FAST_CALL, ARM_SMCCC_SMC_64, \
-			   ARM_SMCCC_OWNER_SIP, 0x50B)
-#endif
-#define MT6789_EMIMPU_REGION_CONN	27
 static INT32 consys_emi_mpu_set_region_protection(VOID)
 {
 	unsigned long long start_addr = gConEmiPhyBase;

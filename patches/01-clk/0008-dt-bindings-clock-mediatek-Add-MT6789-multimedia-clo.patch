@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Fri, 27 Nov 2026 23:35:00 +0700
+Subject: [PATCH] dt-bindings: clock: mediatek: Add MT6789 multimedia clock
+ controller compatibles
+
+Document the remaining MediaTek MT6789 multimedia subsystem functional
+clock controllers (camsys_main, camsys_rawa, camsys_rawb, imgsys1,
+ipesys, mdpsys, vdecsys, and vencsys) in mediatek,mt6789-clock.yaml,
+matching the stock MT6789 clock tree and mt6789-clk.h IDs.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ .../devicetree/bindings/clock/mediatek,mt6789-clock.yaml  | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/clock/mediatek,mt6789-clock.yaml b/Documentation/devicetree/bindings/clock/mediatek,mt6789-clock.yaml
+index 04ec9a7..a8e41c2 100644
+--- a/Documentation/devicetree/bindings/clock/mediatek,mt6789-clock.yaml
++++ b/Documentation/devicetree/bindings/clock/mediatek,mt6789-clock.yaml
+@@ -19,11 +19,19 @@ properties:
+   compatible:
+     items:
+       - enum:
++          - mediatek,mt6789-camsys_main
++          - mediatek,mt6789-camsys_rawa
++          - mediatek,mt6789-camsys_rawb
++          - mediatek,mt6789-imgsys1
+           - mediatek,mt6789-imp_iic_wrap_c
+           - mediatek,mt6789-imp_iic_wrap_en
+           - mediatek,mt6789-imp_iic_wrap_n
+           - mediatek,mt6789-imp_iic_wrap_w
++          - mediatek,mt6789-ipesys
++          - mediatek,mt6789-mdpsys
+           - mediatek,mt6789-mfgcfg
++          - mediatek,mt6789-vdecsys
++          - mediatek,mt6789-vencsys
+       - const: syscon
+ 
+   reg:
+-- 
+2.47.2

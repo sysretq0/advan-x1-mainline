@@ -1,0 +1,186 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Fri, 27 Nov 2026 23:40:00 +0700
+Subject: [PATCH] arm64: dts: mediatek: mt6789: Add multimedia clock
+ controllers and M8 power domains
+
+Wire all eight remaining MediaTek MT6789 multimedia clock controllers
+(imgsys1, vdecsys, vencsys, camsys_main, camsys_rawa, camsys_rawb,
+ipesys, mdpsys) and the remaining M8 SCPSYS power domains (ISP, IPE,
+VDEC, VENC, CAM, CAM_RAWA, CAM_RAWB) plus the DISP mdpsys SMI clock
+into mt6789.dtsi, matching the stock MT6789 SCPSYS hierarchy and clock
+bindings.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+diff --git a/arch/arm64/boot/dts/mediatek/mt6789.dtsi b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
+index fb2060d..113f07b 100644
+--- a/arch/arm64/boot/dts/mediatek/mt6789.dtsi
++++ b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
+@@ -463,6 +463,7 @@
+ 					reg = <MT6789_POWER_DOMAIN_DISP>;
+ 					clocks = <&topckgen CLK_TOP_DISP_SEL>,
+ 						 <&topckgen CLK_TOP_MDP_SEL>,
++						 <&mdpsys CLK_MDP_SMI0>,
+ 						 <&mmsys CLK_MM_SMI_INFRA>,
+ 						 <&mmsys CLK_MM_SMI_COMMON>,
+ 						 <&mmsys CLK_MM_SMI_GALS>,
+@@ -471,6 +472,7 @@
+ 						 <&mmsys CLK_MM_DISP_26M>;
+ 					clock-names = "disp",
+ 						      "mdp",
++						      "subsys-mdp-smi0",
+ 						      "subsys-smi-infra",
+ 						      "subsys-smi-common",
+ 						      "subsys-smi-gals",
+@@ -478,7 +480,87 @@
+ 						      "subsys-apb-bus",
+ 						      "subsys-disp-26m";
+ 					mediatek,infracfg = <&infracfg_ao>;
+-					#power-domain-cells = <0>;
++					#address-cells = <1>;
++					#size-cells = <0>;
++					#power-domain-cells = <1>;
++
++					power-domain@6 {
++						reg = <MT6789_POWER_DOMAIN_ISP>;
++						clocks = <&topckgen CLK_TOP_IMG1_SEL>,
++							 <&imgsys1 CLK_IMGSYS1_GALS>,
++							 <&imgsys1 CLK_IMGSYS1_LARB9>;
++						clock-names = "isp",
++							      "subsys-isp-0",
++							      "subsys-isp-1";
++						mediatek,infracfg = <&infracfg_ao>;
++						#power-domain-cells = <0>;
++					};
++
++					power-domain@7 {
++						reg = <MT6789_POWER_DOMAIN_IPE>;
++						clocks = <&topckgen CLK_TOP_IPE_SEL>,
++							 <&ipesys CLK_IPE_SMI_SUBCOM>,
++							 <&ipesys CLK_IPE_GALS>,
++							 <&ipesys CLK_IPE_LARB19>,
++							 <&ipesys CLK_IPE_LARB20>;
++						clock-names = "ipe",
++							      "subsys-ipe-0",
++							      "subsys-ipe-1",
++							      "subsys-ipe-2",
++							      "subsys-ipe-3";
++						mediatek,infracfg = <&infracfg_ao>;
++						#power-domain-cells = <0>;
++					};
++
++					power-domain@8 {
++						reg = <MT6789_POWER_DOMAIN_VDEC>;
++						clocks = <&topckgen CLK_TOP_VDEC_SEL>,
++							 <&vdecsys CLK_VDE2_VDEC_CKEN>,
++							 <&vdecsys CLK_VDE2_LARB1_CKEN>;
++						clock-names = "vdec",
++							      "subsys-vdec-0",
++							      "subsys-vdec-1";
++						mediatek,infracfg = <&infracfg_ao>;
++						#power-domain-cells = <0>;
++					};
++
++					power-domain@9 {
++						reg = <MT6789_POWER_DOMAIN_VENC>;
++						clocks = <&topckgen CLK_TOP_VENC_SEL>,
++							 <&vencsys CLK_VEN1_CKE1_VENC>;
++						clock-names = "venc",
++							      "subsys-venc-0";
++						mediatek,infracfg = <&infracfg_ao>;
++						#power-domain-cells = <0>;
++					};
++
++					power-domain@12 {
++						reg = <MT6789_POWER_DOMAIN_CAM>;
++						clocks = <&topckgen CLK_TOP_CAM_SEL>,
++							 <&camsys_main CLK_CAM_M_LARB13>,
++							 <&camsys_main CLK_CAM_M_LARB14>;
++						clock-names = "cam",
++							      "subsys-cam-0",
++							      "subsys-cam-1";
++						mediatek,infracfg = <&infracfg_ao>;
++						#address-cells = <1>;
++						#size-cells = <0>;
++						#power-domain-cells = <1>;
++
++						power-domain@13 {
++							reg = <MT6789_POWER_DOMAIN_CAM_RAWA>;
++							clocks = <&camsys_rawa CLK_CAM_RA_LARBX>;
++							clock-names = "subsys-cam-rawa-0";
++							#power-domain-cells = <0>;
++						};
++
++						power-domain@14 {
++							reg = <MT6789_POWER_DOMAIN_CAM_RAWB>;
++							clocks = <&camsys_rawb CLK_CAM_RB_LARBX>;
++							clock-names = "subsys-cam-rawb-0";
++							#power-domain-cells = <0>;
++						};
++					};
+ 				};
+ 
+ 				power-domain@11 {
+@@ -1437,6 +1519,24 @@
+ 			power-domains = <&spm MT6789_POWER_DOMAIN_DISP>;
+ 		};
+ 
++		imgsys1: clock-controller@15020000 {
++			compatible = "mediatek,mt6789-imgsys1", "syscon";
++			reg = <0x00 0x15020000 0x00 0x1000>;
++			#clock-cells = <1>;
++		};
++
++		vdecsys: clock-controller@1602f000 {
++			compatible = "mediatek,mt6789-vdecsys", "syscon";
++			reg = <0x00 0x1602f000 0x00 0x1000>;
++			#clock-cells = <1>;
++		};
++
++		vencsys: clock-controller@17000000 {
++			compatible = "mediatek,mt6789-vencsys", "syscon";
++			reg = <0x00 0x17000000 0x00 0x1000>;
++			#clock-cells = <1>;
++		};
++
+ 		wifi: wifi@18000000 {
+ 			compatible = "mediatek,wifi";
+ 			reg = <0x00 0x18000000 0x00 0x00100000>;
+@@ -1471,6 +1571,36 @@
+ 			clock-names = "ccif";
+ 			status = "disabled";
+ 		};
++
++		camsys_main: clock-controller@1a000000 {
++			compatible = "mediatek,mt6789-camsys_main", "syscon";
++			reg = <0x00 0x1a000000 0x00 0x1000>;
++			#clock-cells = <1>;
++		};
++
++		camsys_rawa: clock-controller@1a04f000 {
++			compatible = "mediatek,mt6789-camsys_rawa", "syscon";
++			reg = <0x00 0x1a04f000 0x00 0x1000>;
++			#clock-cells = <1>;
++		};
++
++		camsys_rawb: clock-controller@1a06f000 {
++			compatible = "mediatek,mt6789-camsys_rawb", "syscon";
++			reg = <0x00 0x1a06f000 0x00 0x1000>;
++			#clock-cells = <1>;
++		};
++
++		ipesys: clock-controller@1b000000 {
++			compatible = "mediatek,mt6789-ipesys", "syscon";
++			reg = <0x00 0x1b000000 0x00 0x1000>;
++			#clock-cells = <1>;
++		};
++
++		mdpsys: clock-controller@1f000000 {
++			compatible = "mediatek,mt6789-mdpsys", "syscon";
++			reg = <0x00 0x1f000000 0x00 0x1000>;
++			#clock-cells = <1>;
++		};
+ 	};
+ 
+ 	tboard_thermistor1: thermal-ntc1 {
