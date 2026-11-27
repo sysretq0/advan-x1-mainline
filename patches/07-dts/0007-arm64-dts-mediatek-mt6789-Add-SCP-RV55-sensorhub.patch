@@ -30,7 +30,7 @@ Signed-off-by: sysretq0 <sysretq0@proton.me>
  };
  
  &i2c2 {
-@@ -1008,6 +1007,13 @@
+@@ -1008,6 +1007,16 @@
  	status = "okay";
  };
  
@@ -38,6 +38,9 @@ Signed-off-by: sysretq0 <sysretq0@proton.me>
 +	pinctrl-names = "default";
 +	pinctrl-0 = <&scp_sensorhub_pins>;
 +	memory-region = <&scp_share_mem>;
++	mount-matrix = "-1", "0", "0",
++		       "0", "-1", "0",
++		       "0", "0", "1";
 +	status = "okay";
 +};
 +

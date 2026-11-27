@@ -1,0 +1,64 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Sat, 28 Nov 2026 04:00:00 +0700
+Subject: [PATCH] arm64: dts: mediatek: mt6789-advan-x1: Add AW3641E LED flash/torch
+
+Wire the rear camera Awinic AW3641E LED torch and flash controller on
+Advan X1 (GPIO 99 ENM/enable, GPIO 36 ENF/flash, verified against the
+shipped vendor DT and flashlights-aw3641e-gpio.ko) using the standard
+Linux LED flash class (/sys/class/leds/white:flash).
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts | 24 ++++++++++++++++++++++++
+ 1 file changed, 24 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
+--- a/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
++++ b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
+@@ -12,6 +12,7 @@
+ #include <dt-bindings/interrupt-controller/arm-gic.h>
+ #include <dt-bindings/interrupt-controller/irq.h>
+ #include <dt-bindings/input/input.h>
++#include <dt-bindings/leds/common.h>
+ #include <dt-bindings/regulator/mediatek,mt6397-regulator.h>
+ #include <dt-bindings/usb/pd.h>
+ 
+@@ -43,6 +44,20 @@
+ 		status = "okay";
+ 	};
+ 
++	led-controller {
++		compatible = "awinic,aw3641e";
++		pinctrl-names = "default";
++		pinctrl-0 = <&flashlight_pins>;
++		enable-gpios = <&pio 99 GPIO_ACTIVE_HIGH>;
++		flash-gpios = <&pio 36 GPIO_ACTIVE_HIGH>;
++
++		led {
++			function = LED_FUNCTION_FLASH;
++			color = <LED_COLOR_ID_WHITE>;
++			flash-max-timeout-us = <300000>;
++		};
++	};
++
+ 	vibrator {
+ 		compatible = "regulator-haptic";
+ 		haptic-supply = <&mt6366_vibr_reg>;
+@@ -1019,6 +1034,14 @@
+ 		};
+ 	};
+ 
++	flashlight_pins: flashlight-default-pins {
++		pins-flash {
++			pinmux = <PINMUX_GPIO36__FUNC_GPIO36>,
++				 <PINMUX_GPIO99__FUNC_GPIO99>;
++			output-low;
++		};
++	};
++
+ 	scp_sensorhub_pins: scp-sensorhub-default-pins {
+ 		pins-i2c0 {
+ 			pinmux = <PINMUX_GPIO132__FUNC_SCP_SCL0>,
+-- 
+2.47.2

@@ -604,10 +604,17 @@ static void update_call_state(struct audd_ctx *ctx, const char *path,
 	if (ctx->verbose)
 		fprintf(stdout, "[ccci_audd] call %s state=%d\n", path, state);
 
-	if (call_state_needs_audio(state))
+	if (call_state_needs_audio(state)) {
+		/* VoLTE/IMS calls stream RTP directly via PipeWire (mtk_volte_rtp) */
+		if (access("/run/mtk-ims-call-active", F_OK) == 0) {
+			if (ctx->verbose)
+				fprintf(stdout, "[ccci_audd] skipping VoLTE call %s\n", path);
+			return;
+		}
 		g_hash_table_add(ctx->active_calls, g_strdup(path));
-	else
+	} else {
 		g_hash_table_remove(ctx->active_calls, path);
+	}
 
 	sync_speech_state(ctx);
 }

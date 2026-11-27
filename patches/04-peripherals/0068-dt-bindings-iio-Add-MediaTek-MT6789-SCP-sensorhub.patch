@@ -17,7 +17,7 @@ new file mode 100644
 index 0000000..c1e9a42
 --- /dev/null
 +++ b/Documentation/devicetree/bindings/iio/mediatek,mt6789-scp-sensorhub.yaml
-@@ -0,0 +1,87 @@
+@@ -0,0 +1,89 @@
 +# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 +%YAML 1.2
 +---
@@ -77,6 +77,8 @@ index 0000000..c1e9a42
 +  mediatek,infracfg:
 +    $ref: /schemas/types.yaml#/definitions/phandle
 +    description: Phandle to the infracfg_ao syscon for SCP awake-lock IPC.
++
++  mount-matrix: true
 +
 +required:
 +  - compatible

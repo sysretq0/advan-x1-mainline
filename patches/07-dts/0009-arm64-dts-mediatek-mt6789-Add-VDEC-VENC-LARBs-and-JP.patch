@@ -1,0 +1,82 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Sat, 28 Nov 2026 04:12:00 +0700
+Subject: [PATCH] arm64: dts: mediatek: mt6789: Add VDEC/VENC SMI LARBs and JPEG encoder
+
+Wire MT6789 SMI LARB4 (VDEC, 0x1602e000) and LARB7 (VENC/JPGENC,
+0x17010000) into disp_iommu (Region 1, 4 GiB..8 GiB IOVA) and add the
+hardware V4L2 M2M JPEG encoder node (jpgenc@17030000, GIC_SPI 343,
+MT6789_POWER_DOMAIN_VENC, CLK_VEN1_CKE2_JPGENC).
+
+This brings up the firmware-free hardware JPEG encoder (/dev/video*) and
+provides the SMI LARB4/7 + M4U Region 1 foundation for future VDEC/VENC
+video codec support.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ arch/arm64/boot/dts/mediatek/mt6789.dtsi | 37 +++++++++++++++++++++++++++++++-
+ 1 file changed, 36 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/mediatek/mt6789.dtsi b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
+--- a/arch/arm64/boot/dts/mediatek/mt6789.dtsi
++++ b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
+@@ -1510,7 +1510,7 @@
+ 			clocks = <&mmsys CLK_MM_SMI_IOMMU>;
+ 			clock-names = "bclk";
+ 			power-domains = <&spm MT6789_POWER_DOMAIN_DISP>;
+-			mediatek,larbs = <&larb0>, <&larb1>;
++			mediatek,larbs = <&larb0>, <&larb1>, <&larb4>, <&larb7>;
+ 			#iommu-cells = <1>;
+ 		};
+ 
+@@ -1542,6 +1542,17 @@
+ 			#clock-cells = <1>;
+ 		};
+ 
++		larb4: smi@1602e000 {
++			compatible = "mediatek,mt6789-smi-larb";
++			reg = <0x00 0x1602e000 0x00 0x1000>;
++			clocks = <&vdecsys CLK_VDE2_LARB1_CKEN>,
++				 <&vdecsys CLK_VDE2_VDEC_CKEN>;
++			clock-names = "apb", "smi";
++			mediatek,larb-id = <4>;
++			mediatek,smi = <&smi_common>;
++			power-domains = <&spm MT6789_POWER_DOMAIN_VDEC>;
++		};
++
+ 		vdecsys: clock-controller@1602f000 {
+ 			compatible = "mediatek,mt6789-vdecsys", "syscon";
+ 			reg = <0x00 0x1602f000 0x00 0x1000>;
+@@ -1554,6 +1565,30 @@
+ 			#clock-cells = <1>;
+ 		};
+ 
++		larb7: smi@17010000 {
++			compatible = "mediatek,mt6789-smi-larb";
++			reg = <0x00 0x17010000 0x00 0x1000>;
++			clocks = <&vencsys CLK_VEN1_CKE0_LARB>,
++				 <&vencsys CLK_VEN1_CKE2_JPGENC>;
++			clock-names = "apb", "smi";
++			mediatek,larb-id = <7>;
++			mediatek,smi = <&smi_common>;
++			power-domains = <&spm MT6789_POWER_DOMAIN_VENC>;
++		};
++
++		jpgenc: jpeg-encoder@17030000 {
++			compatible = "mediatek,mt6789-jpgenc", "mediatek,mtk-jpgenc";
++			reg = <0x00 0x17030000 0x00 0x10000>;
++			interrupts = <GIC_SPI 343 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&vencsys CLK_VEN1_CKE2_JPGENC>;
++			clock-names = "jpgenc";
++			iommus = <&disp_iommu M4U_PORT_L7_JPGENC_Y_RDMA>,
++				 <&disp_iommu M4U_PORT_L7_JPGENC_C_RDMA>,
++				 <&disp_iommu M4U_PORT_L7_JPGENC_Q_TABLE>,
++				 <&disp_iommu M4U_PORT_L7_JPGENC_BSDMA>;
++			power-domains = <&spm MT6789_POWER_DOMAIN_VENC>;
++		};
++
+ 		wifi: wifi@18000000 {
+ 			compatible = "mediatek,wifi";
+ 			reg = <0x00 0x18000000 0x00 0x00100000>;
+-- 
+2.47.2

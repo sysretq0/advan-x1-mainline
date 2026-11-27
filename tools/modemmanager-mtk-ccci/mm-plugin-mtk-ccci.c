@@ -21,6 +21,7 @@
 #include "mm-iface-modem.h"
 #include "mm-iface-modem-3gpp.h"
 #include "mm-iface-modem-messaging.h"
+#include "mm-iface-modem-voice.h"
 #include "mm-log-object.h"
 #include "mm-modem-helpers.h"
 #include "mm-modem-helpers-mtk-ccci.h"
@@ -695,12 +696,16 @@ struct _MMBroadbandModemMtkCcci {
 static void iface_modem_init (MMIfaceModemInterface *iface);
 static void iface_modem_3gpp_init (MMIfaceModem3gppInterface *iface);
 static void iface_modem_messaging_init (MMIfaceModemMessagingInterface *iface);
+static void iface_modem_voice_init (MMIfaceModemVoiceInterface *iface);
+
+static MMIfaceModemVoiceInterface *iface_modem_voice_parent;
 
 G_DEFINE_TYPE_EXTENDED (MMBroadbandModemMtkCcci, mm_broadband_modem_mtk_ccci,
                         MM_TYPE_BROADBAND_MODEM, 0,
                         G_IMPLEMENT_INTERFACE (MM_TYPE_IFACE_MODEM, iface_modem_init)
                         G_IMPLEMENT_INTERFACE (MM_TYPE_IFACE_MODEM_3GPP, iface_modem_3gpp_init)
-                        G_IMPLEMENT_INTERFACE (MM_TYPE_IFACE_MODEM_MESSAGING, iface_modem_messaging_init))
+                        G_IMPLEMENT_INTERFACE (MM_TYPE_IFACE_MODEM_MESSAGING, iface_modem_messaging_init)
+                        G_IMPLEMENT_INTERFACE (MM_TYPE_IFACE_MODEM_VOICE, iface_modem_voice_init))
 
 static void
 initialization_complete (GTask *task, GError *error)
@@ -907,6 +912,125 @@ iface_modem_messaging_init (MMIfaceModemMessagingInterface *iface)
     iface->load_supported_storages = messaging_load_supported_storages;
     iface->load_supported_storages_finish = messaging_load_supported_storages_finish;
     iface->create_sms = messaging_create_sms;
+}
+
+static MMBaseCall *
+voice_create_call (MMIfaceModemVoice *self,
+                   MMCallDirection    direction,
+                   const gchar       *number)
+{
+    return mm_call_mtk_ims_new (MM_BASE_MODEM (self), direction, number);
+}
+
+static void
+voice_parent_load_call_list_ready (MMIfaceModemVoice *self,
+                                   GAsyncResult      *res,
+                                   GTask             *task)
+{
+    GList *list = NULL;
+    GError *error = NULL;
+
+    if (!iface_modem_voice_parent->load_call_list_finish (self, res, &list, &error))
+        g_task_return_error (task, error);
+    else
+        g_task_return_pointer (task, list, (GDestroyNotify) mm_3gpp_call_info_list_free);
+    g_object_unref (task);
+}
+
+static void
+voice_load_call_list (MMIfaceModemVoice   *_self,
+                      GAsyncReadyCallback  callback,
+                      gpointer             user_data)
+{
+    MMBroadbandModemMtkCcci *self = MM_BROADBAND_MODEM_MTK_CCCI (_self);
+    GTask *task = g_task_new (self, NULL, callback, user_data);
+
+    if (mm_mtk_ccci_ims_bridge_has_call (self->ims_bridge)) {
+        g_task_return_pointer (task,
+                               mm_mtk_ccci_ims_bridge_dup_call_list (self->ims_bridge),
+                               (GDestroyNotify) mm_3gpp_call_info_list_free);
+        g_object_unref (task);
+        return;
+    }
+    iface_modem_voice_parent->load_call_list (
+        _self, (GAsyncReadyCallback) voice_parent_load_call_list_ready, task);
+}
+
+static gboolean
+voice_load_call_list_finish (MMIfaceModemVoice  *self,
+                             GAsyncResult       *res,
+                             GList             **call_info_list,
+                             GError            **error)
+{
+    GError *inner_error = NULL;
+    GList *list = g_task_propagate_pointer (G_TASK (res), &inner_error);
+
+    if (inner_error) {
+        g_propagate_error (error, inner_error);
+        return FALSE;
+    }
+    *call_info_list = list;
+    return TRUE;
+}
+
+static void
+voice_hangup_all_ready (GObject *source, GAsyncResult *res, GTask *task)
+{
+    GError *error = NULL;
+
+    if (!mm_mtk_ccci_ims_bridge_hangup_all_finish (res, &error))
+        g_task_return_error (task, error);
+    else
+        g_task_return_boolean (task, TRUE);
+    g_object_unref (task);
+}
+
+static void
+voice_parent_hangup_all_ready (MMIfaceModemVoice *self, GAsyncResult *res, GTask *task)
+{
+    GError *error = NULL;
+
+    if (!iface_modem_voice_parent->hangup_all_finish (self, res, &error))
+        g_task_return_error (task, error);
+    else
+        g_task_return_boolean (task, TRUE);
+    g_object_unref (task);
+}
+
+static void
+voice_hangup_all (MMIfaceModemVoice   *_self,
+                  GAsyncReadyCallback  callback,
+                  gpointer             user_data)
+{
+    MMBroadbandModemMtkCcci *self = MM_BROADBAND_MODEM_MTK_CCCI (_self);
+    GTask *task = g_task_new (self, NULL, callback, user_data);
+
+    if (mm_mtk_ccci_ims_bridge_has_call (self->ims_bridge)) {
+        mm_mtk_ccci_ims_bridge_hangup_all (self->ims_bridge,
+                                           (GAsyncReadyCallback) voice_hangup_all_ready,
+                                           task);
+        return;
+    }
+    iface_modem_voice_parent->hangup_all (
+        _self, (GAsyncReadyCallback) voice_parent_hangup_all_ready, task);
+}
+
+static gboolean
+voice_hangup_all_finish (MMIfaceModemVoice *self, GAsyncResult *res, GError **error)
+{
+    return g_task_propagate_boolean (G_TASK (res), error);
+}
+
+static void
+iface_modem_voice_init (MMIfaceModemVoiceInterface *iface)
+{
+    iface_modem_voice_parent = g_type_interface_peek_parent (iface);
+
+    iface->create_call = voice_create_call;
+    iface->load_call_list = voice_load_call_list;
+    iface->load_call_list_finish = voice_load_call_list_finish;
+    iface->hangup_all = voice_hangup_all;
+    iface->hangup_all_finish = voice_hangup_all_finish;
 }
 
 static void

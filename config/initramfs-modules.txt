@@ -82,7 +82,12 @@ drivers/media/v4l2-core/videodev.ko                    CONFIG_VIDEO_DEV
 drivers/media/common/videobuf2/videobuf2-common.ko     CONFIG_VIDEOBUF2_CORE
 drivers/media/common/videobuf2/videobuf2-memops.ko     CONFIG_VIDEOBUF2_MEMOPS
 drivers/media/common/videobuf2/videobuf2-vmalloc.ko    CONFIG_VIDEOBUF2_VMALLOC
+drivers/media/common/videobuf2/videobuf2-dma-contig.ko CONFIG_VIDEOBUF2_DMA_CONTIG
 drivers/media/common/videobuf2/videobuf2-v4l2.ko       CONFIG_VIDEOBUF2_V4L2
+drivers/media/v4l2-core/v4l2-mem2mem.ko                CONFIG_V4L2_MEM2MEM_DEV
+drivers/media/platform/mediatek/jpeg/mtk-jpeg-enc-hw.ko CONFIG_VIDEO_MEDIATEK_JPEG
+drivers/media/platform/mediatek/jpeg/mtk-jpeg-dec-hw.ko CONFIG_VIDEO_MEDIATEK_JPEG
+drivers/media/platform/mediatek/jpeg/mtk_jpeg.ko       CONFIG_VIDEO_MEDIATEK_JPEG
 drivers/media/common/uvc.ko                            CONFIG_UVC_COMMON
 drivers/media/usb/uvc/uvcvideo.ko                      CONFIG_USB_VIDEO_CLASS
 sound/core/snd-hwdep.ko                                CONFIG_SND_HWDEP

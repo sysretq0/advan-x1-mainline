@@ -1,0 +1,150 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Sat, 28 Nov 2026 04:00:00 +0700
+Subject: [PATCH] leds: sgm3140: Add Awinic AW3641E support and optional vin-supply
+
+The Awinic AW3641E is a two-GPIO (ENM/ENF) LED torch and camera flash
+driver with the same control interface as the SG Micro SGM3140:
+  - enable=0, flash=0: shutdown
+  - enable=1, flash=0: torch mode
+  - enable=1, flash=1: flash strobe mode (with safety timeout)
+
+On boards such as the Advan X1 (MT6789), VIN is wired directly to the
+always-on VSYS/VBAT rail without a software-controlled regulator, matching
+the schema where vin-supply is optional. Use devm_regulator_get_optional()
+so boards without vin-supply avoid dummy regulator warnings and add the
+awinic,aw3641e compatible string to the binding and driver.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ .../devicetree/bindings/leds/leds-sgm3140.yaml     |  1 +
+ drivers/leds/flash/leds-sgm3140.c                  | 31 +++++++++++++++-------
+ 2 files changed, 23 insertions(+), 9 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/leds/leds-sgm3140.yaml b/Documentation/devicetree/bindings/leds/leds-sgm3140.yaml
+--- a/Documentation/devicetree/bindings/leds/leds-sgm3140.yaml
++++ b/Documentation/devicetree/bindings/leds/leds-sgm3140.yaml
+@@ -16,6 +16,7 @@ description: |
+ properties:
+   compatible:
+     enum:
++      - awinic,aw3641e
+       - ocs,ocp8110
+       - richtek,rt5033-led
+       - sgmicro,sgm3140
+diff --git a/drivers/leds/flash/leds-sgm3140.c b/drivers/leds/flash/leds-sgm3140.c
+--- a/drivers/leds/flash/leds-sgm3140.c
++++ b/drivers/leds/flash/leds-sgm3140.c
+@@ -44,11 +44,13 @@ static int sgm3140_strobe_set(struct led_classdev_flash *fled_cdev, bool state)
+ 		return 0;
+ 
+ 	if (state) {
+-		ret = regulator_enable(priv->vin_regulator);
+-		if (ret) {
+-			dev_err(fled_cdev->led_cdev.dev,
+-				"failed to enable regulator: %d\n", ret);
+-			return ret;
++		if (priv->vin_regulator) {
++			ret = regulator_enable(priv->vin_regulator);
++			if (ret) {
++				dev_err(fled_cdev->led_cdev.dev,
++					"failed to enable regulator: %d\n", ret);
++				return ret;
++			}
+ 		}
+ 		gpiod_set_value_cansleep(priv->flash_gpio, 1);
+ 		gpiod_set_value_cansleep(priv->enable_gpio, 1);
+@@ -58,11 +60,13 @@ static int sgm3140_strobe_set(struct led_classdev_flash *fled_cdev, bool state)
+ 		timer_delete_sync(&priv->powerdown_timer);
+ 		gpiod_set_value_cansleep(priv->enable_gpio, 0);
+ 		gpiod_set_value_cansleep(priv->flash_gpio, 0);
+-		ret = regulator_disable(priv->vin_regulator);
+-		if (ret) {
+-			dev_err(fled_cdev->led_cdev.dev,
+-				"failed to disable regulator: %d\n", ret);
+-			return ret;
++		if (priv->vin_regulator) {
++			ret = regulator_disable(priv->vin_regulator);
++			if (ret) {
++				dev_err(fled_cdev->led_cdev.dev,
++					"failed to disable regulator: %d\n", ret);
++				return ret;
++			}
+ 		}
+ 	}
+ 
+@@ -108,11 +112,13 @@ static int sgm3140_brightness_set(struct led_classdev *led_cdev,
+ 		return 0;
+ 
+ 	if (enable) {
+-		ret = regulator_enable(priv->vin_regulator);
+-		if (ret) {
+-			dev_err(led_cdev->dev,
+-				"failed to enable regulator: %d\n", ret);
+-			return ret;
++		if (priv->vin_regulator) {
++			ret = regulator_enable(priv->vin_regulator);
++			if (ret) {
++				dev_err(led_cdev->dev,
++					"failed to enable regulator: %d\n", ret);
++				return ret;
++			}
+ 		}
+ 		gpiod_set_value_cansleep(priv->flash_gpio, 0);
+ 		gpiod_set_value_cansleep(priv->enable_gpio, 1);
+@@ -120,11 +126,13 @@ static int sgm3140_brightness_set(struct led_classdev *led_cdev,
+ 		timer_delete_sync(&priv->powerdown_timer);
+ 		gpiod_set_value_cansleep(priv->flash_gpio, 0);
+ 		gpiod_set_value_cansleep(priv->enable_gpio, 0);
+-		ret = regulator_disable(priv->vin_regulator);
+-		if (ret) {
+-			dev_err(led_cdev->dev,
+-				"failed to disable regulator: %d\n", ret);
+-			return ret;
++		if (priv->vin_regulator) {
++			ret = regulator_disable(priv->vin_regulator);
++			if (ret) {
++				dev_err(led_cdev->dev,
++					"failed to disable regulator: %d\n", ret);
++				return ret;
++			}
+ 		}
+ 	}
+ 
+@@ -139,7 +147,8 @@ static void sgm3140_powerdown_timer(struct timer_list *t)
+ 
+ 	gpiod_set_value(priv->enable_gpio, 0);
+ 	gpiod_set_value(priv->flash_gpio, 0);
+-	regulator_disable(priv->vin_regulator);
++	if (priv->vin_regulator)
++		regulator_disable(priv->vin_regulator);
+ 
+ 	priv->enabled = false;
+ }
+@@ -208,11 +217,14 @@ static int sgm3140_probe(struct platform_device *pdev)
+ 		return dev_err_probe(&pdev->dev, ret,
+ 				     "Failed to request enable gpio\n");
+ 
+-	priv->vin_regulator = devm_regulator_get(&pdev->dev, "vin");
++	priv->vin_regulator = devm_regulator_get_optional(&pdev->dev, "vin");
+ 	ret = PTR_ERR_OR_ZERO(priv->vin_regulator);
+-	if (ret)
++	if (ret == -ENODEV) {
++		priv->vin_regulator = NULL;
++	} else if (ret) {
+ 		return dev_err_probe(&pdev->dev, ret,
+ 				     "Failed to request regulator\n");
++	}
+ 
+ 	child_node = device_get_next_child_node(&pdev->dev, NULL);
+ 	if (!child_node) {
+@@ -290,6 +302,7 @@ static void sgm3140_remove(struct platform_device *pdev)
+ }
+ 
+ static const struct of_device_id sgm3140_dt_match[] = {
++	{ .compatible = "awinic,aw3641e" },
+ 	{ .compatible = "ocs,ocp8110" },
+ 	{ .compatible = "richtek,rt5033-led" },
+ 	{ .compatible = "sgmicro,sgm3140" },
+-- 
+2.47.2

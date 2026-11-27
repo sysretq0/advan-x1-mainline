@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Sat, 28 Nov 2026 04:10:00 +0700
+Subject: [PATCH] dt-bindings: media: Add MediaTek MT6789 JPEG encoder compatible
+
+Add the mediatek,mt6789-jpgenc compatible string (falling back to
+mediatek,mtk-jpgenc) for the MediaTek MT6789 hardware JPEG encoder on
+VENCSYS / LARB7.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ Documentation/devicetree/bindings/media/mediatek-jpeg-encoder.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/media/mediatek-jpeg-encoder.yaml b/Documentation/devicetree/bindings/media/mediatek-jpeg-encoder.yaml
+--- a/Documentation/devicetree/bindings/media/mediatek-jpeg-encoder.yaml
++++ b/Documentation/devicetree/bindings/media/mediatek-jpeg-encoder.yaml
+@@ -20,6 +20,7 @@ properties:
+       - items:
+           - enum:
+               - mediatek,mt2701-jpgenc
++              - mediatek,mt6789-jpgenc
+               - mediatek,mt8183-jpgenc
+               - mediatek,mt8186-jpgenc
+               - mediatek,mt8188-jpgenc
+-- 
+2.47.2

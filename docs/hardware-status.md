@@ -1,6 +1,6 @@
 # Advan X1 (MT6789 / Helio G99) — Hardware Support & Bring-Up Status
 
-**Latest hardware-verified baseline:** `205a6ec`+ (7.4 modernized kernel, full 7.69 GiB RAM, live Wi-Fi STA + 4G LTE coexistence, audio playback, `s2idle` suspend-to-RAM survival, clean shutdown). All 100% of MT6789 clock controllers and all 15 `M8` SCPSYS power domains are now wired; Voice/SMS/VoLTE and native BlueZ BT (`hci_mtk_stp`) are implemented and awaiting live verification.  
+**Latest hardware-verified baseline:** `9cfcd7d`+ (7.4 modernized kernel, full 7.69 GiB RAM, live Wi-Fi STA + 4G LTE + VoLTE voice calls, SCP RV55 IIO sensors + auto-rotate, audio playback, `s2idle` suspend-to-RAM survival, clean shutdown). All 100% of MT6789 clock controllers and all 15 `M8` SCPSYS power domains are wired; AW3641E LED flash/torch and hardware JPEG encoder (`jpgenc@17030000` + `larb4`/`larb7`) are wired and awaiting CI kernel verification.  
 **Upstream kernel baseline:** Linux v7.4-rc3/rc4 (`666539eecdf4db623f5e3c3e55cf9f2dfad24aa4`)  
 **Boot chain:** Stock LK → Loki Stage-1 (EL1) → [`advan-x1-uboot`](https://github.com/sysretq0/advan-x1-uboot) (EL2) → U-Boot FIT (`advan-x1.itb`)
 
@@ -30,7 +30,7 @@ Status legend:
 | **Touchscreen** | Chipone ICNL9922C SPI TDDI | `chipone-icnl9922c` (`spi0.0`) | **Working** | 71,792 B SRAM boot (`fwver 0x0104`), `drm_panel_follower` sync |
 | **Internal Storage** | UFS 2.2 | `ufshcd-mtk` (`11270000.ufshci`) | **Working** | 7 clocks, 3 resets, `vemc` supply, Linux root mount |
 | **USB Gadget (Device)** | MUSB + MT6789 USB2 T-PHY | `musb-hdrc` (`11200000.usb`) + `phy-mtk-tphy` (`11f40000.t-phy`) | **Working** | ConfigFS NCM (`usb0`, `10.15.19.82/24` via `systemd-networkd`) + ACM (`/dev/ttyGS0`) via `advan-x1-usb-gadget.service` |
-| **Charging (Standard)** | Southchip SC89601A | `bq25890` (`&i2c5` / `4-006a`) | **Working** | USB charging + status; D+/D- gadget coexistence fixed |
+| **Charging (Standard)** | Southchip SC89601A | `bq25890` (`&i2c5` / `4-006a`) | **Working** | USB charging + status; D+/D- gadget coexistence fixed; absolute 4.3 V/8.2 V VINDPM + 2.0 A non-PD wall adapter fallback verified live (+1.75 A) |
 | **Battery Fuel Gauge** | CellWise CW2217 | `cw2217` (`&i2c0` / `0-0064`) | **Working** | 80-byte board profile download; live V/I/SOC/temp/cycles |
 | **Thermal** | MT6789 LVTS (13 zones) + Board NTC + MT6366 PMIC (4 zones) | `mtk-lvts-thermal` (`1100b000`), `generic-adc-thermal`, `mt6366_thermal` | **Working** | eFuse calibration, V5 manual RCK, STAGE3 HW reboot (`113.5 °C`) |
 | **Watchdog & Reboot** | MT6789 TOPRGU | `mtk-wdt` (`10007000`) + `syscon-reboot-mode` | **Working** | Clean `reboot: Restarting system`; bootloader/recovery modes |
@@ -39,7 +39,7 @@ Status legend:
 | **Audio** | MT6789 AFE + MT6366 + FourSemi FS1599 + ACCDET | `mt6789-mt6366-sound`, `fs1599`, `mt6358-accdet` + UCM2 + PipeWire drop-ins | **Working** | Playback verified; `-200 mB` LINEOUT cap for FS1599; PipeWire/WirePlumber AFE latency drop-ins packaged; `PCM 2` / `VoiceCall.conf` wired for CS calls |
 | **Cellular Modem — Data** | MT6789 Gen95 Modem (`md1img`) | `mtk-ccci` (`d0cf000.modem`) + DPMAIF v1 + ModemManager `mtk-ccci` | **Working** | Live 4G LTE auto-connect (`wwan0` + `/dev/wwan0at0`), IPv4/IPv6 + post-suspend DPMAIF restore & `+CGACT?` reconnect in Wave 1 |
 | **Cellular Modem — Voice / SMS** | MT6789 Gen95 Modem + AFE `PCM 2` | `/dev/ccci_aud`, `Hostless_Speech` (`hw:*,5`), UCM2 `VoiceCall.conf`, MM plugin | **WIP** | Wave 1 kernel/AT/UCM2 wired; awaiting live call/SMS verification and Wave 2 speech-mailbox helper (`docs/modem-full-bringup.md`) |
-| **Cellular Modem — VoLTE/IMS** | MT6789 Gen95 IMS channels | `mtk-ccci` + native IMS/RTP/AMR-WB daemon + XFRM IPsec + MM IMS bridge | **WIP** | Native userspace SIP/IMS + RTP/AMR-WB + XFRM stack wired (`0a20256`, `e0141c4`); awaiting live carrier VoLTE verification |
+| **Cellular Modem — VoLTE/IMS** | MT6789 Gen95 IMS channels | `mtk-ccci` + `mtk-imsd` + `mtk_volte_rtp` + XFRM IPsec + MM `MMIfaceModemVoice` IMS bridge | **Working** | Native VoLTE SIP/IPsec + RTP/AMR-WB (PipeWire `pw-cat`) bridged natively into ModemManager & GNOME Calls (`DIAL`/`ANSWER`/`HANGUP`/`DTMF` + incoming `INVITE`), verified live on XL (`51011`) |
 | **USB-C Host / OTG / PD** | Richtek RT1711H TCPC + SC89601A VBUS boost | `rt1711h` (`4-004e`) + `charger_vbus` + `usb-role-switch` (`usb0`) | **WIP** | Dual-role VBUS boost & OF graph role-switch wired; bidirectional charging works, host data enumeration still WIP |
 | **microSD Card** | MT6789 MSDC1 | `mtk-msdc` (`11240000.mmc`, `GPIO 7` `GPIO_ACTIVE_LOW` CD) | **WIP** | Controller + CD polarity fixed (`2abd89e`); live card I/O test pending |
 | **Fast Charging** | SC8547 charge pump (`i2c7@6a`) + PE | — | **WIP** | Standard SC89601A charging works; HV charge pump not implemented |
@@ -47,9 +47,10 @@ Status legend:
 | **Wi-Fi (MT6789 ConnSys)** | MT6789 `SOC2_2` + `MT6631` A-die | `btif_drv` + `wmt_drv` + `wlan_drv_gen4m_6789` + `mtk-wmt-init` | **Working** | Live WPA2/WPA3 STA (`wlan0`) + 4G LTE coexistence verified; Loki LK `consys_init()` opens EMI MPU Regions 27 & 18; `15-mtk-wifi.conf` keeps NM on `wlan0` |
 | **Bluetooth (MT6789 ConnSys)** | MT6789 `SOC2_2` + `MT6631` A-die | `hci_mtk_stp` (native BlueZ `hci0` over STP/WMT) | **WIP** | Native H4 HCI transport over `wmt_drv` (`BT_TASK_INDX`, `0xFC1A` BD_ADDR); awaiting live mainline BlueZ test |
 | **GPS (MT6789 ConnSys)** | MT6789 `SOC2_2` | — | **Not started** | `gps_drv_stp` / NMEA bridge not yet wired |
-| **Cameras & Flash** | `camsys` / `imgsensor` / `aw3641e` / `lm3643` | `clk-mt6789-{cam,img}` + `M8` PDs ready | **Not started** | Clocks & `M8` PDs wired; needs V4L2/CSI-2 sensor & ISP drivers |
-| **Video Codec (HW)** | `vdecsys` / `vencsys` / `mdpsys` | `clk-mt6789-{vcodec,mdp}` + `M8` PDs ready | **Not started** | Clocks & `M8` PDs wired; needs V4L2 stateless codec & MDP drivers |
-| **Sensors (IMU/ALS/Prox)** | SCP RV55 sensor hub (`icm-42607-p`, `af6133e`, `STK3335-X`, `stk3a5x`) | `mtk-scp-sensorhub` (`10724000.sensorhub` → Linux IIO) | **WIP** | Driver + DT wired (EL3 reset-release/DVFS SMC + mbox1..3 + DRAM rings → IIO accel/gyro/mag/light/prox); awaiting live mainline test |
+| **LED Torch / Flash** | Awinic AW3641E (`GPIO 99` ENM, `GPIO 36` ENF) | `leds-sgm3140` (`awinic,aw3641e` → `/sys/class/leds/white:flash`) | **WIP** | GPIO LED flash/torch class wired from vendor `flashlights-aw3641e-gpio.ko`; awaiting live kernel boot test |
+| **Cameras & ISP** | `camsys` / `imgsensor` | `clk-mt6789-{cam,img}` + `M8` PDs ready | **Not started** | Clocks & `M8` PDs wired; needs V4L2/CSI-2 sensor & ISP drivers |
+| **Video & JPEG Codec (HW)** | `jpgenc@17030000` + `vdecsys`/`vencsys` (`larb4`/`larb7`) | `mtk-jpeg` (`mediatek,mt6789-jpgenc`) + `larb4`/`larb7` M4U Region 1 | **WIP** | Firmware-free V4L2 M2M hardware JPEG encoder + SMI `larb4`/`larb7` wired; H.264/HEVC/VP9 `vdec`/`venc` require open-source register/VCU driver (MT6789 uses Android `vpud`, not ChromeOS SCP firmware) |
+| **Sensors (IMU/ALS/Prox)** | SCP RV55 sensor hub (`icm-42607-p`, `af6133e`, `STK3335-X`, `stk3a5x`) | `mtk-scp-sensorhub` (`10724000.sensorhub` → Linux IIO) | **Working** | Live verified on `9cfcd7d`: all 5 IIO sensors + `iio-sensor-proxy` + baked `mount-matrix` (`-1,0,0;0,-1,0;0,0,1`) + `system_dfl_wq` |
 | **Fingerprint** | Goodix (`goodix-fp` SPI5) / FocalTech | — | **Not started** | Not wired in DTS or driver stack |
 
 ---

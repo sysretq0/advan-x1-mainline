@@ -154,6 +154,7 @@ class Modem:
         self.waiters = {}
         self.urc_handlers = []
         self.mo_handler = None
+        self.call_handler = None
         self.mtres = queue.Queue()
         self.alive = True
         threading.Thread(target=self._reader, daemon=True).start()
@@ -199,6 +200,11 @@ class Modem:
                 self.mo_handler(rid, pdu)
             elif kind == "MTRES":
                 self.mtres.put(rest)
+            elif kind in ("DIAL", "ANSWER", "HANGUP", "DTMF") and self.call_handler:
+                rid, _, arg = rest.partition(" ")
+                threading.Thread(
+                    target=self.call_handler, args=(kind, rid, arg.strip()), daemon=True
+                ).start()
 
     def at(self, cmd, timeout=90):
         self.next_id += 1
@@ -770,11 +776,27 @@ def parse_remote_sdp(body):
     return {"ip": rip, "port": rport, "codec": chosen, "dtmf_pt": dtmf_pt}
 
 
+CALL_FLAG = "/run/mtk-ims-call-active"
+
+
+def extract_phone_number(uri):
+    if not uri:
+        return "-"
+    s = uri.strip()
+    if s.lower().startswith("tel:"):
+        s = s[4:]
+    elif s.lower().startswith("sip:") or s.lower().startswith("sips:"):
+        s = s.split(":", 1)[1]
+    s = s.split(";", 1)[0].split("@", 1)[0].strip()
+    return s or "-"
+
+
 # ---------------------------------------------------------------- IMS client
 class CallSession:
-    def __init__(self, call_id, remote_uri, direction):
+    def __init__(self, call_id, remote_uri, direction, display_number=None):
         self.call_id = call_id
         self.remote_uri = remote_uri
+        self.display_number = display_number or extract_phone_number(remote_uri)
         self.direction = direction  # "mo" | "mt"
         self.state = "dialing" if direction == "mo" else "ringing"
         self.local_tag = tag()
@@ -1184,10 +1206,30 @@ class Ims:
         log(f"starting RTP {cname} pt={pt} oa={oa} {self.pdn.addr}:{call.local_rtp_port} <-> {remote_sdp['ip']}:{remote_sdp['port']}")
         call.rtp_proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
 
-    def _teardown_call(self):
+    def _set_call_flag(self, active):
+        try:
+            if active:
+                with open(CALL_FLAG, "w"):
+                    pass
+            elif os.path.exists(CALL_FLAG):
+                os.unlink(CALL_FLAG)
+        except OSError:
+            pass
+
+    def _notify_call_state(self, call, state):
+        if not call:
+            return
+        num = (call.display_number or "-").replace(" ", "")
+        try:
+            self.m.send_line(f"CALL {call.direction} {state} {num}")
+        except OSError:
+            pass
+
+    def _teardown_call(self, notify=True):
         with self.call_lock:
             call = self.call
             self.call = None
+        self._set_call_flag(False)
         if call and call.rtp_proc:
             try:
                 if call.rtp_proc.stdin:
@@ -1203,6 +1245,8 @@ class Ims:
                     call.rtp_proc.kill()
                 except Exception:
                     pass
+        if call and notify:
+            self._notify_call_state(call, "terminated")
 
     # -------- VoLTE SIP call control
     def _from_uri(self):
@@ -1266,8 +1310,9 @@ class Ims:
             if self.call is not None:
                 raise RuntimeError("call already in progress")
             target = f"tel:{number}" if number.startswith("+") else f"sip:{number}@{self.domain};user=phone"
-            call = CallSession("%016x@advanx1" % random.getrandbits(64), target, "mo")
+            call = CallSession("%016x@advanx1" % random.getrandbits(64), target, "mo", display_number=number)
             self.call = call
+            self._set_call_flag(True)
 
         ha = fmt_host(self.pdn.addr)
         from_uri = self._from_uri()
@@ -1309,7 +1354,9 @@ class Ims:
                 if m:
                     call.remote_tag = m.group(1)
                 if resp["code"] in (180, 183):
-                    call.state = "ringing"
+                    if call.state != "ringing":
+                        call.state = "ringing"
+                        self._notify_call_state(call, "ringing-out")
                 if "100rel" in (h(resp, "require") or "").lower():
                     self._send_prack(call, resp)
                 if resp["body"]:
@@ -1332,6 +1379,7 @@ class Ims:
                 call.remote_tag = m.group(1)
             self._send_ack(call, resp)
             call.state = "active"
+            self._notify_call_state(call, "active")
             rsdp = parse_remote_sdp(resp["body"]) if resp["body"] else call.remote_sdp
             if rsdp:
                 call.remote_sdp = rsdp
@@ -1363,6 +1411,7 @@ class Ims:
                    body=sdp, to_tag=call.local_tag)
         call.state = "active"
         self._start_rtp(call, call.remote_sdp)
+        self._notify_call_state(call, "active")
         log("MT VoLTE call answered")
         return {"call_id": call.call_id, "state": "active"}
 
@@ -1485,6 +1534,7 @@ class Ims:
                 call.route_set = rr
             with self.call_lock:
                 self.call = call
+            self._set_call_flag(True)
             ha = fmt_host(self.pdn.addr)
             self.reply(
                 req, send, 180, "Ringing",
@@ -1492,7 +1542,8 @@ class Ims:
                 to_tag=call.local_tag,
             )
             log(f"incoming VoLTE call from {mask_num(caller)}")
-            notify_desktop("Incoming VoLTE Call", f"From {caller}\nRun: mtk-imsd answer")
+            self._notify_call_state(call, "ringing-in")
+            notify_desktop("Incoming VoLTE Call", f"From {call.display_number}")
         elif meth == "ACK":
             pass
         elif meth == "BYE":
@@ -1619,6 +1670,27 @@ class Ims:
         finally:
             self.mo_wait.pop(mr, None)
 
+    def on_bridge_call(self, kind, rid, arg):
+        try:
+            if kind == "DIAL":
+                self.dial(arg)
+            elif kind == "ANSWER":
+                self.answer_call()
+            elif kind == "HANGUP":
+                self.hangup_call()
+            elif kind == "DTMF":
+                self.send_dtmf(arg)
+            else:
+                raise RuntimeError(f"unknown call op {kind}")
+            self.m.send_line(f"CALLRES {rid} OK")
+        except Exception as e:
+            msg = str(e).replace("\r", " ").replace("\n", " ") or repr(e)
+            log(f"bridge {kind} failed: {msg}")
+            try:
+                self.m.send_line(f"CALLRES {rid} ERR {msg}")
+            except OSError:
+                pass
+
     def on_mo(self, rid, tpdu):
         def job():
             try:
@@ -1701,7 +1773,9 @@ class Ims:
         threading.Thread(target=self.ctl_loop, daemon=True).start()
         threading.Thread(target=self.rx_loop, daemon=True).start()
         threading.Thread(target=self.worker_loop, daemon=True).start()
+        self._set_call_flag(False)
         self.m.mo_handler = self.on_mo
+        self.m.call_handler = self.on_bridge_call
         self.pdn.on_lost = self.on_bearer_lost
         self.m.send_line("REG 0")
         rereg = int(os.environ.get("MTK_IMSD_REREG", "0"))

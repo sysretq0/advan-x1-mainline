@@ -35,12 +35,21 @@ index b74d7cd..b6137e1 100644
  	int ret;
  
  	supplier = power_supply_get_by_reference(dev_fwnode(bq->dev),
-@@ -807,13 +809,31 @@ static void bq25890_sc89601a_psy_work(struct work_struct *work)
+@@ -807,13 +809,40 @@ static void bq25890_sc89601a_psy_work(struct work_struct *work)
  						POWER_SUPPLY_PROP_CURRENT_MAX,
  						&cur);
  		if (!ret && cur.intval > 0)
 -			iinlim_ua = clamp(cur.intval, 100000, 3250000);
 +			iinlim_ua = clamp(cur.intval, 100000, 3000000);
++		else if (!ret)
++			/*
++			 * Non-PD Type-C Default (56 kOhm Rp, e.g. USB-A-to-C
++			 * wall adapters) leaves TCPM CURRENT_MAX at 0 mA when
++			 * D+/D- BC1.2 is disabled for USB gadget coexistence.
++			 * Allow 2.0 A input; SC89601A's 4.3 V absolute VINDPM
++			 * throttles automatically on weaker 500 mA / 1 A ports.
++			 */
++			iinlim_ua = 2000000;
 +
 +		if (!power_supply_get_property(supplier,
 +					       POWER_SUPPLY_PROP_VOLTAGE_NOW,

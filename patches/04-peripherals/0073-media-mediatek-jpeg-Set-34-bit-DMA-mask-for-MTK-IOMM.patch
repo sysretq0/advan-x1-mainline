@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Sat, 28 Nov 2026 04:12:00 +0700
+Subject: [PATCH] media: mediatek: jpeg: Set 34-bit DMA mask when IOMMU-mapped on 64-bit DMA
+
+On MediaTek 34-bit M4U platforms (such as MT6789 and MT8186), LARB7
+(VENC/JPGENC) is assigned to IOMMU Region 1 (4 GiB..8 GiB IOVA), where
+SMI LARB7 prepends bank bit 32 to the 32-bit addresses programmed into
+the JPEG encoder registers. Ensure an IOMMU-mapped JPEG device advertises
+a 34-bit DMA mask on 64-bit DMA builds so iommu-dma can allocate IOVAs in
+Region 1 without failing against the default 32-bit DMA mask.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ drivers/media/platform/mediatek/jpeg/mtk_jpeg_core.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/drivers/media/platform/mediatek/jpeg/mtk_jpeg_core.c b/drivers/media/platform/mediatek/jpeg/mtk_jpeg_core.c
+--- a/drivers/media/platform/mediatek/jpeg/mtk_jpeg_core.c
++++ b/drivers/media/platform/mediatek/jpeg/mtk_jpeg_core.c
+@@ -12,6 +12,7 @@
+ #include <linux/clk.h>
+ #include <linux/err.h>
+ #include <linux/interrupt.h>
++#include <linux/iommu.h>
+ #include <linux/io.h>
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+@@ -1307,6 +1308,16 @@ static int mtk_jpeg_probe(struct platform_device *pdev)
+ 
+ 	platform_set_drvdata(pdev, jpeg);
+ 
++	if (IS_ENABLED(CONFIG_ARCH_DMA_ADDR_T_64BIT) &&
++	    device_iommu_mapped(&pdev->dev)) {
++		ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(34));
++		if (ret) {
++			dev_err(&pdev->dev,
++				"Failed to set 34-bit DMA mask: %d\n", ret);
++			return ret;
++		}
++	}
++
+ 	ret = devm_of_platform_populate(&pdev->dev);
+ 	if (ret) {
+ 		v4l2_err(&jpeg->v4l2_dev, "Master of platform populate failed.");
+-- 
+2.47.2

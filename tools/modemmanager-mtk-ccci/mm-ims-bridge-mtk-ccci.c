@@ -6,16 +6,23 @@
  * Adapted from Zinwa Q25's mm-ims-bridge-mtk-ccci.c (GPL-2.0-or-later).
  *
  * client -> MM:
- *   AT <id> <command>          run <command> on the primary AT port
- *   REG <0|1>                  IMS registration state of the client
- *   MT <smsc|-> <tpdu-hex>     SMS received over IMS (SMS-DELIVER TPDU)
- *   MORES <id> OK|ERR [text]   result of an MO request
+ *   AT <id> <command>                  run <command> on the primary AT port
+ *   REG <0|1>                          IMS registration state of the client
+ *   MT <smsc|-> <tpdu-hex>             SMS received over IMS (SMS-DELIVER TPDU)
+ *   MORES <id> OK|ERR [text]           result of an MO SMS request
+ *   CALLRES <id> OK|ERR [text]         result of a VoLTE call request
+ *   CALL <mo|mt> <state> [number]      VoLTE call state update
+ *     state: dialing | ringing-out | ringing-in | active | terminated
  * MM -> client:
- *   ATRES <id> OK <response>   (CR/LF escaped as \n)
+ *   ATRES <id> OK <response>           (CR/LF escaped as \n)
  *   ATRES <id> ERR <message>
- *   URC <line>                 +EIF / IMS indications
- *   MO <id> <tpdu-hex>         send this SMS-SUBMIT TPDU over IMS
+ *   URC <line>                         +EIF / IMS indications
+ *   MO <id> <tpdu-hex>                 send this SMS-SUBMIT TPDU over IMS
  *   MTRES OK|ERR [text]
+ *   DIAL <id> <number>                 place outgoing VoLTE call
+ *   ANSWER <id>                        answer incoming VoLTE call
+ *   HANGUP <id>                        hang up / decline / cancel VoLTE call
+ *   DTMF <id> <digit>                  send RFC 4733 DTMF digit
  */
 #include <config.h>
 #include <errno.h>
@@ -27,10 +34,14 @@
 #include "mm-ims-bridge-mtk-ccci.h"
 #include "mm-base-modem-at.h"
 #include "mm-iface-modem-messaging.h"
+#include "mm-iface-modem-voice.h"
+#include "mm-modem-helpers.h"
 #include "mm-sms-part-3gpp.h"
 #include "mm-log-object.h"
 
-#define MO_TIMEOUT_S 60
+#define MO_TIMEOUT_S       60
+#define CALL_REQ_TIMEOUT_S 30
+#define IMS_CALL_INDEX     1
 
 struct _MMMtkCcciImsBridge {
     MMBaseModem       *modem;      /* owner; not referenced */
@@ -46,6 +57,12 @@ struct _MMMtkCcciImsBridge {
     gboolean           registered;
     guint              next_mo;
     GHashTable        *mo;         /* id -> GTask */
+    guint              next_call_req;
+    GHashTable        *call_reqs;  /* id -> GTask */
+    gboolean           call_active;
+    MMCallDirection    call_dir;
+    MMCallState        call_state;
+    gchar             *call_number;
 };
 
 static MMMtkCcciImsBridge *
@@ -101,17 +118,34 @@ send_line (MMMtkCcciImsBridge *b, const gchar *fmt, ...)
 }
 
 static void
-fail_all_mo (MMMtkCcciImsBridge *b, const gchar *why)
+fail_all_tasks (GHashTable *table, const gchar *why)
 {
     GHashTableIter it;
     gpointer key, task;
 
-    g_hash_table_iter_init (&it, b->mo);
+    g_hash_table_iter_init (&it, table);
     while (g_hash_table_iter_next (&it, &key, &task)) {
         g_task_return_new_error (G_TASK (task), MM_CORE_ERROR,
                                  MM_CORE_ERROR_FAILED, "IMS: %s", why);
         g_hash_table_iter_remove (&it);
     }
+}
+
+static void
+terminate_active_ims_call (MMMtkCcciImsBridge *b)
+{
+    MMCallInfo info;
+
+    if (!b->call_active)
+        return;
+    info.index = IMS_CALL_INDEX;
+    info.direction = b->call_dir;
+    info.state = MM_CALL_STATE_TERMINATED;
+    info.number = b->call_number;
+    b->call_active = FALSE;
+    b->call_state = MM_CALL_STATE_TERMINATED;
+    mm_iface_modem_voice_report_call (MM_IFACE_MODEM_VOICE (b->modem), &info);
+    g_clear_pointer (&b->call_number, g_free);
 }
 
 static void
@@ -129,9 +163,11 @@ drop_client (MMMtkCcciImsBridge *b)
         g_clear_object (&b->conn);
     }
     if (b->registered)
-        mm_obj_msg (b->modem, "ims bridge: client gone, SMS falls back to AT");
+        mm_obj_msg (b->modem, "ims bridge: client gone, voice/SMS fall back to CS/AT");
     b->registered = FALSE;
-    fail_all_mo (b, "client disconnected");
+    fail_all_tasks (b->mo, "client disconnected");
+    fail_all_tasks (b->call_reqs, "client disconnected");
+    terminate_active_ims_call (b);
 }
 
 /* ------------------------------------------------------------- AT passthrough */
@@ -294,6 +330,169 @@ bridge_send_tpdu (MMMtkCcciImsBridge *b, const guint8 *tpdu, gsize len,
     send_line (b, "MO %u %s", id, hex);
 }
 
+/* --------------------------------------------------------------- VoLTE calls */
+static gboolean
+call_req_timeout (gpointer data)
+{
+    MMMtkCcciImsBridge *b = g_object_get_data (
+        G_OBJECT (g_task_get_task_data (data)), MM_MTK_CCCI_IMS_BRIDGE_KEY);
+    guint id = GPOINTER_TO_UINT (g_object_get_data (G_OBJECT (data), "call-req-id"));
+
+    if (b) {
+        GTask *task = g_hash_table_lookup (b->call_reqs, GUINT_TO_POINTER (id));
+        if (task) {
+            g_task_return_new_error (task, MM_CORE_ERROR, MM_CORE_ERROR_TIMEOUT,
+                                     "IMS: VoLTE call request timed out");
+            g_hash_table_remove (b->call_reqs, GUINT_TO_POINTER (id));
+        }
+    }
+    g_object_unref (data);
+    return G_SOURCE_REMOVE;
+}
+
+static void
+handle_callres (MMMtkCcciImsBridge *b, guint id, gboolean ok, const gchar *text)
+{
+    GTask *task = g_hash_table_lookup (b->call_reqs, GUINT_TO_POINTER (id));
+
+    if (!task)
+        return;
+    if (ok)
+        g_task_return_boolean (task, TRUE);
+    else
+        g_task_return_new_error (task, MM_CORE_ERROR, MM_CORE_ERROR_FAILED,
+                                 "VoLTE call failed: %s",
+                                 text && *text ? text : "unknown");
+    g_hash_table_remove (b->call_reqs, GUINT_TO_POINTER (id));
+}
+
+static void
+bridge_send_call_req (MMMtkCcciImsBridge *b, const gchar *verb, const gchar *arg,
+                      GAsyncReadyCallback callback, gpointer user_data)
+{
+    GTask *task = g_task_new (NULL, NULL, callback, user_data);
+    guint id;
+
+    if (!b || !b->out) {
+        g_task_return_new_error (task, MM_CORE_ERROR, MM_CORE_ERROR_FAILED,
+                                 "IMS bridge not connected");
+        g_object_unref (task);
+        return;
+    }
+
+    id = ++b->next_call_req;
+    g_task_set_task_data (task, g_object_ref (b->modem), g_object_unref);
+    g_object_set_data (G_OBJECT (task), "call-req-id", GUINT_TO_POINTER (id));
+    g_hash_table_insert (b->call_reqs, GUINT_TO_POINTER (id), task);
+    g_timeout_add_seconds (CALL_REQ_TIMEOUT_S, call_req_timeout, g_object_ref (task));
+    if (arg && *arg)
+        send_line (b, "%s %u %s", verb, id, arg);
+    else
+        send_line (b, "%s %u", verb, id);
+}
+
+static MMCallState
+parse_ims_call_state (const gchar *s)
+{
+    if (g_str_equal (s, "dialing"))
+        return MM_CALL_STATE_DIALING;
+    if (g_str_equal (s, "ringing-out"))
+        return MM_CALL_STATE_RINGING_OUT;
+    if (g_str_equal (s, "ringing-in"))
+        return MM_CALL_STATE_RINGING_IN;
+    if (g_str_equal (s, "active"))
+        return MM_CALL_STATE_ACTIVE;
+    if (g_str_equal (s, "terminated"))
+        return MM_CALL_STATE_TERMINATED;
+    return MM_CALL_STATE_UNKNOWN;
+}
+
+static void
+handle_call_state (MMMtkCcciImsBridge *b, const gchar *dir_s, const gchar *rest)
+{
+    g_auto(GStrv) parts = g_strsplit (rest, " ", 2);
+    const gchar *state_s = parts[0];
+    const gchar *num = (parts[0] && parts[1] && *parts[1] && !g_str_equal (parts[1], "-")) ? parts[1] : NULL;
+    MMCallDirection dir;
+    MMCallState st;
+    MMCallInfo info;
+
+    if (!state_s)
+        return;
+
+    if (g_str_equal (dir_s, "mo"))
+        dir = MM_CALL_DIRECTION_OUTGOING;
+    else if (g_str_equal (dir_s, "mt"))
+        dir = MM_CALL_DIRECTION_INCOMING;
+    else
+        return;
+
+    st = parse_ims_call_state (state_s);
+    if (st == MM_CALL_STATE_UNKNOWN)
+        return;
+
+    if (st == MM_CALL_STATE_TERMINATED) {
+        b->call_active = FALSE;
+        b->call_state = MM_CALL_STATE_TERMINATED;
+    } else {
+        b->call_active = TRUE;
+        b->call_dir = dir;
+        b->call_state = st;
+        if (num) {
+            g_free (b->call_number);
+            b->call_number = g_strdup (num);
+        }
+    }
+
+    info.index = IMS_CALL_INDEX;
+    info.direction = dir;
+    info.state = st;
+    info.number = (gchar *) (num ? num : b->call_number);
+
+    mm_obj_msg (b->modem, "ims bridge: VoLTE call state %s/%s",
+                dir_s, state_s);
+    mm_iface_modem_voice_report_call (MM_IFACE_MODEM_VOICE (b->modem), &info);
+
+    if (st == MM_CALL_STATE_TERMINATED)
+        g_clear_pointer (&b->call_number, g_free);
+}
+
+gboolean
+mm_mtk_ccci_ims_bridge_has_call (MMMtkCcciImsBridge *b)
+{
+    return b && b->call_active;
+}
+
+GList *
+mm_mtk_ccci_ims_bridge_dup_call_list (MMMtkCcciImsBridge *b)
+{
+    MMCallInfo *info;
+
+    if (!b || !b->call_active)
+        return NULL;
+
+    info = g_new0 (MMCallInfo, 1);
+    info->index = IMS_CALL_INDEX;
+    info->direction = b->call_dir;
+    info->state = b->call_state;
+    info->number = g_strdup (b->call_number);
+    return g_list_append (NULL, info);
+}
+
+void
+mm_mtk_ccci_ims_bridge_hangup_all (MMMtkCcciImsBridge  *b,
+                                   GAsyncReadyCallback  callback,
+                                   gpointer             user_data)
+{
+    bridge_send_call_req (b, "HANGUP", NULL, callback, user_data);
+}
+
+gboolean
+mm_mtk_ccci_ims_bridge_hangup_all_finish (GAsyncResult *res, GError **error)
+{
+    return g_task_propagate_boolean (G_TASK (res), error);
+}
+
 /* ------------------------------------------------------------- line reader */
 static void read_next (MMMtkCcciImsBridge *b);
 
@@ -324,6 +523,12 @@ handle_line (MMMtkCcciImsBridge *b, const gchar *line)
         g_auto(GStrv) r = g_strsplit (f[2], " ", 2);
         handle_mores (b, (guint) g_ascii_strtoull (f[1], NULL, 10),
                       g_str_equal (r[0], "OK"), r[1]);
+    } else if (n >= 3 && g_str_equal (f[0], "CALLRES")) {
+        g_auto(GStrv) r = g_strsplit (f[2], " ", 2);
+        handle_callres (b, (guint) g_ascii_strtoull (f[1], NULL, 10),
+                        g_str_equal (r[0], "OK"), r[1]);
+    } else if (n >= 3 && g_str_equal (f[0], "CALL")) {
+        handle_call_state (b, f[1], f[2]);
     } else {
         mm_obj_dbg (b->modem, "ims bridge: unknown request '%s'", f[0] ? f[0] : "");
     }
@@ -393,6 +598,7 @@ mm_mtk_ccci_ims_bridge_new (MMBaseModem *modem)
 
     b->modem = modem;
     b->mo = g_hash_table_new_full (g_direct_hash, g_direct_equal, NULL, g_object_unref);
+    b->call_reqs = g_hash_table_new_full (g_direct_hash, g_direct_equal, NULL, g_object_unref);
     b->service = g_socket_service_new ();
     unlink (MM_MTK_CCCI_IMS_BRIDGE_PATH);
     addr = g_unix_socket_address_new (MM_MTK_CCCI_IMS_BRIDGE_PATH);
@@ -440,6 +646,8 @@ mm_mtk_ccci_ims_bridge_free (MMMtkCcciImsBridge *b)
             unlink (MM_MTK_CCCI_IMS_BRIDGE_PATH);
     }
     g_hash_table_unref (b->mo);
+    g_hash_table_unref (b->call_reqs);
+    g_free (b->call_number);
     g_free (b);
 }
 
@@ -565,4 +773,218 @@ mm_sms_mtk_ims_class_init (MMSmsMtkImsClass *klass)
 
     base->send = sms_send;
     base->send_finish = sms_send_finish;
+}
+
+/* =============================================================== Call object */
+struct _MMCallMtkIms {
+    MMBaseCall parent;
+    gboolean   is_ims;
+};
+
+G_DEFINE_TYPE (MMCallMtkIms, mm_call_mtk_ims, MM_TYPE_BASE_CALL)
+
+static gboolean
+call_bool_finish (MMBaseCall *self, GAsyncResult *res, GError **error)
+{
+    return g_task_propagate_boolean (G_TASK (res), error);
+}
+
+static void
+ims_call_op_ready (GObject *source, GAsyncResult *res, GTask *task)
+{
+    GError *error = NULL;
+
+    if (!g_task_propagate_boolean (G_TASK (res), &error))
+        g_task_return_error (task, error);
+    else
+        g_task_return_boolean (task, TRUE);
+    g_object_unref (task);
+}
+
+static void
+parent_call_start_ready (MMBaseCall *self, GAsyncResult *res, GTask *task)
+{
+    GError *error = NULL;
+
+    if (!MM_BASE_CALL_CLASS (mm_call_mtk_ims_parent_class)->start_finish (self, res, &error))
+        g_task_return_error (task, error);
+    else
+        g_task_return_boolean (task, TRUE);
+    g_object_unref (task);
+}
+
+static void
+call_start (MMBaseCall *base, GCancellable *cancellable,
+            GAsyncReadyCallback callback, gpointer user_data)
+{
+    MMCallMtkIms *self = MM_CALL_MTK_IMS (base);
+    GTask *task = g_task_new (self, cancellable, callback, user_data);
+    g_autoptr(MMBaseModem) modem = NULL;
+    MMMtkCcciImsBridge *b;
+    const gchar *number;
+
+    g_object_get (self, MM_BASE_CALL_MODEM, &modem, NULL);
+    b = bridge_of (modem);
+    if (!bridge_can_send (b)) {
+        self->is_ims = FALSE;
+        MM_BASE_CALL_CLASS (mm_call_mtk_ims_parent_class)->start (
+            base, cancellable, (GAsyncReadyCallback) parent_call_start_ready, task);
+        return;
+    }
+
+    number = mm_base_call_get_number (base);
+    if (!number || !*number) {
+        g_task_return_new_error (task, MM_CORE_ERROR, MM_CORE_ERROR_INVALID_ARGS,
+                                 "VoLTE call requires a non-empty number");
+        g_object_unref (task);
+        return;
+    }
+
+    self->is_ims = TRUE;
+    mm_base_call_set_index (base, IMS_CALL_INDEX);
+    mm_gdbus_call_set_audio_port (MM_GDBUS_CALL (base), "ims");
+    b->call_active = TRUE;
+    b->call_dir = MM_CALL_DIRECTION_OUTGOING;
+    b->call_state = MM_CALL_STATE_DIALING;
+    g_free (b->call_number);
+    b->call_number = g_strdup (number);
+
+    mm_obj_msg (modem, "ims bridge: dialing VoLTE call");
+    bridge_send_call_req (b, "DIAL", number, (GAsyncReadyCallback) ims_call_op_ready, task);
+}
+
+static void
+parent_call_accept_ready (MMBaseCall *self, GAsyncResult *res, GTask *task)
+{
+    GError *error = NULL;
+
+    if (!MM_BASE_CALL_CLASS (mm_call_mtk_ims_parent_class)->accept_finish (self, res, &error))
+        g_task_return_error (task, error);
+    else
+        g_task_return_boolean (task, TRUE);
+    g_object_unref (task);
+}
+
+static void
+call_accept (MMBaseCall *base, GAsyncReadyCallback callback, gpointer user_data)
+{
+    MMCallMtkIms *self = MM_CALL_MTK_IMS (base);
+    GTask *task = g_task_new (self, NULL, callback, user_data);
+    g_autoptr(MMBaseModem) modem = NULL;
+
+    if (!self->is_ims) {
+        MM_BASE_CALL_CLASS (mm_call_mtk_ims_parent_class)->accept (
+            base, (GAsyncReadyCallback) parent_call_accept_ready, task);
+        return;
+    }
+
+    g_object_get (self, MM_BASE_CALL_MODEM, &modem, NULL);
+    bridge_send_call_req (bridge_of (modem), "ANSWER", NULL,
+                          (GAsyncReadyCallback) ims_call_op_ready, task);
+}
+
+static void
+parent_call_hangup_ready (MMBaseCall *self, GAsyncResult *res, GTask *task)
+{
+    GError *error = NULL;
+
+    if (!MM_BASE_CALL_CLASS (mm_call_mtk_ims_parent_class)->hangup_finish (self, res, &error))
+        g_task_return_error (task, error);
+    else
+        g_task_return_boolean (task, TRUE);
+    g_object_unref (task);
+}
+
+static void
+call_hangup (MMBaseCall *base, GAsyncReadyCallback callback, gpointer user_data)
+{
+    MMCallMtkIms *self = MM_CALL_MTK_IMS (base);
+    GTask *task = g_task_new (self, NULL, callback, user_data);
+    g_autoptr(MMBaseModem) modem = NULL;
+
+    if (!self->is_ims) {
+        MM_BASE_CALL_CLASS (mm_call_mtk_ims_parent_class)->hangup (
+            base, (GAsyncReadyCallback) parent_call_hangup_ready, task);
+        return;
+    }
+
+    g_object_get (self, MM_BASE_CALL_MODEM, &modem, NULL);
+    bridge_send_call_req (bridge_of (modem), "HANGUP", NULL,
+                          (GAsyncReadyCallback) ims_call_op_ready, task);
+}
+
+static void
+parent_call_dtmf_ready (MMBaseCall *self, GAsyncResult *res, GTask *task)
+{
+    GError *error = NULL;
+
+    if (!MM_BASE_CALL_CLASS (mm_call_mtk_ims_parent_class)->send_dtmf_finish (self, res, &error))
+        g_task_return_error (task, error);
+    else
+        g_task_return_boolean (task, TRUE);
+    g_object_unref (task);
+}
+
+static void
+call_send_dtmf (MMBaseCall *base, const gchar *dtmf,
+                GAsyncReadyCallback callback, gpointer user_data)
+{
+    MMCallMtkIms *self = MM_CALL_MTK_IMS (base);
+    GTask *task = g_task_new (self, NULL, callback, user_data);
+    g_autoptr(MMBaseModem) modem = NULL;
+
+    if (!self->is_ims) {
+        MM_BASE_CALL_CLASS (mm_call_mtk_ims_parent_class)->send_dtmf (
+            base, dtmf, (GAsyncReadyCallback) parent_call_dtmf_ready, task);
+        return;
+    }
+
+    g_object_get (self, MM_BASE_CALL_MODEM, &modem, NULL);
+    bridge_send_call_req (bridge_of (modem), "DTMF", dtmf,
+                          (GAsyncReadyCallback) ims_call_op_ready, task);
+}
+
+MMBaseCall *
+mm_call_mtk_ims_new (MMBaseModem     *modem,
+                     MMCallDirection  direction,
+                     const gchar     *number)
+{
+    MMCallMtkIms *self;
+    MMMtkCcciImsBridge *b = bridge_of (modem);
+
+    self = g_object_new (MM_TYPE_CALL_MTK_IMS,
+                         MM_BASE_CALL_MODEM, modem,
+                         MM_BASE_CALL_SKIP_INCOMING_TIMEOUT, TRUE,
+                         MM_BASE_CALL_SUPPORTS_DIALING_TO_RINGING, TRUE,
+                         MM_BASE_CALL_SUPPORTS_RINGING_TO_ACTIVE, TRUE,
+                         "direction", direction,
+                         "number", number,
+                         NULL);
+    if (direction == MM_CALL_DIRECTION_INCOMING && b && b->call_active &&
+        b->call_dir == MM_CALL_DIRECTION_INCOMING) {
+        self->is_ims = TRUE;
+        mm_base_call_set_index (MM_BASE_CALL (self), IMS_CALL_INDEX);
+        mm_gdbus_call_set_audio_port (MM_GDBUS_CALL (self), "ims");
+    }
+    return MM_BASE_CALL (self);
+}
+
+static void
+mm_call_mtk_ims_init (MMCallMtkIms *self)
+{
+}
+
+static void
+mm_call_mtk_ims_class_init (MMCallMtkImsClass *klass)
+{
+    MMBaseCallClass *base = MM_BASE_CALL_CLASS (klass);
+
+    base->start = call_start;
+    base->start_finish = call_bool_finish;
+    base->accept = call_accept;
+    base->accept_finish = call_bool_finish;
+    base->hangup = call_hangup;
+    base->hangup_finish = call_bool_finish;
+    base->send_dtmf = call_send_dtmf;
+    base->send_dtmf_finish = call_bool_finish;
 }

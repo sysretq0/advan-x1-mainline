@@ -12,6 +12,7 @@
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/input/input.h>
+#include <dt-bindings/leds/common.h>
 #include <dt-bindings/regulator/mediatek,mt6397-regulator.h>
 #include <dt-bindings/usb/pd.h>
 
@@ -41,6 +42,20 @@
 		num-interpolated-steps = <16>;
 		default-brightness-level = <80>;
 		status = "okay";
+	};
+
+	led-controller {
+		compatible = "awinic,aw3641e";
+		pinctrl-names = "default";
+		pinctrl-0 = <&flashlight_pins>;
+		enable-gpios = <&pio 99 GPIO_ACTIVE_HIGH>;
+		flash-gpios = <&pio 36 GPIO_ACTIVE_HIGH>;
+
+		led {
+			function = LED_FUNCTION_FLASH;
+			color = <LED_COLOR_ID_WHITE>;
+			flash-max-timeout-us = <300000>;
+		};
 	};
 
 	vibrator {
@@ -1011,6 +1026,9 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&scp_sensorhub_pins>;
 	memory-region = <&scp_share_mem>;
+	mount-matrix = "-1", "0", "0",
+		       "0", "-1", "0",
+		       "0", "0", "1";
 	status = "okay";
 };
 
@@ -1020,6 +1038,14 @@
 			pinmux = <PINMUX_GPIO12__FUNC_GPIO12>;
 			input-enable;
 			bias-pull-up;
+		};
+	};
+
+	flashlight_pins: flashlight-default-pins {
+		pins-flash {
+			pinmux = <PINMUX_GPIO36__FUNC_GPIO36>,
+				 <PINMUX_GPIO99__FUNC_GPIO99>;
+			output-low;
 		};
 	};
 
