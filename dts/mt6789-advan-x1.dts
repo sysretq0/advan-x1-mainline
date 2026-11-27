@@ -445,11 +445,10 @@
 	};
 };
 
+/* GPIO132/GPIO133 carry SCP_SCL0/SCP_SDA0 (ALS/PS + magnetometer) on Advan X1 */
 &i2c1 {
-	pinctrl-names = "default";
-	pinctrl-0 = <&i2c1_pins>;
 	clock-frequency = <400000>;
-	status = "okay";
+	status = "disabled";
 };
 
 &i2c2 {
@@ -1009,6 +1008,8 @@
 };
 
 &scp_sensorhub {
+	pinctrl-names = "default";
+	pinctrl-0 = <&scp_sensorhub_pins>;
 	memory-region = <&scp_share_mem>;
 	status = "okay";
 };
@@ -1019,6 +1020,23 @@
 			pinmux = <PINMUX_GPIO12__FUNC_GPIO12>;
 			input-enable;
 			bias-pull-up;
+		};
+	};
+
+	scp_sensorhub_pins: scp-sensorhub-default-pins {
+		pins-i2c0 {
+			pinmux = <PINMUX_GPIO132__FUNC_SCP_SCL0>,
+				 <PINMUX_GPIO133__FUNC_SCP_SDA0>;
+			bias-pull-up = <MTK_PULL_SET_RSEL_011>;
+			input-enable;
+		};
+
+		pins-spi1 {
+			pinmux = <PINMUX_GPIO38__FUNC_SCP_SPI1_CK>,
+				 <PINMUX_GPIO39__FUNC_SCP_SPI1_CS>,
+				 <PINMUX_GPIO40__FUNC_SCP_SPI1_MO>,
+				 <PINMUX_GPIO41__FUNC_SCP_SPI1_MI>;
+			input-enable;
 		};
 	};
 

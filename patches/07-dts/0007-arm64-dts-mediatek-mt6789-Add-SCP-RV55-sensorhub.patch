@@ -7,17 +7,36 @@ Add the MediaTek MT6789 SCP RV55 sensorhub node (cfg + mbox1..3,
 GIC_SPI 469..471, CLK_TOP_SCP_SEL, SCPSYS awake-lock syscon) to
 mt6789.dtsi and enable it with scp_share_mem on Advan X1.
 
+Disable unused AP i2c1 and mux GPIO132/GPIO133 to SCP_SCL0/SCP_SDA0
+(STK3A5X ALS/proximity + AF6133E magnetometer) alongside GPIO38..41
+for SCP_SPI1 (ICM-42607-P 6-axis IMU) so AP i2c1 does not steal the
+SCP sensor I2C bus.
+
 Signed-off-by: sysretq0 <sysretq0@proton.me>
 ---
-diff --git a/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
-index b51d6bb..c48700c 100644
 --- a/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
 +++ b/arch/arm64/boot/dts/mediatek/mt6789-advan-x1.dts
-@@ -1008,6 +1008,11 @@
+@@ -445,11 +445,10 @@
+ 	};
+ };
+ 
++/* GPIO132/GPIO133 carry SCP_SCL0/SCP_SDA0 (ALS/PS + magnetometer) on Advan X1 */
+ &i2c1 {
+-	pinctrl-names = "default";
+-	pinctrl-0 = <&i2c1_pins>;
+ 	clock-frequency = <400000>;
+-	status = "okay";
++	status = "disabled";
+ };
+ 
+ &i2c2 {
+@@ -1008,6 +1007,13 @@
  	status = "okay";
  };
  
 +&scp_sensorhub {
++	pinctrl-names = "default";
++	pinctrl-0 = <&scp_sensorhub_pins>;
 +	memory-region = <&scp_share_mem>;
 +	status = "okay";
 +};
@@ -25,11 +44,33 @@ index b51d6bb..c48700c 100644
  &pio {
  	charger_pins: charger-default-pins {
  		pins-irq {
-diff --git a/arch/arm64/boot/dts/mediatek/mt6789.dtsi b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
-index 113f07b..5eefe12 100644
+@@ -1017,6 +1023,23 @@
+ 		};
+ 	};
+ 
++	scp_sensorhub_pins: scp-sensorhub-default-pins {
++		pins-i2c0 {
++			pinmux = <PINMUX_GPIO132__FUNC_SCP_SCL0>,
++				 <PINMUX_GPIO133__FUNC_SCP_SDA0>;
++			bias-pull-up = <MTK_PULL_SET_RSEL_011>;
++			input-enable;
++		};
++
++		pins-spi1 {
++			pinmux = <PINMUX_GPIO38__FUNC_SCP_SPI1_CK>,
++				 <PINMUX_GPIO39__FUNC_SCP_SPI1_CS>,
++				 <PINMUX_GPIO40__FUNC_SCP_SPI1_MO>,
++				 <PINMUX_GPIO41__FUNC_SCP_SPI1_MI>;
++			input-enable;
++		};
++	};
++
+ 	lcd_bias_pins: lcd-bias-default-pins {
+ 		pins-bias {
+ 			pinmux = <PINMUX_GPIO108__FUNC_GPIO108>,
 --- a/arch/arm64/boot/dts/mediatek/mt6789.dtsi
 +++ b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
-@@ -855,6 +855,23 @@
+@@ -773,6 +773,23 @@
  			status = "disabled";
  		};
  

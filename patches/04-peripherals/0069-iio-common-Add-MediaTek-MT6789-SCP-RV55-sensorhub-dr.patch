@@ -67,7 +67,7 @@ diff --git a/drivers/iio/common/mtk_scp_sensors/mtk_scp_sensorhub.c b/drivers/ii
 new file mode 100644
 --- /dev/null
 +++ b/drivers/iio/common/mtk_scp_sensors/mtk_scp_sensorhub.c
-@@ -0,0 +1,1168 @@
+@@ -0,0 +1,1177 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * MediaTek MT6789 SCP RV55 Sensor Hub IIO driver.
@@ -148,6 +148,8 @@ new file mode 100644
 +#define MBOX2_RECV_NOTIFY_BIT		BIT(14)
 +#define MBOX2_RECV_NOTIFY_OFF		0x0070
 +
++#define MBOX3_RECV_READY1_BIT		BIT(15)
++
 +/* MT6789 scp_share_mem (0x8f000000, 0x7a0000) sub-region offsets & sizes */
 +#define SCP_SHM_MIN_TOTAL_SIZE		0x719000
 +#define SCP_SHM_DATA_OFF		0x24e300
@@ -212,12 +214,12 @@ new file mode 100644
 +	u8 payload_type;
 +	u8 pad[3];
 +	u32 payload_base;
-+} __aligned(4);
++} __packed;
 +
 +struct scp_sens_share_mem {
 +	u8 available_num;
-+	u8 pad[3];
 +	struct scp_sens_shm_entry base_info[4];
++	u8 tail_pad[3];
 +} __packed __aligned(4);
 +
 +struct scp_sens_ctrl {
@@ -283,6 +285,8 @@ new file mode 100644
 +static_assert(offsetof(struct scp_sens_notify, crc8) == 4);
 +static_assert(offsetof(struct scp_sens_notify, value) == 8);
 +static_assert(sizeof(struct scp_sens_share_mem) == 36);
++static_assert(offsetof(struct scp_sens_share_mem, base_info) == 1);
++static_assert(offsetof(struct scp_sens_share_mem, base_info[0].payload_base) == 5);
 +static_assert(sizeof(struct scp_sens_batch) == 16);
 +static_assert(sizeof(struct scp_shm_base) == 16);
 +static_assert(sizeof(struct scp_shm_data) == 36);
@@ -681,6 +685,9 @@ new file mode 100644
 +	struct mtk_scp_hub *hub = data;
 +	u32 status = readl(hub->mbox3_base + MBOX_CLR_IRQ_OFF);
 +
++	if (status & MBOX3_RECV_READY1_BIT)
++		complete(&hub->scp_ready_done);
++
 +	writel(1, hub->cfg_base + SCP_TO_SPM_REG);
 +	if (status)
 +		writel(status, hub->mbox3_base + MBOX_CLR_IRQ_OFF);
@@ -1042,6 +1049,8 @@ new file mode 100644
 +		return;
 +	}
 +
++	/* Clear pending SPM IPC bit after boot ready */
++	writel(0xff, hub->cfg_base + SCP_TO_SPM_REG);
 +	scp_dvfs_req(SCP_REQ_RELEASE);
 +
 +	/* Handshake with SCP sensorhub 2.0 task */
@@ -1058,7 +1067,7 @@ new file mode 100644
 +	}
 +
 +	if (!wait_for_completion_timeout(&hub->sens_ready_done,
-+					 msecs_to_jiffies(5000))) {
++					 msecs_to_jiffies(10000))) {
 +		dev_warn(hub->dev, "SCP sensorhub ready handshake timeout\n");
 +		return;
 +	}

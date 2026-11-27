@@ -1,0 +1,94 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Sat, 28 Nov 2026 01:05:00 +0700
+Subject: [PATCH] rtc: mt6397: Use 1968 year epoch offset matching MediaTek firmware
+
+MediaTek Preloader, LK, and downstream Android drivers store the 7-bit
+hardware year register (RTC_TC_YEA / RTC_AL_YEA) relative to 1968
+(RTC_MIN_YEAR_OFFSET = 68, covering 1968..2095).
+
+Mainline rtc-mt6397 instead reads and writes raw tm_year (years since
+1900) and relies on rtc-core start_secs=1968 wraparound over a 1900..2027
+window. When dual-booting with Android or stock bootloader, a raw year
+value of 58 (2026 - 1968) is interpreted as 1958 and wrapped by +128
+years to 2086 (with a 1-day leap-year drift), while writing 2026 from
+mainline stores 126 (read back as 2094 by Android).
+
+Apply the 68-year offset directly on register read/write and advertise
+the full hardware 1968..2095 range so MediaTek bootloader, Android, and
+mainline Linux share the hardware RTC consistently.
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ drivers/rtc/rtc-mt6397.c | 19 +++++++++++--------
+ 1 file changed, 11 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/rtc/rtc-mt6397.c b/drivers/rtc/rtc-mt6397.c
+index 242f65f20..4e9f5d1a3 100644
+--- a/drivers/rtc/rtc-mt6397.c
++++ b/drivers/rtc/rtc-mt6397.c
+@@ -17,6 +17,9 @@
+ #include <linux/rtc.h>
+ #include <linux/mfd/mt6397/rtc.h>
+ 
++/* MediaTek Preloader/LK/Android store 7-bit RTC year relative to 1968 */
++#define MTK_RTC_MIN_YEAR_OFFSET	68
++
+ static int mtk_rtc_write_trigger(struct mt6397_rtc *rtc)
+ {
+ 	int ret;
+@@ -78,7 +81,7 @@ static int __mtk_rtc_read_time(struct mt6397_rtc *rtc,
+ 	tm->tm_mday = data[RTC_OFFSET_DOM];
+ 	tm->tm_wday = data[RTC_OFFSET_DOW];
+ 	tm->tm_mon = data[RTC_OFFSET_MTH] & RTC_TC_MTH_MASK;
+-	tm->tm_year = data[RTC_OFFSET_YEAR];
++	tm->tm_year = (data[RTC_OFFSET_YEAR] & RTC_AL_YEA_MASK) + MTK_RTC_MIN_YEAR_OFFSET;
+ 
+ 	ret = regmap_read(rtc->regmap, rtc->addr_base + RTC_TC_SEC, sec);
+ exit:
+@@ -120,7 +123,7 @@ static int mtk_rtc_set_time(struct device *dev, struct rtc_time *tm)
+ 	data[RTC_OFFSET_DOM] = tm->tm_mday;
+ 	data[RTC_OFFSET_DOW] = tm->tm_wday;
+ 	data[RTC_OFFSET_MTH] = tm->tm_mon;
+-	data[RTC_OFFSET_YEAR] = tm->tm_year;
++	data[RTC_OFFSET_YEAR] = (tm->tm_year - MTK_RTC_MIN_YEAR_OFFSET) & RTC_AL_YEA_MASK;
+ 
+ 	mutex_lock(&rtc->lock);
+ 	ret = regmap_bulk_write(rtc->regmap, rtc->addr_base + RTC_TC_SEC,
+@@ -166,7 +169,8 @@ static int mtk_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alm)
+ 	tm->tm_hour = data[RTC_OFFSET_HOUR] & RTC_AL_HOU_MASK;
+ 	tm->tm_mday = data[RTC_OFFSET_DOM] & RTC_AL_DOM_MASK;
+ 	tm->tm_mon = data[RTC_OFFSET_MTH] & RTC_AL_MTH_MASK;
+-	tm->tm_year = data[RTC_OFFSET_YEAR] & RTC_AL_YEA_MASK;
++	tm->tm_year = (data[RTC_OFFSET_YEAR] & RTC_AL_YEA_MASK) +
++		      MTK_RTC_MIN_YEAR_OFFSET;
+ 
+ 	tm->tm_mon--;
+ 
+@@ -201,8 +205,9 @@ static int mtk_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alm)
+ 				(tm->tm_mday & RTC_AL_DOM_MASK));
+ 	data[RTC_OFFSET_MTH] = ((data[RTC_OFFSET_MTH] & ~(RTC_AL_MTH_MASK)) |
+ 				(tm->tm_mon & RTC_AL_MTH_MASK));
+-	data[RTC_OFFSET_YEAR] = ((data[RTC_OFFSET_YEAR] & ~(RTC_AL_YEA_MASK)) |
+-				(tm->tm_year & RTC_AL_YEA_MASK));
++	data[RTC_OFFSET_YEAR] = ((data[RTC_OFFSET_YEAR] & ~(RTC_AL_YEA_MASK)) |
++				 ((tm->tm_year - MTK_RTC_MIN_YEAR_OFFSET) &
++				  RTC_AL_YEA_MASK));
+ 
+ 	if (alm->enabled) {
+ 		ret = regmap_bulk_write(rtc->regmap,
+@@ -371,10 +376,8 @@ static int mtk_rtc_probe(struct platform_device *pdev)
+ 	device_init_wakeup(&pdev->dev, true);
+ 
+ 	rtc->rtc_dev->ops = &mtk_rtc_ops;
+-	rtc->rtc_dev->range_min = RTC_TIMESTAMP_BEGIN_1900;
+-	rtc->rtc_dev->range_max = mktime64(2027, 12, 31, 23, 59, 59);
+-	rtc->rtc_dev->start_secs = mktime64(1968, 1, 2, 0, 0, 0);
+-	rtc->rtc_dev->set_start_time = true;
++	rtc->rtc_dev->range_min = mktime64(1968, 1, 1, 0, 0, 0);
++	rtc->rtc_dev->range_max = mktime64(2095, 12, 31, 23, 59, 59);
+ 
+ 	ret = devm_rtc_register_device(rtc->rtc_dev);
+ 	if (ret)
+-- 
+2.47.2
