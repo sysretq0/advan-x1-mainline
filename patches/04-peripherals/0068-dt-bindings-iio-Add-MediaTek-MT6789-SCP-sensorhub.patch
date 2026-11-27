@@ -74,9 +74,9 @@ index 0000000..c1e9a42
 +    maxItems: 1
 +    description: Phandle to the reserved SCP shared-memory DRAM region.
 +
-+  mediatek,scpsys:
++  mediatek,infracfg:
 +    $ref: /schemas/types.yaml#/definitions/phandle
-+    description: Phandle to the SCPSYS/SPM syscon for SCP awake-lock IPC.
++    description: Phandle to the infracfg_ao syscon for SCP awake-lock IPC.
 +
 +required:
 +  - compatible
@@ -87,7 +87,7 @@ index 0000000..c1e9a42
 +  - clocks
 +  - clock-names
 +  - memory-region
-+  - mediatek,scpsys
++  - mediatek,infracfg
 +
 +additionalProperties: false
 +
@@ -109,7 +109,7 @@ index 0000000..c1e9a42
 +        clocks = <&topckgen CLK_TOP_SCP_SEL>;
 +        clock-names = "scp";
 +        memory-region = <&scp_share_mem>;
-+        mediatek,scpsys = <&scpsys>;
++        mediatek,infracfg = <&infracfg_ao>;
 +    };
 -- 
 2.47.2

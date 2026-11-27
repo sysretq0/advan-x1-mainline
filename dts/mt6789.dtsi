@@ -868,7 +868,7 @@
 			interrupt-names = "mbox1", "mbox2", "mbox3";
 			clocks = <&topckgen CLK_TOP_SCP_SEL>;
 			clock-names = "scp";
-			mediatek,scpsys = <&scpsys>;
+			mediatek,infracfg = <&infracfg_ao>;
 			status = "disabled";
 		};
 

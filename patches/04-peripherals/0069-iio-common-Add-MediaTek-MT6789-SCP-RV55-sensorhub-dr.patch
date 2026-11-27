@@ -117,10 +117,10 @@ new file mode 100644
 +			   ARM_SMCCC_OWNER_SIP, 0x528)
 +#define SCP_KERNEL_OP_RESET_RELEASE	3
 +
-+/* SCP configuration & SCPSYS awake-lock IPC registers */
++/* SCP configuration & infracfg_ao awake-lock IPC registers */
 +#define SCP_TO_SPM_REG			0x0094
-+#define SCPSYS_INFRA_IRQ_SET		0x0b14
-+#define SCPSYS_INFRA_IRQ_CLEAR		0x0b18
++#define INFRACFG_SCP_IRQ_SET		0x0b14
++#define INFRACFG_SCP_IRQ_CLEAR		0x0b18
 +#define SCP_AWAKE_KEY			0xa0
 +#define SCP_AWAKE_LOCK_BIT		BIT(0)
 +#define SCP_AWAKE_UNLOCK_BIT		BIT(1)
@@ -314,7 +314,7 @@ new file mode 100644
 +	void __iomem *mbox1_base;
 +	void __iomem *mbox2_base;
 +	void __iomem *mbox3_base;
-+	struct regmap *scpsys;
++	struct regmap *infracfg;
 +	struct clk *scp_clk;
 +
 +	phys_addr_t shm_phys;
@@ -403,9 +403,9 @@ new file mode 100644
 +	int tries;
 +	int ret = -ETIMEDOUT;
 +
-+	regmap_write(hub->scpsys, SCPSYS_INFRA_IRQ_SET, SCP_AWAKE_KEY | bit);
++	regmap_write(hub->infracfg, INFRACFG_SCP_IRQ_SET, SCP_AWAKE_KEY | bit);
 +	for (tries = 0; tries < SCP_AWAKE_TIMEOUT_US / 10; tries++) {
-+		regmap_read(hub->scpsys, SCPSYS_INFRA_IRQ_SET, &val);
++		regmap_read(hub->infracfg, INFRACFG_SCP_IRQ_SET, &val);
 +		if ((val & SCP_AWAKE_KEY) != SCP_AWAKE_KEY)
 +			break;
 +		if (!(val & bit)) {
@@ -414,7 +414,7 @@ new file mode 100644
 +		}
 +		udelay(10);
 +	}
-+	regmap_write(hub->scpsys, SCPSYS_INFRA_IRQ_CLEAR, SCP_AWAKE_KEY | bit);
++	regmap_write(hub->infracfg, INFRACFG_SCP_IRQ_CLEAR, SCP_AWAKE_KEY | bit);
 +	return ret;
 +}
 +
@@ -1131,10 +1131,10 @@ new file mode 100644
 +	if (IS_ERR(hub->mbox3_base))
 +		return PTR_ERR(hub->mbox3_base);
 +
-+	hub->scpsys = syscon_regmap_lookup_by_phandle(dev->of_node, "mediatek,scpsys");
-+	if (IS_ERR(hub->scpsys))
-+		return dev_err_probe(dev, PTR_ERR(hub->scpsys),
-+				     "failed to lookup scpsys regmap\n");
++	hub->infracfg = syscon_regmap_lookup_by_phandle(dev->of_node, "mediatek,infracfg");
++	if (IS_ERR(hub->infracfg))
++		return dev_err_probe(dev, PTR_ERR(hub->infracfg),
++				     "failed to lookup infracfg regmap\n");
 +
 +	hub->scp_clk = devm_clk_get_enabled(dev, "scp");
 +	if (IS_ERR(hub->scp_clk))
