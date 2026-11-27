@@ -635,9 +635,8 @@ static int axiAllocHifMem(struct platform_device *pdev,
 	       &grMem.pucRsvMemBase,
 	       &grMem.pucRsvMemVirBase);
 
-	if (axiGetRsvMemSizeRsvedByKernel(pdev) == true)
-		kalSetDrvEmiMpuProtection(grMem.pucRsvMemBase, 0,
-			grMem.u4RsvMemSize);
+	/* Always configure Wi-Fi DMA EMI MPU region (U-Boot/mainline does not set it in LK) */
+	kalSetDrvEmiMpuProtection(grMem.pucRsvMemBase, 0, grMem.u4RsvMemSize);
 
 	for (u4Idx = 0; u4Idx < NUM_OF_TX_RING; u4Idx++) {
 		if (u4Idx == TX_RING_DATA1_IDX_1 &&

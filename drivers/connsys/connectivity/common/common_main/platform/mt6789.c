@@ -48,6 +48,8 @@
 #else
 #include <memory/mediatek/emi.h>
 #endif
+#include <linux/arm-smccc.h>
+#include <linux/soc/mediatek/mtk_sip_svc.h>
 
 #if CONSYS_PMIC_CTRL_ENABLE
 #include <linux/regulator/consumer.h>
@@ -1075,8 +1077,51 @@ static INT32 consys_hw_vcn_ctrl_after_idle(VOID)
 	return 0;
 }
 
+#define MT6789_EMIMPU_REGION_CONN	27
+#define MT6789_EMIMPU_DOMAIN_AP		0
+#define MT6789_EMIMPU_DOMAIN_CONN	2
+#define MT6789_EMIMPU_DOMAIN_CNT	16
+#define MT6789_EMIMPU_ADDR_ALIGN	16
+
 static INT32 consys_emi_mpu_set_region_protection(VOID)
 {
+	unsigned long long start_addr = gConEmiPhyBase;
+	unsigned long long end_addr;
+	unsigned int start, end, group_apc;
+	struct arm_smccc_res smc_res = {};
+	u8 apc[MT6789_EMIMPU_DOMAIN_CNT];
+	int i, j;
+
+	if (!start_addr || !gConEmiSize) {
+		WMT_PLAT_PR_ERR("CONNSYS EMI base/size not initialized (0x%llx, 0x%llx)\n",
+				start_addr, (unsigned long long)gConEmiSize);
+		return -1;
+	}
+
+	end_addr = start_addr + gConEmiSize - 1;
+	memset(apc, MTK_EMIMPU_FORBIDDEN, sizeof(apc));
+	apc[MT6789_EMIMPU_DOMAIN_AP] = MTK_EMIMPU_NO_PROTECTION;
+	apc[MT6789_EMIMPU_DOMAIN_CONN] = MTK_EMIMPU_NO_PROTECTION;
+
+	start = (unsigned int)((start_addr >> MT6789_EMIMPU_ADDR_ALIGN) & 0x00ffffffU) |
+		(MT6789_EMIMPU_REGION_CONN << 24);
+
+	for (i = (MT6789_EMIMPU_DOMAIN_CNT / 8) - 1; i >= 0; i--) {
+		end = (unsigned int)((end_addr >> MT6789_EMIMPU_ADDR_ALIGN) & 0x00ffffffU) |
+		      ((unsigned int)i << 24);
+
+		for (group_apc = 0, j = 0; j < 8; j++)
+			group_apc |= ((unsigned int)apc[i * 8 + j] & 0x7U) << (3 * j);
+
+		arm_smccc_smc(MTK_SIP_EMIMPU_CONTROL, MTK_EMIMPU_SET,
+			      start, end, group_apc, 0, 0, 0, &smc_res);
+		if (smc_res.a0)
+			WMT_PLAT_PR_ERR("EMI MPU region %u grp %d SMC failed (%ld)\n",
+					MT6789_EMIMPU_REGION_CONN, i, (long)smc_res.a0);
+	}
+
+	WMT_PLAT_PR_INFO("setting MPU region %u for CONNSYS EMI [0x%llx..0x%llx] (ret=%ld)\n",
+			 MT6789_EMIMPU_REGION_CONN, start_addr, end_addr, (long)smc_res.a0);
 	return 0;
 }
 

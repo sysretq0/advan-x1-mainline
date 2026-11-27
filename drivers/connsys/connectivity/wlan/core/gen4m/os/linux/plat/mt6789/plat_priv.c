@@ -12,8 +12,11 @@
 #include "precomp.h"
 #include "wmt_exp.h"
 
-#ifdef CONFIG_WLAN_MTK_EMI
+#include <linux/arm-smccc.h>
+#include <linux/soc/mediatek/mtk_sip_svc.h>
 #include <soc/mediatek/emi.h>
+
+#ifdef CONFIG_WLAN_MTK_EMI
 #define WIFI_EMI_MEM_OFFSET    0x2A0000
 #define WIFI_EMI_MEM_SIZE      0x160000
 #define DOMAIN_AP	0
@@ -234,6 +237,60 @@ void kalSetDrvEmiMpuProtection(phys_addr_t emiPhyBase, uint32_t offset,
 			"mtk_emimpu_set_protection failed, ret: %d\n",
 			ret);
 	mtk_emimpu_free_region(&region);
+}
+#else
+#define MT6789_EMIMPU_REGION_WIFI_DMA	18
+#define MT6789_EMIMPU_DOMAIN_AP		0
+#define MT6789_EMIMPU_DOMAIN_CONN	2
+#define MT6789_EMIMPU_DOMAIN_CNT	16
+#define MT6789_EMIMPU_ADDR_ALIGN	16
+
+void kalSetEmiMpuProtection(phys_addr_t emiPhyBase, bool enable)
+{
+}
+
+void kalSetDrvEmiMpuProtection(phys_addr_t emiPhyBase, uint32_t offset,
+			       uint32_t size)
+{
+	unsigned long long start_addr = (unsigned long long)emiPhyBase + offset;
+	unsigned long long end_addr;
+	unsigned int start, end, group_apc;
+	struct arm_smccc_res smc_res = {};
+	u8 apc[MT6789_EMIMPU_DOMAIN_CNT];
+	int i, j;
+
+	if (!emiPhyBase || !size) {
+		DBGLOG(INIT, ERROR, "Invalid Wi-Fi DMA EMI range (0x%llx, 0x%x)\n",
+		       start_addr, size);
+		return;
+	}
+
+	end_addr = start_addr + size - 1;
+	memset(apc, MTK_EMIMPU_FORBIDDEN, sizeof(apc));
+	apc[MT6789_EMIMPU_DOMAIN_AP] = MTK_EMIMPU_NO_PROTECTION;
+	apc[MT6789_EMIMPU_DOMAIN_CONN] = MTK_EMIMPU_NO_PROTECTION;
+
+	start = (unsigned int)((start_addr >> MT6789_EMIMPU_ADDR_ALIGN) & 0x00ffffffU) |
+		(MT6789_EMIMPU_REGION_WIFI_DMA << 24);
+
+	for (i = (MT6789_EMIMPU_DOMAIN_CNT / 8) - 1; i >= 0; i--) {
+		end = (unsigned int)((end_addr >> MT6789_EMIMPU_ADDR_ALIGN) & 0x00ffffffU) |
+		      ((unsigned int)i << 24);
+
+		for (group_apc = 0, j = 0; j < 8; j++)
+			group_apc |= ((unsigned int)apc[i * 8 + j] & 0x7U) << (3 * j);
+
+		arm_smccc_smc(MTK_SIP_EMIMPU_CONTROL, MTK_EMIMPU_SET,
+			      start, end, group_apc, 0, 0, 0, &smc_res);
+		if (smc_res.a0)
+			DBGLOG(INIT, ERROR,
+			       "EMI MPU region %u grp %d SMC failed (%ld)\n",
+			       MT6789_EMIMPU_REGION_WIFI_DMA, i, (long)smc_res.a0);
+	}
+
+	DBGLOG(INIT, INFO,
+	       "setting MPU region %u for Wi-Fi DMA EMI [0x%llx..0x%llx] (ret=%ld)\n",
+	       MT6789_EMIMPU_REGION_WIFI_DMA, start_addr, end_addr, (long)smc_res.a0);
 }
 #endif
 
