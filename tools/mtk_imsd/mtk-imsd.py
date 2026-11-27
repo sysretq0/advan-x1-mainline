@@ -50,7 +50,7 @@ STATE_DIR = "/var/lib/mtk-imsd"
 LOG_PREFIX = "mtk-imsd"
 RT_TABLE = 1403
 IMS_IFNAME = "wwan1"
-WWAN_PARENT = "d0cf000.modem"
+WWAN_PARENT_DEFAULT = "wwan0"
 WWAN0_IF_ID_SYSFS = "/sys/bus/platform/devices/d0cf000.modem/wwan0_if_id"
 PDN_STATE = "/run/mtk-imsd.pdn"
 XFRM_STATE = "/run/mtk-imsd.xfrm"
@@ -135,8 +135,20 @@ class Modem:
     """AT + URC access through ModemManager's mtk-ccci IMS bridge."""
 
     def __init__(self):
-        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.sock.connect(BRIDGE)
+        self.sock = None
+        for attempt in range(60):
+            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            try:
+                s.connect(BRIDGE)
+                self.sock = s
+                break
+            except OSError:
+                s.close()
+                if attempt == 0:
+                    log(f"waiting for {BRIDGE}...")
+                time.sleep(1)
+        if self.sock is None:
+            raise RuntimeError(f"timed out waiting for {BRIDGE}")
         self.wlock = threading.Lock()
         self.next_id = 0
         self.waiters = {}
@@ -203,11 +215,23 @@ class Modem:
             raise RuntimeError(f"{cmd}: {text}")
         return text
 
+    def _at_digits15(self, cmd):
+        for _ in range(10):
+            try:
+                r = self.at(cmd)
+                m = re.search(r"\d{15}", r)
+                if m:
+                    return m.group(0)
+            except Exception:
+                pass
+            time.sleep(2)
+        raise RuntimeError(f"{cmd}: did not return 15 digits")
+
     def imsi(self):
-        return re.search(r"\d{15}", self.at("AT+CIMI")).group(0)
+        return self._at_digits15("AT+CIMI")
 
     def imei(self):
-        return re.search(r"\d{15}", self.at("AT+CGSN")).group(0)
+        return self._at_digits15("AT+CGSN")
 
     def smsc(self):
         try:
@@ -342,6 +366,17 @@ class Pdn:
             return pcscf_v6, local_v6
         return pcscf_v4, local_v4
 
+    @staticmethod
+    def _wwan_parent():
+        try:
+            for name in sorted(os.listdir("/sys/class/wwan")):
+                uev = f"/sys/class/wwan/{name}/uevent"
+                if os.path.isfile(uev) and "DEVTYPE=wwan_dev" in open(uev).read():
+                    return name
+        except OSError:
+            pass
+        return WWAN_PARENT_DEFAULT
+
     def _ensure_wwan1(self, net_if):
         """Create/rebind wwan1 on mainline mtk_ccci_dpmaif for net_if."""
         # Avoid colliding with wwan0 if wwan0 is idle on the same net_if
@@ -358,10 +393,11 @@ class Pdn:
             pass
 
         # Recreate wwan1 cleanly for this net_if
+        parent = self._wwan_parent()
         sh("ip", "link", "del", self.ifname, check=False)
         sh(
             "ip", "link", "add", "dev", self.ifname,
-            "parentdev", WWAN_PARENT, "type", "wwan", "linkid", str(net_if),
+            "parentdev", parent, "type", "wwan", "linkid", str(net_if),
         )
         sh("ip", "link", "set", self.ifname, "mtu", "1400")
         sh("ip", "link", "set", self.ifname, "up")
