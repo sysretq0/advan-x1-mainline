@@ -412,6 +412,14 @@ class Pdn:
         pcscf, locals_ = self.contrdp()
         eif_ip = None
         if not pcscf:
+            # Avoid hammering AT+EAPNACT while modem RF is disabled (CFUN=0/4).
+            try:
+                cfun = self.m.at("AT+CFUN?", timeout=10)
+            except Exception:
+                cfun = ""
+            cm = re.search(r"\+CFUN:\s*(\d+)", cfun)
+            if cm and cm.group(1) != "1":
+                raise RuntimeError(f"modem RF disabled (CFUN={cm.group(1)})")
             log("bringing up IMS PDN")
             self.m.at("AT+EIMSCFG=1,1,0,0,1,1")
             self.m.at("AT+EIMS=1")
@@ -1777,6 +1785,15 @@ class Ims:
         self.m.mo_handler = self.on_mo
         self.m.call_handler = self.on_bridge_call
         self.pdn.on_lost = self.on_bearer_lost
+
+        def on_net_urc(line):
+            if not self.registered and (
+                re.search(r'\+EIF:\s*\d+,\s*"?ifup"?', line)
+                or re.search(r"\+(?:CGEV:\s*ME PDN ACT|CIREGU:)", line)
+            ):
+                self.wake.set()
+
+        self.m.urc_handlers.append(on_net_urc)
         self.m.send_line("REG 0")
         rereg = int(os.environ.get("MTK_IMSD_REREG", "0"))
         backoff = 10
@@ -1801,9 +1818,9 @@ class Ims:
                 except OSError:
                     pass
                 log("registration failed:", repr(e), f"; retry in {backoff}s")
-                self.wake.wait(backoff)
+                woken = self.wake.wait(backoff)
                 self.wake.clear()
-                backoff = min(backoff * 2, 600)
+                backoff = 10 if woken else min(backoff * 2, 30)
 
 
 def pick_sec_offer(offers):

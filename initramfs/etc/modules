@@ -82,7 +82,12 @@ videodev
 videobuf2-common
 videobuf2-memops
 videobuf2-vmalloc
+videobuf2-dma-contig
 videobuf2-v4l2
+v4l2-mem2mem
+mtk-jpeg-enc-hw
+mtk-jpeg-dec-hw
+mtk_jpeg
 uvc
 uvcvideo
 snd-hwdep

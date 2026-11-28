@@ -1133,7 +1133,8 @@ static int modprobe_dep(const struct boot_cfg *cfg, const char *kver,
 	return rc;
 }
 
-static void insmod_dir(const struct boot_cfg *cfg, const char *dir_path)
+static void insmod_dir(const struct boot_cfg *cfg, const char *kver,
+		       const char *dir_path)
 {
 	struct dirent **entries = NULL;
 	int n = scandir(dir_path, &entries, NULL, alphasort);
@@ -1146,7 +1147,8 @@ static void insmod_dir(const struct boot_cfg *cfg, const char *dir_path)
 		if (name[0] != '.' && has_suffix(name, ".ko")) {
 			if (is_mod_blacklisted(cfg, name)) {
 				init_log("skip blacklisted module: %s", name);
-			} else {
+			} else if (!(kver && kver[0] &&
+				     modprobe_dep(cfg, kver, name, "", 0) == 0)) {
 				char full[PATH_MAX];
 				if (join_path2(full, sizeof(full), dir_path, name))
 					(void)insmod_file(full, "", true);
@@ -1202,11 +1204,11 @@ static void load_modules(const struct boot_cfg *cfg, const char *kver)
 	}
 
 	/* Auto-load any remaining out-of-tree .ko modules (e.g. EXTRA_KMODS). */
-	insmod_dir(cfg, "/lib/modules/extra");
+	insmod_dir(cfg, kver, "/lib/modules/extra");
 	if (kver && kver[0]) {
 		char dir[PATH_MAX];
 		snprintf(dir, sizeof(dir), "/lib/modules/%s/updates", kver);
-		insmod_dir(cfg, dir);
+		insmod_dir(cfg, kver, dir);
 	}
 }
 
