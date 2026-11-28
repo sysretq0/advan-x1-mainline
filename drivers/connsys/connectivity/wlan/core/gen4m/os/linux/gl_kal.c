@@ -3410,8 +3410,13 @@ static int32_t kalThreadSchedRetrieve(struct task_struct *pThread,
 
 	pSched->time = sec*1000 + usec/1000;
 	pSched->exec = se.sum_exec_runtime;
-	pSched->runnable = se.statistics.wait_sum;
-	pSched->iowait = se.statistics.iowait_sum;
+#ifdef CONFIG_SCHEDSTATS
+	pSched->runnable = pThread->stats.wait_sum;
+	pSched->iowait = pThread->stats.iowait_sum;
+#else
+	pSched->runnable = 0;
+	pSched->iowait = 0;
+#endif
 
 	return 0;
 #else

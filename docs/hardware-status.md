@@ -1,6 +1,6 @@
 # Advan X1 (MT6789 / Helio G99) — Hardware Support & Bring-Up Status
 
-**Latest hardware-verified baseline:** `491d541`+ (Linux 7.4-rc4 modernized kernel, full 7.69 GiB RAM, live Wi-Fi STA + SoftAP hotspot + native BlueZ Bluetooth `hci0`, 4G LTE + VoLTE voice calls + IMS SMS, USB-C OTG/host + ConfigFS gadget + 18 W USB-PD/non-PD 2.0 A charging, SCP RV55 IIO sensors + native `mount-matrix` auto-rotate, AW3641E rear LED flash/torch, hardware JPEG encoder `/dev/video0`, audio playback, `s2idle` suspend-to-RAM survival, clean shutdown). All 100% of MT6789 clock controllers and all 15 `M8` SCPSYS power domains are wired; WireGuard/nftables/NAT kmods are built in.
+**Latest hardware-verified baseline:** `ad9195b`+ (Linux 7.4-rc4 modernized kernel, full 7.69 GiB RAM, live Wi-Fi STA + SoftAP hotspot + native BlueZ Bluetooth `hci0`, 4G LTE + VoLTE voice calls + IMS SMS, USB-C OTG/host + ConfigFS gadget + 18 W USB-PD/non-PD 2.0 A charging, SCP RV55 IIO sensors + native `mount-matrix` auto-rotate, AW3641E rear LED flash/torch, hardware JPEG encoder `/dev/video0`, firmware-free stateless H.264 hardware video decoder `/dev/video1`, audio playback, `s2idle` suspend-to-RAM survival, clean shutdown). All 100% of MT6789 clock controllers and all 15 `M8` SCPSYS power domains are wired; WireGuard/nftables/NAT kmods are built in.
 **Upstream kernel baseline:** Linux v7.4-rc3/rc4 (`666539eecdf4db623f5e3c3e55cf9f2dfad24aa4`)  
 **Boot chain:** Stock LK → Loki Stage-1 (EL1) → [`advan-x1-uboot`](https://github.com/sysretq0/advan-x1-uboot) (EL2) → U-Boot FIT (`advan-x1.itb`)
 
@@ -50,7 +50,7 @@ Status legend:
 | **LED Torch / Flash** | Awinic AW3641E (`GPIO 99` ENM, `GPIO 36` ENF) | `leds-sgm3140` (`awinic,aw3641e` → `/sys/class/leds/white:flash`) | **Working** | Live verified on `3aa67e2`: torch (`brightness` `1→0`) and strobe (`flash_strobe`, `250 ms` timeout, `root:feedbackd`) |
 | **Cameras & ISP** | `camsys` / `imgsensor` | `clk-mt6789-{cam,img}` + `M8` PDs ready | **Not started** | Clocks & `M8` PDs wired; needs V4L2/CSI-2 sensor & ISP drivers |
 | **JPEG Encoder (HW)** | MT6789 `jpgenc@17030000` (`vencsys` + `larb7`) | `mtk-jpeg` (`mediatek,mt6789-jpgenc`) + `larb4`/`larb7` M4U Region 1 | **Working** | Live verified on `3aa67e2`: `/dev/video0` (`mtk-jpeg-enc`) 640×480 YUYV→JPEG pixel-accurate encode, GIC 375 IRQ, 0 IOMMU faults; boot auto-load fixed in `995622f` |
-| **Video Codec (VDEC H.264)** | MT6789 `vdec@16000000` (`vdecsys` + `larb4`) | `mtk-vdec-mt6789` (`mediatek,mt6789-vcodec-dec`) | **WIP** | Firmware-free stateless H.264 decoder (`S264` → `MM21`, GIC SPI 458, M4U Region 1): live HW slice-header parsing, GIC 490 IRQ (`PIC_COMPLETE`), and `MM21` super-row decode verified; `MC_PP_BUF_WIDTH`/`MC_REF_BUF_WIDTH` pitch, non-UFO gating & 32-bit IOVA wrap fixes landed (full multi-frame validation pending next mainline boot) |
+| **Video Codec (VDEC H.264)** | MT6789 `vdec@16000000` (`vdecsys` + `larb4`) | `mtk-vdec-mt6789` (`mediatek,mt6789-vcodec-dec`) | **Working** | Firmware-free stateless H.264 decoder (`/dev/video1`, `S264` → `MM21`, GIC SPI 458 / IRQ 490, M4U Region 1): live-verified **100% bit-exact** multi-frame I+P decode vs `avdec_h264` (`170/170` frames across `320×240`–`1920×1080`, 31.5 fps @ 1080p, 68.7 fps @ 720p), 0 IOMMU faults, 0 timeouts |
 | **Sensors (IMU/ALS/Prox)** | SCP RV55 sensor hub (`icm-42607-p`, `af6133e`, `STK3335-X`, `stk3a5x`) | `mtk-scp-sensorhub` (`10724000.sensorhub` → Linux IIO) | **Working** | Live verified on `3aa67e2`: all 5 IIO sensors (`iio:device4..8`) + `iio-sensor-proxy` + native kernel `in_mount_matrix` (`-1,0,0;0,-1,0;0,0,1`) + 0 deprecated-wq warnings |
 | **Fingerprint** | Goodix (`goodix-fp` SPI5) / FocalTech | — | **Not started** | Not wired in DTS or driver stack |
 
@@ -109,14 +109,19 @@ Status legend:
   `MESSAGE` + `MMIfaceModemMessaging` bridge + lazy `+CSCA?` SMSC refresh) are
   live-verified on XL (`51011`), with fast Airplane Mode recovery (`AT+CFUN?`
   + URC wakeup).
-- **Sensors, LED Flash & Hardware JPEG Encoder:** SCP RV55 sensor hub
+- **Sensors, LED Flash, Hardware JPEG Encoder & H.264 Video Decoder:** SCP RV55 sensor hub
   (`10724000.sensorhub`) exposes all 5 IIO sensors (`accel`, `gyro`, `magn`,
   `light`, `proximity`) with native kernel `in_mount_matrix` (`-1,0,0;0,-1,0;0,0,1`)
   driving `iio-sensor-proxy` auto-rotate. Awinic AW3641E (`/sys/class/leds/white:flash`)
   provides torch and `250 ms` flash strobe. Hardware JPEG encoder
   (`17030000.jpeg-encoder` → `/dev/video0`, `mtk-jpeg-enc` over `vencsys` +
   SMI `larb7` + `disp_iommu` Region 1) is live-verified for pixel-accurate
-  640×480 YUYV→JPEG encoding with 0 IOMMU faults.
+  640×480 YUYV→JPEG encoding with 0 IOMMU faults. Firmware-free stateless H.264
+  hardware video decoder (`16000000.video-codec` → `/dev/video1`, `mtk-vdec-mt6789`
+  over `vdecsys` + SMI `larb4` + `disp_iommu` Region 1, `S264` → `MM21`) is
+  live-verified **100% bit-exact** against `avdec_h264` across `320×240`,
+  `480×270`, `640×360`, `854×480`, `1280×720`, and `1920×1080` (`170/170`
+  multi-frame I+P decode via GStreamer `v4l2slh264dec`, 0 IOMMU faults, 0 timeouts).
 - **Storage, USB-C OTG / Gadget & Power:** UFS 2.2 (`11270000.ufshci`), MUSB
   (`11200000.usb`) + MT6789 USB2 T-PHY (`11f40000.t-phy`) dual-role USB-C host/OTG
   (`rt1711h` + `usb-role-switch` + `usb-otg-vbus` boost) and composite ConfigFS
@@ -136,8 +141,7 @@ Status legend:
      voice fallback; live 2G/3G CS call confirmation remains (4G VoLTE and IMS
      SMS are Working). See [`docs/modem-full-bringup.md`](modem-full-bringup.md).
 2. **microSD Card (`11240000.mmc`):** `GPIO 7` CD polarity and pinmux verified bit-exact against live Android DT (`in hi` when empty under `GPIO_ACTIVE_LOW`); live physical card I/O test pending.
-3. **Hardware Video Decoder (`16000000.video-codec`, `mtk-vdec-mt6789`):** Firmware-free stateless V4L2 M2M H.264 decoder (`V4L2_PIX_FMT_H264_SLICE` → `V4L2_PIX_FMT_MM21`, GIC SPI 458, SMI `larb4` M4U Region 1): live hardware slice-header parsing, GIC 490 IRQ (`MISC_IRQ_DEC_SUCCESS` / `PIC_COMPLETE`), and `MM21` pixel output verified; `MC_PP_BUF_WIDTH`/`MC_REF_BUF_WIDTH` (`0x22c`/`0x980`) macroblock stride, `get_bits()` pre-shift window, non-UFO gating (`0x51e30182`/`0xfffffe60`), and 64-bit bitstream ring-end clamping fixes landed for full multi-frame validation on next mainline boot.
-4. **NFC (`st,st21nfcb-i2c` — on hold):** `nfc0` probes with `XO_NFC` clkbuf
+3. **NFC (`st,st21nfcb-i2c` — on hold):** `nfc0` probes with `XO_NFC` clkbuf
    and IRQ 16 fires; live RF polling is intentionally paused.
 
 ---
@@ -151,8 +155,8 @@ Status legend:
 3. **Hardware Video Encode (VENC) & HEVC/VP9/MDP (`vencsys`, `mdpsys`):**
    Multimedia clock controllers, `M8` PDs, and SMI `larb4`/`larb7` are wired
    (with hardware JPEG encoding working on `/dev/video0` and stateless H.264
-   VDEC wired as WIP); HEVC/VP9 decode, hardware `venc` encode, and MDP
-   drivers are not yet implemented.
+   VDEC working on `/dev/video1`); HEVC/VP9 decode, hardware `venc` encode,
+   and MDP drivers are not yet implemented.
 4. **Fingerprint Reader (`goodix-fp` / `focaltech,fp`):** Not wired in mainline
    DT or userspace.
 

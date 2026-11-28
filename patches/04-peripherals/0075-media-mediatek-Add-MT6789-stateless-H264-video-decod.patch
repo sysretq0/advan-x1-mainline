@@ -75,10 +75,9 @@ index 000000000000..0462e692232f
 +obj-$(CONFIG_VIDEO_MEDIATEK_MT6789_VDEC) += mtk-vdec-mt6789.o
 diff --git a/drivers/media/platform/mediatek/vcodec/mt6789/mtk-vdec-mt6789-regs.h b/drivers/media/platform/mediatek/vcodec/mt6789/mtk-vdec-mt6789-regs.h
 new file mode 100644
-index 000000000000..f8dbea3e03e8
 --- /dev/null
 +++ b/drivers/media/platform/mediatek/vcodec/mt6789/mtk-vdec-mt6789-regs.h
-@@ -0,0 +1,205 @@
+@@ -0,0 +1,213 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +/*
 + * Register definitions for the MediaTek MT6789 stateless H.264 video decoder.
@@ -115,6 +114,7 @@ index 000000000000..f8dbea3e03e8
 +#define VLD_BARREL_CFG				0x0c0
 +#define VLD_BARREL_CFG_H264			0x00040000
 +#define VLD_BIT_OFFSET				0x0cc
++#define VLD_FETCH_OK_STATUS			0x0e8
 +#define VLD_DRAM_CTRL				0x0ec
 +#define VLD_DRAM_CTRL_EN			BIT(28)
 +#define VLD_FETCH_STATUS			0x0f4
@@ -145,7 +145,8 @@ index 000000000000..f8dbea3e03e8
 +/* MC registers (offset from VDEC_MC_BASE) */
 +#define MC_VLD_MODE				0x024
 +#define MC_VLD_MODE_H264			0x6
-+#define MC_CHROMA_FMT				0x090
++#define MC_ADDR_MODE				0x090
++#define MC_ADDR_MODE_MM21			0x4
 +#define MC_PIC_WIDTH				0x208
 +#define MC_PIC_HEIGHT				0x20c
 +#define MC_PP_ENABLE				0x220
@@ -167,7 +168,7 @@ index 000000000000..f8dbea3e03e8
 +#define MC_DRAM_CFG				0x5e4
 +#define MC_DRAM_CFG_INIT			0x00020000
 +#define MC_DRAM_CFG_START			0x00001000
-+#define MC_CHROMA_CFG				0x768
++#define MC_ADDR_MODE_CFG			0x768
 +#define MC_BOUND_END				0x850
 +#define MC_BOUND_START				0x854
 +#define MC_BOUND_EN				0x858
@@ -176,6 +177,7 @@ index 000000000000..f8dbea3e03e8
 +#define MC_REF_BUF_WIDTH			0x980
 +#define MC_VLD_WRAP_ADDR			0xa20
 +#define MC_PP_WRAP_ADDR				0xa24
++#define MC_UFO_CTRL				0xb5c
 +#define MC_PREF_L0_C(i)				(0xb60 + ((i) * 4))
 +#define MC_BREF_L0_C(i)				(0xbe0 + ((i) * 4))
 +#define MC_BREF_L1_C(i)				(0xc60 + ((i) * 4))
@@ -192,6 +194,8 @@ index 000000000000..f8dbea3e03e8
 +#define AVCVLD_PPS2				0x094
 +#define AVCVLD_SLICE_HDR			0x098
 +#define AVCVLD_SLICE_CTRL			0x09c
++#define AVCVLD_MAX_PIC_NUM			0x0a0
++#define AVCVLD_CURR_PIC_NUM			0x0a4
 +#define AVCVLD_PREF_L0_PICNUM(i)		(0x0a8 + ((i) * 4))
 +#define AVCVLD_WEIGHT_CTRL			0x0f0
 +#define AVCVLD_BREF_L0_PICNUM(i)		(0x128 + ((i) * 4))
@@ -247,6 +251,9 @@ index 000000000000..f8dbea3e03e8
 +/* UFO registers (offset from VDEC_UFO_BASE) */
 +#define UFO_CTRL				0x00c
 +#define UFO_CTRL_JUMP_MODE			BIT(0)
++#define UFO_SW_RESET				0x090
++#define UFO_SW_RESET_BIT			BIT(0)
++#define UFO_SW_RESET_CLR			0x09c
 +
 +/* MISC registers (offset from VDEC_MISC_BASE) */
 +#define MISC_CLK_CG				0x000
@@ -286,10 +293,9 @@ index 000000000000..f8dbea3e03e8
 +#endif /* _MTK_VDEC_MT6789_REGS_H_ */
 diff --git a/drivers/media/platform/mediatek/vcodec/mt6789/mtk-vdec-mt6789.c b/drivers/media/platform/mediatek/vcodec/mt6789/mtk-vdec-mt6789.c
 new file mode 100644
-index 000000000000..7dfa99242913
 --- /dev/null
 +++ b/drivers/media/platform/mediatek/vcodec/mt6789/mtk-vdec-mt6789.c
-@@ -0,0 +1,2033 @@
+@@ -0,0 +1,2072 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * MediaTek MT6789 (Helio G99) stateless V4L2 M2M H.264 video decoder driver.
@@ -400,6 +406,8 @@ index 000000000000..7dfa99242913
 +	struct mtk_vdec_dma_buf pp_wrap_buf;
 +	struct mtk_vdec_dma_buf mv_bufs[VIDEO_MAX_FRAME];
 +	size_t mv_buf_size;
++	u32 ref_c_offset;
++	bool has_ref_c_offset;
 +};
 +
 +static const char *const mtk_vdec_clk_names[] = {
@@ -583,6 +591,9 @@ index 000000000000..7dfa99242913
 +				  1, 1000);
 +
 +	writel(VLD_SW_RESET_ALL, vld + VLD_SW_RESET);
++	writel(readl(ufo + UFO_SW_RESET) | UFO_SW_RESET_BIT,
++	       ufo + UFO_SW_RESET);
++	writel(1, ufo + UFO_SW_RESET_CLR);
 +	writel(0x2, misc + MISC_SW_RESET);
 +	val = readl(misc + MISC_CLK_CG);
 +	writel((val & MISC_CLK_CG_KEEP_MASK) | MISC_CLK_CG_VAL,
@@ -599,11 +610,10 @@ index 000000000000..7dfa99242913
 +	writel(MISC_CODEC_SEL_H264, misc + MISC_CODEC_SEL);
 +	writel(MISC_BW_CFG_1080P, misc + MISC_BW_CFG);
 +
-+	/* Ensure UFO / jump mode is disabled for 2-plane MM21 output */
 +	writel(readl(ufo + UFO_CTRL) & ~UFO_CTRL_JUMP_MODE, ufo + UFO_CTRL);
 +	writel(readl(pp + PP_CTRL) & ~PP_CTRL_JUMP_MODE, pp + PP_CTRL);
++	writel(readl(mc + MC_UFO_CTRL) & ~BIT(0), mc + MC_UFO_CTRL);
 +
-+	/* Reset reference picture list SRAM */
 +	writel(0, mc + MC_REF_LIST_P0_CFG);
 +	writel(0, mc + MC_REF_LIST_B0_CFG);
 +	writel(0, mc + MC_REF_LIST_B1_CFG);
@@ -629,7 +639,6 @@ index 000000000000..7dfa99242913
 +	u64 ring_end64 = min_t(u64, ALIGN(bs_end64 + MTK_VDEC_BS_RING_PAD, 64),
 +			       max_end64);
 +	u32 bs_start = (u32)bs_start64;
-+	u32 bs_end = (u32)min_t(u64, bs_end64, ring_end64);
 +	u32 ring_end = (u32)ring_end64;
 +	u32 val;
 +	int ret;
@@ -652,15 +661,19 @@ index 000000000000..7dfa99242913
 +	writel(readl(vld + VLD_BS_END) | 1, vld + VLD_BS_END);
 +	writel(bs_start, vld + VLD_BS_START);
 +	writel(bs_start, vld + VLD_BS_START);
-+	writel(bs_end, vld + VLD_BS_END);
++	writel(ring_end, vld + VLD_BS_END);
 +
 +	writel(1, avcvld + AVCVLD_BARREL_RST);
 +	writel(VLD_SW_RESET_BARREL, vld + VLD_SW_RESET);
 +	writel(0, vld + VLD_SW_RESET);
++	writel(readl(vdec->core + VDEC_UFO_BASE + UFO_SW_RESET) |
++	       UFO_SW_RESET_BIT, vdec->core + VDEC_UFO_BASE + UFO_SW_RESET);
++	writel(readl(vdec->core + VDEC_UFO_BASE + UFO_SW_RESET) &
++	       ~UFO_SW_RESET_BIT, vdec->core + VDEC_UFO_BASE + UFO_SW_RESET);
 +	writel(0, vld + VLD_BIT_OFFSET);
 +	writel(VLD_SHIFT_FETCH_INIT, vld + VLD_SHIFT_CTRL);
 +
-+	ret = readl_poll_timeout_atomic(vld + VLD_FETCH_STATUS, val,
++	ret = readl_poll_timeout_atomic(vld + VLD_FETCH_OK_STATUS, val,
 +					(val & VLD_FETCH_OK) != 0,
 +					MTK_VDEC_POLL_US,
 +					MTK_VDEC_POLL_TIMEOUT_US);
@@ -942,12 +955,19 @@ index 000000000000..7dfa99242913
 +	v4l2_h264_build_b_ref_lists(&builder, b0_list, b1_list);
 +
 +	count = min_t(unsigned int, builder.num_valid, MTK_VDEC_MAX_REFS);
++	ctx->has_ref_c_offset = false;
++	ctx->ref_c_offset = mtk_vdec_iova32(fallback_c) -
++			    mtk_vdec_iova32(fallback_y);
 +
-+	/* Initialize all 16 reference slots with safe fallback addresses */
-+	for (i = 0; i < MTK_VDEC_MAX_REFS; i++) {
++	/* Program MaxPicNum and CurrPicNum for HW ref list reordering */
++	writel(1U << (sps->log2_max_frame_num_minus4 + 4),
++	       avcvld + AVCVLD_MAX_PIC_NUM);
++	writel(dec->frame_num, avcvld + AVCVLD_CURR_PIC_NUM);
++
++	/* Initialize all 32 hardware reference slots with safe fallback addrs */
++	for (i = 0; i < 32; i++) {
 +		u32 fy = mtk_vdec_iova32(fallback_y);
 +		u32 fc = mtk_vdec_iova32(fallback_c);
-+		u32 fmv = mtk_vdec_iova32(fallback_mv) >> 4;
 +
 +		writel(fy, mc + MC_PREF_L0_Y(i));
 +		writel(fc, mc + MC_PREF_L0_C(i));
@@ -955,6 +975,10 @@ index 000000000000..7dfa99242913
 +		writel(fc, mc + MC_BREF_L0_C(i));
 +		writel(fy, mc + MC_BREF_L1_Y(i));
 +		writel(fc, mc + MC_BREF_L1_C(i));
++	}
++	for (i = 0; i < MTK_VDEC_MAX_REFS; i++) {
++		u32 fmv = mtk_vdec_iova32(fallback_mv) >> 4;
++
 +		writel(fmv, avcmv + AVCMV_BREF_L1_MV_TOP(i));
 +		writel(fmv, avcmv + AVCMV_BREF_L1_MV_BOT(i));
 +	}
@@ -966,12 +990,22 @@ index 000000000000..7dfa99242913
 +		bool is_lt = !!(dpb->flags & V4L2_H264_DPB_ENTRY_FLAG_LONG_TERM);
 +		u32 pic_num = is_lt ? dpb->pic_num : dpb->frame_num;
 +		dma_addr_t ry, rc, rmv;
++		u32 c_off;
 +
 +		mtk_vdec_lookup_ref_addrs(ctx, dpb, fallback_y, fallback_c,
 +					  fallback_mv, &ry, &rc, &rmv);
 +
 +		writel(mtk_vdec_iova32(ry), mc + MC_PREF_L0_Y(i));
 +		writel(mtk_vdec_iova32(rc), mc + MC_PREF_L0_C(i));
++		c_off = mtk_vdec_iova32(rc) - mtk_vdec_iova32(ry);
++		if (!ctx->has_ref_c_offset) {
++			ctx->ref_c_offset = c_off;
++			ctx->has_ref_c_offset = true;
++		} else if (c_off != ctx->ref_c_offset) {
++			dev_warn_once(vdec->dev,
++				      "Non-uniform MM21 Y/C plane delta across DPB (0x%x vs 0x%x)\n",
++				      c_off, ctx->ref_c_offset);
++		}
 +		writel((pic_num & 0x7ffff) | (is_lt ? BIT(19) : 0),
 +		       avcvld + AVCVLD_PREF_L0_PICNUM(i));
 +		writel(mtk_vdec_encode_ref_poc(dpb->top_field_order_cnt,
@@ -985,6 +1019,9 @@ index 000000000000..7dfa99242913
 +					       is_lt, true, idx),
 +		       avcmv + AVCMV_PREF_L0_BOT(i));
 +	}
++	writel(0, mc + MC_REF_LIST_P0_CFG);
++	writel(0, mc + MC_REF_LIST_B0_CFG);
++	writel(0, mc + MC_REF_LIST_B1_CFG);
 +
 +	/* B-slice L0 and L1 reference lists */
 +	for (i = 0; i < count; i++) {
@@ -1304,6 +1341,10 @@ index 000000000000..7dfa99242913
 +	u32 buf_mb_w = DIV_ROUND_UP(aligned_w, 16);
 +	u32 mb_w = sps->pic_width_in_mbs_minus1 + 1;
 +	u32 mb_h = sps->pic_height_in_map_units_minus1 + 1;
++	u32 pic_w = mb_w * 16;
++	u32 pic_h = mb_h * 16;
++	u32 mc_y_size = ctx->has_ref_c_offset ? ctx->ref_c_offset :
++			(dst_c32 - dst_y32);
 +	u32 reg, val;
 +	int ret;
 +
@@ -1312,13 +1353,13 @@ index 000000000000..7dfa99242913
 +		       avcmv + AVCMV_CTRL);
 +
 +	writel(MISC_CODEC_SEL_PREP, misc + MISC_CODEC_SEL);
-+	writel(sps->chroma_format_idc & 0x7, mc + MC_CHROMA_FMT);
++	writel(MC_ADDR_MODE_MM21, mc + MC_ADDR_MODE);
 +	writel(0xffffffff, vldtop + VLDTOP_ERR_MASK);
 +
-+	writel(aligned_w, mc + MC_PIC_WIDTH);
-+	writel(aligned_h, mc + MC_PIC_HEIGHT);
++	writel(pic_w, mc + MC_PIC_WIDTH);
++	writel(pic_h, mc + MC_PIC_HEIGHT);
 +	writel(MISC_CODEC_SEL_H264, misc + MISC_CODEC_SEL);
-+	writel(aligned_w | (aligned_h << 16), vldtop + VLDTOP_PIC_SIZE);
++	writel(pic_w | (pic_h << 16), vldtop + VLDTOP_PIC_SIZE);
 +
 +	writel(AVCVLD_ERR_CFG_VAL, avcvld + AVCVLD_ERR_CFG1);
 +	writel(AVCVLD_ERR_CFG_VAL, avcvld + AVCVLD_ERR_CFG2);
@@ -1329,19 +1370,21 @@ index 000000000000..7dfa99242913
 +	writel(dst_c32 >> 8, mc + MC_PP_C_ADDR);
 +	writel(1, mc + MC_PP_WRITE_EN);
 +	writel(3, mc + MC_PP_MB_MODE);
-+	writel(buf_mb_w - 1, mc + MC_PP_MB_X_MAX);
-+	writel((aligned_h >> 4) - 1, mc + MC_PP_MB_Y_MAX);
++	writel(mb_w - 1, mc + MC_PP_MB_X_MAX);
++	writel(mb_h - 1, mc + MC_PP_MB_Y_MAX);
 +	writel(buf_mb_w, mc + MC_PP_BUF_WIDTH);
 +
 +	/*
 +	 * Disable single-contiguous-FB bound check since V4L2 MM21 allocates
-+	 * Y and CbCr as two independent DMA-contig planes.
++	 * Y and CbCr as two independent DMA-contig planes. In non-UFO H.264
++	 * mode MC derives reference chroma addresses as ref_y + MC_Y_SIZE,
++	 * so program MC_Y_SIZE with the modular 32-bit (ref_c - ref_y) delta.
 +	 */
 +	writel(0, mc + MC_BOUND_EN);
 +
 +	writel(MC_DRAM_CFG_INIT, mc + MC_DRAM_CFG);
 +	writel(dst_y32, mc + MC_Y_BASE);
-+	writel(y_size, mc + MC_Y_SIZE);
++	writel(mc_y_size, mc + MC_Y_SIZE);
 +	writel(buf_mb_w, mc + MC_REF_BUF_WIDTH);
 +
 +	writel(AVCVLD_MISC_CFG1_VAL, avcvld + AVCVLD_MISC_CFG1);
@@ -1375,8 +1418,8 @@ index 000000000000..7dfa99242913
 +
 +	writel(readl(mc + MC_DRAM_CFG) | MC_DRAM_CFG_START, mc + MC_DRAM_CFG);
 +	writel(readl(mc + MC_DMA_CFG) | MC_DMA_CFG_EN, mc + MC_DMA_CFG);
-+	writel((readl(mc + MC_CHROMA_CFG) & ~0x7) |
-+	       (sps->chroma_format_idc & 0x7), mc + MC_CHROMA_CFG);
++	writel((readl(mc + MC_ADDR_MODE_CFG) & ~0x7) | MC_ADDR_MODE_MM21,
++	       mc + MC_ADDR_MODE_CFG);
 +
 +	writel(mb_w * mb_h, vldtop + VLDTOP_TOTAL_MB);
 +	writel(0xffffffff, vldtop + VLDTOP_TIMEOUT_CYCLE);
@@ -1386,6 +1429,7 @@ index 000000000000..7dfa99242913
 +
 +	writel(AVCVLD_MISC_CFG2_DEC, avcvld + AVCVLD_MISC_CFG2);
 +	writel(AVCVLD_MISC_CFG3_VAL, avcvld + AVCVLD_MISC_CFG3);
++	(void)mtk_vdec_peek_bits(vdec);
 +
 +	reg = readl(vldtop + VLDTOP_FETCH_CFG);
 +	reg &= ~VLDTOP_FETCH_CFG_MASK;
@@ -1404,6 +1448,7 @@ index 000000000000..7dfa99242913
 +	writel(mv32 + (u32)ctx->mv_buf_size, misc + MISC_MV_BOUND_END);
 +
 +	writel(AVCVLD_CTRL_DEC, avcvld + AVCVLD_CTRL);
++	(void)mtk_vdec_peek_bits(vdec);
 +
 +	/* Trigger hardware decode */
 +	writel(1, avcvld + AVCVLD_DEC_START);
@@ -2323,5 +2368,3 @@ index 000000000000..7dfa99242913
 +MODULE_AUTHOR("sysretq0 <sysretq0@proton.me>");
 +MODULE_DESCRIPTION("MediaTek MT6789 stateless H.264 video decoder driver");
 +MODULE_LICENSE("GPL");
--- 
-2.47.0
