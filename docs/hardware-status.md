@@ -45,7 +45,7 @@ Status legend:
 | **Fast Charging** | SC8547 charge pump (`i2c7@6a`) + PE | — | **WIP** | Standard SC89601A charging works (4%→92% verified on `3aa67e2`); HV charge pump not implemented |
 | **NFC** | STMicro ST21NFCD | `st-nci-i2c` (`&i2c3` / `nfc@8`) + `mt6366-clkbuf` (`XO_NFC`) | **On hold** | `nfc0` probes + IRQ 16 fires; intentionally paused to prioritize modem & core features |
 | **Wi-Fi (MT6789 ConnSys)** | MT6789 `SOC2_2` + `MT6631` A-die | `btif_drv` + `wmt_drv` + `wlan_drv_gen4m_6789` + `mtk-wmt-init` | **Working** | Live WPA2/WPA3 STA (`wlan0`) + 4G LTE coexistence verified; Loki LK `consys_init()` opens EMI MPU Regions 27 & 18; `15-mtk-wifi.conf` keeps NM on `wlan0` |
-| **Bluetooth (MT6789 ConnSys)** | MT6789 `SOC2_2` + `MT6631` A-die | `hci_mtk_stp` (native BlueZ `hci0` over STP/WMT) | **WIP** | Live `bt_mon` verified STP/WMT HCI TX/RX (`MTK SOC2_2 #1`, BT 5.4, `mfr=0x0046`); `HCI_QUIRK_BROKEN_LOCAL_EXT_FEATURES_PAGE_2` (fixes `0x0c77` `-56`) + factory `BT_Addr` NVRAM MAC landed, awaiting CI kernel & BlueZ test |
+| **Bluetooth (MT6789 ConnSys)** | MT6789 `SOC2_2` + `MT6631` A-die | `hci_mtk_stp` (native BlueZ `hci0` over STP/WMT) | **Working** | Live verified on `b20bb73`: `hci0` passes full kernel `hci_init1..4` + `le_init4` (`HCI_QUIRK_BROKEN_LOCAL_EXT_FEATURES_PAGE_2`), programs factory `BT_Addr` (`00:0c:e7:55:57:1a`) via `0xfc1a`, and executes LE scan/PHY commands cleanly |
 | **GPS (MT6789 ConnSys)** | MT6789 `SOC2_2` | — | **Not started** | `gps_drv_stp` / NMEA bridge not yet wired |
 | **LED Torch / Flash** | Awinic AW3641E (`GPIO 99` ENM, `GPIO 36` ENF) | `leds-sgm3140` (`awinic,aw3641e` → `/sys/class/leds/white:flash`) | **Working** | Live verified on `3aa67e2`: torch (`brightness` `1→0`) and strobe (`flash_strobe`, `250 ms` timeout, `root:feedbackd`) |
 | **Cameras & ISP** | `camsys` / `imgsensor` | `clk-mt6789-{cam,img}` + `M8` PDs ready | **Not started** | Clocks & `M8` PDs wired; needs V4L2/CSI-2 sensor & ISP drivers |
@@ -72,10 +72,13 @@ Status legend:
   domains stay `MTK_SCPD_KEEP_DEFAULT_OFF` until consumers claim them. Full
   `s2idle` suspend/resume survives on hardware with MIPI-TX/DSI cold-start
   resume and SMI 2×1 sub-common register restoration.
-- **Wi-Fi (MT6789 ConnSys):** `btif_drv` + `wmt_drv` + `wlan_drv_gen4m_6789` +
-  `mtk-wmt-init` provide live WPA2/WPA3 STA connectivity (`wlan0`) coexisting
-  with 4G LTE (`wwan0`). Loki LK configures EMI MPU Regions 27 & 18 via
-  `MTK_SIP_BL_EMIMPU_CONTROL` (`0x82000415`) at boot.
+- **Wi-Fi & Bluetooth (MT6789 ConnSys):** `btif_drv` + `wmt_drv` +
+  `wlan_drv_gen4m_6789` + `hci_mtk_stp` + `mtk-wmt-init` provide live WPA2/WPA3
+  STA (`wlan0`) coexisting with 4G LTE (`wwan0`), hardware SoftAP (`start_ap`),
+  and native Linux Bluetooth `hci0` (`MTK SOC2_2 #1`, BT 5.4, factory `BT_Addr`
+  programmed via `0xfc1a`, `HCI_QUIRK_BROKEN_LOCAL_EXT_FEATURES_PAGE_2`). Loki
+  LK configures EMI MPU Regions 27 & 18 via `MTK_SIP_BL_EMIMPU_CONTROL`
+  (`0x82000415`) at boot.
 - **Display, IOMMU & Backlight:** Full `mediatek-drm` DDP pipeline
   (`OVL0 → RDMA0 → COLOR0 → CCORR0 → AAL0 → GAMMA0 → POSTMASK0 → DITHER0 →
   DSC0 → DSI0`) drives the Chipone ICNL9922C 1080×2460 4-lane VESA DSC 1.1
@@ -131,19 +134,13 @@ Status legend:
      and CS voice (`ccci_audd` + `Hostless_Speech` + `VoiceCall.conf`) are fully
      wired; live over-the-air MO/MT SMS and 2G/3G CS call confirmation remain.
    - See [`docs/modem-full-bringup.md`](modem-full-bringup.md).
-2. **Bluetooth (`hci_mtk_stp` over CONNSYS STP/WMT):**
-   - Live `bt_mon` verified STP/WMT HCI transport (`MTK SOC2_2 #1`, BT 5.4,
-     `mfr=0x0046`) and caught `HCI_OP_READ_SYNC_TRAIN_PARAMS` (`0x0c77`)
-     failing with `-56` due to bogus Page 2 `LMP_SYNC_TRAIN`. Fixed with
-     `HCI_QUIRK_BROKEN_LOCAL_EXT_FEATURES_PAGE_2` + factory `BT_Addr` NVRAM MAC
-     programming; awaiting CI kernel boot & live BlueZ scan/pair test.
-3. **USB-C Host / OTG / Power Delivery:** Bidirectional USB-C power works; host
+2. **USB-C Host / OTG / Power Delivery:** Bidirectional USB-C power works; host
    role data enumeration (`rt1711h` + `usb-role-switch` + `musb-hdrc`) is WIP.
-4. **microSD Card (`11240000.mmc`):** `GPIO 7` CD polarity corrected to
+3. **microSD Card (`11240000.mmc`):** `GPIO 7` CD polarity corrected to
    `GPIO_ACTIVE_LOW` (`2abd89e`); live physical card I/O test pending.
-5. **Fast Charging:** Standard SC89601A charging works; SC8547 HV charge pump
+4. **Fast Charging:** Standard SC89601A charging works; SC8547 HV charge pump
    (`i2c7@0x6a`) is not implemented.
-6. **NFC (`st,st21nfcb-i2c` — on hold):** `nfc0` probes with `XO_NFC` clkbuf
+5. **NFC (`st,st21nfcb-i2c` — on hold):** `nfc0` probes with `XO_NFC` clkbuf
    and IRQ 16 fires; live RF polling is intentionally paused.
 
 ---

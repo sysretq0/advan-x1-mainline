@@ -47,7 +47,7 @@ struct hci_mtk_stp {
 static DEFINE_MUTEX(g_mtk_bt_lock);
 static struct hci_mtk_stp *g_mtk_bt;
 static bool g_mtk_bt_enabled;
-static char g_mtk_bt_bdaddr[18];
+static char g_mtk_bt_bdaddr[24];
 
 module_param_string(bdaddr, g_mtk_bt_bdaddr, sizeof(g_mtk_bt_bdaddr), 0644);
 MODULE_PARM_DESC(bdaddr, "Optional factory Bluetooth MAC (XX:XX:XX:XX:XX:XX) programmed in hdev->setup");

@@ -70,6 +70,7 @@ net/ipv4/netfilter/nf_defrag_ipv4.ko                   CONFIG_NF_DEFRAG_IPV4
 net/ipv6/netfilter/nf_defrag_ipv6.ko                   CONFIG_NF_DEFRAG_IPV6
 net/netfilter/nf_conntrack.ko                          CONFIG_NF_CONNTRACK
 net/netfilter/nf_tables.ko                             CONFIG_NF_TABLES
+net/netfilter/nft_ct.ko                                CONFIG_NFT_CT
 net/netfilter/nf_nat.ko                                CONFIG_NF_NAT
 net/netfilter/nft_nat.ko                               CONFIG_NFT_NAT
 net/netfilter/nft_masq.ko                              CONFIG_NFT_MASQ
@@ -88,6 +89,8 @@ net/ipv6/netfilter/nf_reject_ipv6.ko                   CONFIG_NF_REJECT_IPV6
 net/netfilter/nft_reject.ko                            CONFIG_NFT_REJECT
 net/ipv4/netfilter/nft_reject_ipv4.ko                  CONFIG_NFT_REJECT_IPV4
 net/ipv6/netfilter/nft_reject_ipv6.ko                  CONFIG_NFT_REJECT_IPV6
+net/ipv4/netfilter/ipt_REJECT.ko                       CONFIG_IP_NF_TARGET_REJECT
+net/ipv6/netfilter/ip6t_REJECT.ko                      CONFIG_IP6_NF_TARGET_REJECT
 net/ipv4/netfilter/ip_tables.ko                        CONFIG_IP_NF_IPTABLES_LEGACY
 net/ipv6/netfilter/ip6_tables.ko                       CONFIG_IP6_NF_IPTABLES_LEGACY
 net/ipv4/netfilter/iptable_filter.ko                   CONFIG_IP_NF_FILTER
@@ -95,6 +98,7 @@ net/ipv6/netfilter/ip6table_filter.ko                  CONFIG_IP6_NF_FILTER
 net/ipv4/netfilter/iptable_mangle.ko                   CONFIG_IP_NF_MANGLE
 net/ipv6/netfilter/ip6table_mangle.ko                  CONFIG_IP6_NF_MANGLE
 net/ipv4/netfilter/iptable_nat.ko                      CONFIG_IP_NF_NAT
+net/ipv6/netfilter/ip6table_nat.ko                     CONFIG_IP6_NF_NAT
 net/netfilter/nf_log_syslog.ko                         CONFIG_NF_LOG_SYSLOG
 net/netfilter/xt_LOG.ko                                CONFIG_NETFILTER_XT_TARGET_LOG
 net/bridge/br_netfilter.ko                             CONFIG_BRIDGE_NETFILTER

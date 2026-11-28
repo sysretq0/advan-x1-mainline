@@ -158,7 +158,7 @@ static void init_bluetooth(void)
 			if (bfd >= 0) {
 				char buf[20];
 				int len = snprintf(buf, sizeof(buf),
-						   "%02x:%02x:%02x:%02x:%02x:%02x\n",
+						   "%02x:%02x:%02x:%02x:%02x:%02x",
 						   mac[0], mac[1], mac[2],
 						   mac[3], mac[4], mac[5]);
 				if (len > 0) {

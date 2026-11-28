@@ -313,7 +313,9 @@ ifeq ($(CONFIG_MTK_WIFI_SNIFFER_RADIOTAP), y)
     ccflags-y += -DCFG_SUPPORT_PDMA_SCATTER
 endif
 
-ccflags-y += -DCFG_DRIVER_INITIAL_RUNNING_MODE=3
+# 0 = RUNNING_P2P_MODE: allocate only p2p0 (slot 0) at probe so slot 1 stays
+# free for wlan0 STA<->AP switching (NetworkManager / GNOME Mobile Hotspot).
+ccflags-y += -DCFG_DRIVER_INITIAL_RUNNING_MODE=0
 
 ifneq ($(filter 6765, $(WLAN_CHIP_ID)),)
     ccflags-y += -DCFG_SUPPORT_DUAL_STA=0

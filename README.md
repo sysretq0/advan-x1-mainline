@@ -31,21 +31,19 @@ subsystem matrix, driver/DT mapping, and hardware verification evidence.
   ConfigFS gadget (NCM `usb0` `10.15.19.82/24` + ACM `/dev/ttyGS0`), SC89601A
   charger (including 2.0 A non-PD wall-charger fallback, verified 4%→92%),
   CW2217 fuel gauge, 13-zone LVTS thermal (+ STAGE3 HW thermal reboot `113.5 °C`
-  & board NTC zones), watchdog + reboot-mode, pstore/ramoops, Wi-Fi STA (`wlan0`
-  over MT6789 ConnSys `btif_drv`/`wmt_drv`/`wlan_drv_gen4m_6789`), Gen95 CCCI
-  cellular modem (4G LTE data `wwan0` + native VoLTE voice calls via `mtk-imsd`
-  / `mtk_volte_rtp` / XFRM IPsec / ModemManager `mtk-ccci` IMS bridge), ASoC
-  audio (`mt6789-mt6366`, FourSemi FS1599 amp with `-200 mB` cap,
-  `mt6358-accdet`, UCM2 + PipeWire drop-ins), SCP RV55 sensor hub (5 IIO sensors
-  + native `in_mount_matrix` auto-rotate), Awinic AW3641E rear camera LED
-  flash/torch (`/sys/class/leds/white:flash`), and hardware JPEG encoder
-  (`/dev/video0`, `jpgenc@17030000` + SMI `larb4`/`larb7` + M4U Region 1).
-- **WIP / pending live verification:** native BlueZ Bluetooth (`hci_mtk_stp` —
-  STP/WMT HCI verified on HW, `0x0c77` Page-2 quirk + factory `BT_Addr` fix
-  landed), live carrier MO/MT SMS (IMS SMSoIP + CS fallback wired & DBus/PDU
-  verified) & CS voice fallback (`ccci_audd`), USB-C host/OTG data enumeration
-  (`rt1711h`), live microSD card I/O test (`GPIO_ACTIVE_LOW` CD), fast charging
-  (SC8547 HV charge pump).
+  & board NTC zones), watchdog + reboot-mode, pstore/ramoops, Wi-Fi STA/AP &
+  native Bluetooth `hci0` (MT6789 ConnSys `btif_drv`/`wmt_drv`/`wlan_drv_gen4m_6789`
+  /`hci_mtk_stp`), Gen95 CCCI cellular modem (4G LTE data `wwan0` + native VoLTE
+  voice calls via `mtk-imsd` / `mtk_volte_rtp` / XFRM IPsec / ModemManager
+  `mtk-ccci` IMS bridge), ASoC audio (`mt6789-mt6366`, FourSemi FS1599 amp with
+  `-200 mB` cap, `mt6358-accdet`, UCM2 + PipeWire drop-ins), SCP RV55 sensor hub
+  (5 IIO sensors + native `in_mount_matrix` auto-rotate), Awinic AW3641E rear
+  camera LED flash/torch (`/sys/class/leds/white:flash`), and hardware JPEG
+  encoder (`/dev/video0`, `jpgenc@17030000` + SMI `larb4`/`larb7` + M4U Region 1).
+- **WIP / pending live verification:** live carrier MO/MT SMS (IMS SMSoIP + CS
+  fallback wired & DBus/PDU verified) & CS voice fallback (`ccci_audd`), USB-C
+  host/OTG data enumeration (`rt1711h`), live microSD card I/O test
+  (`GPIO_ACTIVE_LOW` CD), fast charging (SC8547 HV charge pump).
 - **On hold / not yet started:** NFC (`st21nfc` — on hold; `nfc0` probes and
   IRQ 16 fires, RF polling deferred), GPS (`gps_drv_stp` over ConnSys), cameras
   & ISP (`camsys` clocks/PDs ready), hardware video decode/encode (`vdec`/`venc`

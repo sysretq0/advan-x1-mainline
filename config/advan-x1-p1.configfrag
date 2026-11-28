@@ -309,23 +309,27 @@ CONFIG_WIREGUARD=m
 CONFIG_NF_TABLES=m
 CONFIG_NF_TABLES_IPV4=y
 CONFIG_NF_NAT=m
+CONFIG_NFT_CT=m
 CONFIG_NFT_COMPAT=m
 CONFIG_NFT_NAT=m
 CONFIG_NFT_MASQ=m
 CONFIG_NETFILTER_XT_NAT=m
 CONFIG_NETFILTER_XT_TARGET_MASQUERADE=m
 CONFIG_NETFILTER_XT_TARGET_REDIRECT=m
-# nftables reject verdict (firewall policy), plus legacy iptables tables for
-# userspace that still uses iptables-legacy/ebtables (XTABLES_LEGACY is bool).
+# nftables reject verdict + xtables REJECT targets (required by NetworkManager
+# hotspot iptables-nft `-j REJECT` rules), plus legacy iptables tables.
 CONFIG_NFT_REJECT=m
 CONFIG_NFT_REJECT_IPV4=m
 CONFIG_NFT_REJECT_IPV6=m
+CONFIG_IP_NF_TARGET_REJECT=m
+CONFIG_IP6_NF_TARGET_REJECT=m
 CONFIG_NETFILTER_XTABLES_LEGACY=y
 CONFIG_IP_NF_IPTABLES_LEGACY=m
 CONFIG_IP6_NF_IPTABLES_LEGACY=m
 CONFIG_IP_NF_FILTER=m
 CONFIG_IP6_NF_FILTER=m
 CONFIG_IP_NF_NAT=m
+CONFIG_IP6_NF_NAT=m
 
 # Desktop/user convenience. All non-boot-critical items are =m and staged in
 # config/initramfs-modules.txt (PROC_KCORE is bool so it stays built-in).
