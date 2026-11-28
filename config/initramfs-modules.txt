@@ -61,6 +61,7 @@ drivers/net/macvlan.ko                                 CONFIG_MACVLAN
 drivers/net/tap.ko                                     CONFIG_TAP
 # WireGuard + hidden tristate crypto/UDP-tunnel helpers (dep order)
 net/ipv4/udp_tunnel.ko                                 CONFIG_NET_UDP_TUNNEL
+net/ipv6/ip6_udp_tunnel.ko                             CONFIG_NET_UDP_TUNNEL
 lib/crypto/libpoly1305.ko                              CONFIG_CRYPTO_LIB_POLY1305
 lib/crypto/libchacha20poly1305.ko                      CONFIG_CRYPTO_LIB_CHACHA20POLY1305
 lib/crypto/libcurve25519.ko                            CONFIG_CRYPTO_LIB_CURVE25519
@@ -131,6 +132,7 @@ drivers/usb/class/cdc-acm.ko                           CONFIG_USB_ACM
 drivers/usb/serial/usbserial.ko                        CONFIG_USB_SERIAL
 drivers/usb/serial/cp210x.ko                           CONFIG_USB_SERIAL_CP210X
 drivers/usb/serial/ftdi_sio.ko                         CONFIG_USB_SERIAL_FTDI_SIO
+drivers/usb/serial/usb_wwan.ko                         CONFIG_USB_SERIAL_WWAN
 drivers/usb/serial/option.ko                           CONFIG_USB_SERIAL_OPTION
 drivers/usb/serial/pl2303.ko                           CONFIG_USB_SERIAL_PL2303
 drivers/usb/serial/ch341.ko                            CONFIG_USB_SERIAL_CH341
