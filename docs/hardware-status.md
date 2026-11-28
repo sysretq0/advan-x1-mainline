@@ -165,12 +165,13 @@ Status legend:
 ## 4. Port Status & Optional Future Work
 
 The Advan X1 mainline Linux port is **feature-complete and release-grade** for
-daily-driver Linux/GNOME Mobile use. Optional follow-on work:
+daily-driver Linux/GNOME Mobile use, with **zero deferred pre-upstream
+structural items** (`M8` and `M2b` both complete — see
+[`docs/upstream-status.md`](upstream-status.md)). Optional follow-on hardware
+work:
 
 1. **Optional Hardware Verification:** Live physical microSD card I/O test
    (`11240000.mmc`), 2G/3G CS voice fallback (`ccci_audd`), and headset jack
    switching (`mt6358-accdet`).
 2. **Optional Unimplemented Subsystems:** Cameras/ISP, GPS (`gps_drv_stp`),
    HEVC/VP9 VDEC & hardware VENC, NFC RF polling, and fingerprint reader.
-3. **Upstream Submission Prep:** Split `M2b` CCCI SoC transport from WWAN
-   netdev (tracked in [`docs/upstream-status.md`](upstream-status.md)).

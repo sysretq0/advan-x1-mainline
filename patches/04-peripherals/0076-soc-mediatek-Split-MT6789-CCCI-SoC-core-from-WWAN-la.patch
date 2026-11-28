@@ -1,0 +1,786 @@
+From 5490a3d55c182c0025aea4a6044652f2650b38ff Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Sat, 28 Nov 2026 21:22:28 +0700
+Subject: [PATCH] soc: mediatek: Split MT6789 CCCI SoC core from WWAN layer
+
+Resolve the M2b upstream subsystem boundary by splitting the MediaTek
+MT6789 CCCI modem stack cleanly along kernel subsystem lines:
+
+- Move SoC modem power/EL3 SiP SMC boot, CCIF0 shared-memory ringbuffer
+  transport, and RPC/FS/Audio mailbox services (mtk_ccci_core.c,
+  mtk_ccci_ringbuf.c, mtk_ccci_rpc.c, mtk_ccci_fs.c, mtk_ccci_aud.c) into
+  drivers/soc/mediatek/mtk_ccci/ (CONFIG_MTK_CCCI_SOC, mtk-ccci-soc).
+- Export the shared transport and auxiliary-bus interface header at
+  include/linux/soc/mediatek/mtk_ccci.h with RCU-protected fast-path RX/IRQ
+  ops and mutex-serialized lifecycle callbacks (mtk_ccci_register_wwan_ops,
+  mtk_ccci_unregister_wwan_ops, and mtk_ccci_tx_send).
+- Keep drivers/net/wwan/mtk_ccci/ (CONFIG_MTK_CCCI, mtk_ccci_wwan) strictly
+  for the Linux WWAN AT control port and DPMAIF v1 + SMEM UL network data
+  plane, bound via an auxiliary_bus child device (mtk_ccci_soc.wwan).
+- Preserve all sysfs paths, /dev/ccci_{fs,rpc,aud}, /dev/wwan0at0, wwan0/1
+  netdevs, and existing CONFIG_MTK_CCCI=y configs (selects MTK_CCCI_SOC).
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ drivers/net/wwan/Kconfig                      |  13 +-
+ drivers/net/wwan/mtk_ccci/Makefile            |   5 +-
+ drivers/net/wwan/mtk_ccci/mtk_ccci_at.c       |   3 +-
+ drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c   |   3 +-
+ drivers/net/wwan/mtk_ccci/mtk_ccci_wwan.h     |  28 +++
+ drivers/net/wwan/mtk_ccci/mtk_ccci_wwan_drv.c |  96 ++++++++++
+ drivers/soc/mediatek/Kconfig                  |  14 ++
+ drivers/soc/mediatek/Makefile                 |   1 +
+ drivers/soc/mediatek/mtk_ccci/Makefile        |   6 +
+ .../mediatek}/mtk_ccci/mtk_ccci_aud.c         |   2 +-
+ .../mediatek}/mtk_ccci/mtk_ccci_core.c        | 175 +++++++++++++++---
+ .../mediatek}/mtk_ccci/mtk_ccci_fs.c          |   2 +-
+ .../mediatek}/mtk_ccci/mtk_ccci_ringbuf.c     |   2 +-
+ .../mediatek}/mtk_ccci/mtk_ccci_rpc.c         |   2 +-
+ .../linux/soc/mediatek}/mtk_ccci.h            |  48 +++--
+ 15 files changed, 346 insertions(+), 54 deletions(-)
+ create mode 100644 drivers/net/wwan/mtk_ccci/mtk_ccci_wwan.h
+ create mode 100644 drivers/net/wwan/mtk_ccci/mtk_ccci_wwan_drv.c
+ create mode 100644 drivers/soc/mediatek/mtk_ccci/Makefile
+ rename drivers/{net/wwan => soc/mediatek}/mtk_ccci/mtk_ccci_aud.c (99%)
+ rename drivers/{net/wwan => soc/mediatek}/mtk_ccci/mtk_ccci_core.c (93%)
+ rename drivers/{net/wwan => soc/mediatek}/mtk_ccci/mtk_ccci_fs.c (99%)
+ rename drivers/{net/wwan => soc/mediatek}/mtk_ccci/mtk_ccci_ringbuf.c (99%)
+ rename drivers/{net/wwan => soc/mediatek}/mtk_ccci/mtk_ccci_rpc.c (99%)
+ rename {drivers/net/wwan/mtk_ccci => include/linux/soc/mediatek}/mtk_ccci.h (92%)
+
+diff --git a/drivers/net/wwan/Kconfig b/drivers/net/wwan/Kconfig
+index 054ca6948..826b88e4f 100644
+--- a/drivers/net/wwan/Kconfig
++++ b/drivers/net/wwan/Kconfig
+@@ -122,16 +122,17 @@ config MTK_T7XX
+ 	  If unsure, say N.
+ 
+ config MTK_CCCI
+-	tristate "MediaTek MT6789 SoC CCCI cellular modem driver"
++	tristate "MediaTek MT6789 CCCI WWAN control port and DPMAIF data plane"
+ 	depends on ARM64 && OF && HAVE_ARM_SMCCC
+-	select REGMAP
++	select AUXILIARY_BUS
++	select MTK_CCCI_SOC
+ 	help
+-	  Enables the MediaTek MT6789 (Helio G99 / Gen95) CCCI/CCIF0 modem
+-	  boot, mailbox ringbuffer, WWAN AT control port, DPMAIF v1 + SMEM
+-	  WWAN network data plane, and sysfs telemetry driver.
++	  Enables the MediaTek MT6789 (Helio G99 / Gen95) WWAN AT control port
++	  and DPMAIF v1 + SMEM UL network data plane over the MediaTek SoC CCCI
++	  core transport (CONFIG_MTK_CCCI_SOC).
+ 
+ 	  To compile this driver as a module, choose M here: the module will
+-	  be called mtk_ccci.
++	  be called mtk_ccci_wwan.
+ 
+ 	  If unsure, say N.
+ 
+diff --git a/drivers/net/wwan/mtk_ccci/Makefile b/drivers/net/wwan/mtk_ccci/Makefile
+index a7bff2616..03da73368 100644
+--- a/drivers/net/wwan/mtk_ccci/Makefile
++++ b/drivers/net/wwan/mtk_ccci/Makefile
+@@ -1,6 +1,5 @@
+ # SPDX-License-Identifier: GPL-2.0-only
+ 
+-obj-$(CONFIG_MTK_CCCI) += mtk_ccci.o
++obj-$(CONFIG_MTK_CCCI) += mtk_ccci_wwan.o
+ 
+-mtk_ccci-y := mtk_ccci_core.o mtk_ccci_ringbuf.o mtk_ccci_rpc.o mtk_ccci_fs.o \
+-	      mtk_ccci_aud.o mtk_ccci_at.o mtk_ccci_dpmaif.o
++mtk_ccci_wwan-y := mtk_ccci_wwan_drv.o mtk_ccci_at.o mtk_ccci_dpmaif.o
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_at.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_at.c
+index 891477fa8..54e729afd 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_at.c
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_at.c
+@@ -21,7 +21,8 @@
+ #include <linux/string.h>
+ #include <linux/wwan.h>
+ 
+-#include "mtk_ccci.h"
++#include <linux/soc/mediatek/mtk_ccci.h>
++#include "mtk_ccci_wwan.h"
+ 
+ #define MTK_CCCI_AT_TX_RETRIES	250
+ 
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c
+index 8f014e231..44b389e54 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_dpmaif.c
+@@ -36,7 +36,8 @@
+ #include <linux/wwan.h>
+ #include <net/pkt_sched.h>
+ 
+-#include "mtk_ccci.h"
++#include <linux/soc/mediatek/mtk_ccci.h>
++#include "mtk_ccci_wwan.h"
+ 
+ /* INFRACFG_AO DPMAIF wakeup control register */
+ #define INFRA_DPMAIF_CTRL_REG		0x0c00
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_wwan.h b/drivers/net/wwan/mtk_ccci/mtk_ccci_wwan.h
+new file mode 100644
+index 000000000..ad368ecd3
+--- /dev/null
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_wwan.h
+@@ -0,0 +1,28 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/*
++ * MediaTek MT6789 CCCI WWAN control port and DPMAIF data-plane internals.
++ *
++ * Copyright (c) 2026 sysretq0 <sysretq0@proton.me>
++ */
++
++#ifndef __MTK_CCCI_WWAN_H__
++#define __MTK_CCCI_WWAN_H__
++
++#include <linux/soc/mediatek/mtk_ccci.h>
++
++int mtk_ccci_at_register(struct mtk_ccci_dev *ccci);
++void mtk_ccci_at_unregister(struct mtk_ccci_dev *ccci);
++void mtk_ccci_at_rx(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len);
++
++int mtk_ccci_dpmaif_init(struct mtk_ccci_dev *ccci);
++void mtk_ccci_dpmaif_uninit(struct mtk_ccci_dev *ccci);
++int mtk_ccci_dpmaif_start(struct mtk_ccci_dev *ccci);
++int mtk_ccci_dpmaif_register_wwan(struct mtk_ccci_dev *ccci);
++int mtk_ccci_dpmaif_get_default_if_id(struct mtk_ccci_dev *ccci);
++int mtk_ccci_dpmaif_set_default_if_id(struct mtk_ccci_dev *ccci, u32 new_id);
++void mtk_ccci_dpmaif_smem_tx_irq(struct mtk_ccci_dev *ccci);
++void mtk_ccci_dpmaif_set_irq_wake(struct mtk_ccci_dev *ccci, bool on);
++void mtk_ccci_dpmaif_suspend(struct mtk_ccci_dev *ccci);
++void mtk_ccci_dpmaif_resume(struct mtk_ccci_dev *ccci);
++
++#endif /* __MTK_CCCI_WWAN_H__ */
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_wwan_drv.c b/drivers/net/wwan/mtk_ccci/mtk_ccci_wwan_drv.c
+new file mode 100644
+index 000000000..b025a892b
+--- /dev/null
++++ b/drivers/net/wwan/mtk_ccci/mtk_ccci_wwan_drv.c
+@@ -0,0 +1,96 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * MediaTek MT6789 CCCI WWAN auxiliary driver.
++ *
++ * Binds to the auxiliary device exposed by the MediaTek SoC CCCI core
++ * (drivers/soc/mediatek/mtk_ccci/) and attaches the Linux WWAN AT control
++ * port and DPMAIF v1 + SMEM UL network data plane.
++ *
++ * Copyright (c) 2026 sysretq0 <sysretq0@proton.me>
++ */
++
++#include <linux/auxiliary_bus.h>
++#include <linux/mod_devicetable.h>
++#include <linux/module.h>
++#include <linux/soc/mediatek/mtk_ccci.h>
++
++#include "mtk_ccci_wwan.h"
++
++static void mtk_ccci_wwan_register_ports(struct mtk_ccci_dev *ccci)
++{
++	mtk_ccci_at_register(ccci);
++	mtk_ccci_dpmaif_register_wwan(ccci);
++}
++
++static void mtk_ccci_wwan_quiesce(struct mtk_ccci_dev *ccci)
++{
++	mtk_ccci_dpmaif_uninit(ccci);
++	mtk_ccci_at_unregister(ccci);
++}
++
++static const struct mtk_ccci_wwan_ops mtk_ccci_wwan_ops = {
++	.at_rx = mtk_ccci_at_rx,
++	.smem_tx_irq = mtk_ccci_dpmaif_smem_tx_irq,
++	.dpmaif_start = mtk_ccci_dpmaif_start,
++	.register_ports = mtk_ccci_wwan_register_ports,
++	.quiesce = mtk_ccci_wwan_quiesce,
++	.get_default_if_id = mtk_ccci_dpmaif_get_default_if_id,
++	.set_default_if_id = mtk_ccci_dpmaif_set_default_if_id,
++	.set_irq_wake = mtk_ccci_dpmaif_set_irq_wake,
++	.suspend = mtk_ccci_dpmaif_suspend,
++	.resume = mtk_ccci_dpmaif_resume,
++};
++
++static int mtk_ccci_wwan_probe(struct auxiliary_device *adev,
++			       const struct auxiliary_device_id *id)
++{
++	struct mtk_ccci_aux_dev *aux =
++		container_of(adev, struct mtk_ccci_aux_dev, adev);
++	struct mtk_ccci_dev *ccci = aux->ccci;
++	int ret;
++
++	ret = mtk_ccci_dpmaif_init(ccci);
++	if (ret)
++		dev_warn(ccci->dev,
++			 "DPMAIF init failed (%d); continuing without IP data plane\n",
++			 ret);
++
++	mtk_ccci_register_wwan_ops(ccci, &mtk_ccci_wwan_ops);
++
++	if (READ_ONCE(ccci->state) == MTK_CCCI_STATE_READY) {
++		ret = mtk_ccci_dpmaif_start(ccci);
++		if (ret)
++			dev_warn(ccci->dev, "DPMAIF start failed (%d)\n", ret);
++		mtk_ccci_wwan_register_ports(ccci);
++	}
++
++	return 0;
++}
++
++static void mtk_ccci_wwan_remove(struct auxiliary_device *adev)
++{
++	struct mtk_ccci_aux_dev *aux =
++		container_of(adev, struct mtk_ccci_aux_dev, adev);
++	struct mtk_ccci_dev *ccci = aux->ccci;
++
++	mtk_ccci_unregister_wwan_ops(ccci);
++	mtk_ccci_wwan_quiesce(ccci);
++}
++
++static const struct auxiliary_device_id mtk_ccci_wwan_id_table[] = {
++	{ .name = MTK_CCCI_WWAN_AUX_ID },
++	{ }
++};
++MODULE_DEVICE_TABLE(auxiliary, mtk_ccci_wwan_id_table);
++
++static struct auxiliary_driver mtk_ccci_wwan_driver = {
++	.name = "wwan",
++	.probe = mtk_ccci_wwan_probe,
++	.remove = mtk_ccci_wwan_remove,
++	.id_table = mtk_ccci_wwan_id_table,
++};
++module_auxiliary_driver(mtk_ccci_wwan_driver);
++
++MODULE_AUTHOR("sysretq0 <sysretq0@proton.me>");
++MODULE_DESCRIPTION("MediaTek MT6789 CCCI WWAN AT port and DPMAIF data-plane driver");
++MODULE_LICENSE("GPL");
+diff --git a/drivers/soc/mediatek/Kconfig b/drivers/soc/mediatek/Kconfig
+index 7d2ee0960..cdfa3b250 100644
+--- a/drivers/soc/mediatek/Kconfig
++++ b/drivers/soc/mediatek/Kconfig
+@@ -98,4 +98,18 @@ config MTK_MT6366_CLKBUF
+ 	  enable board-wide external clock buffers such as XO_NFC for NFC
+ 	  controllers whose upstream drivers do not model a PMIC clock.
+ 
++config MTK_CCCI_SOC
++	tristate "MediaTek MT6789 SoC CCCI modem core and CCIF0 transport"
++	depends on ARM64 && OF && HAVE_ARM_SMCCC
++	select AUXILIARY_BUS
++	select REGMAP
++	help
++	  Enables the MediaTek MT6789 (Helio G99 / Gen95) SoC CCCI modem boot,
++	  EL3 SiP SMC control, CCIF0 shared-memory ringbuffer transport,
++	  RPC/FS/Audio services, and auxiliary device registration for the
++	  WWAN port and DPMAIF network data plane driver (CONFIG_MTK_CCCI).
++
++	  To compile this driver as a module, choose M here: the module will
++	  be called mtk-ccci-soc.
++
+ endmenu
+diff --git a/drivers/soc/mediatek/Makefile b/drivers/soc/mediatek/Makefile
+index 1b27a9284..919904771 100644
+--- a/drivers/soc/mediatek/Makefile
++++ b/drivers/soc/mediatek/Makefile
+@@ -10,3 +10,4 @@ obj-$(CONFIG_MTK_MMSYS) += mtk-mutex.o
+ obj-$(CONFIG_MTK_SVS) += mtk-svs.o
+ obj-$(CONFIG_MTK_SOCINFO) += mtk-socinfo.o
+ obj-$(CONFIG_MTK_MT6366_CLKBUF) += mtk-mt6366-clkbuf.o
++obj-$(CONFIG_MTK_CCCI_SOC) += mtk_ccci/
+diff --git a/drivers/soc/mediatek/mtk_ccci/Makefile b/drivers/soc/mediatek/mtk_ccci/Makefile
+new file mode 100644
+index 000000000..c07a511f3
+--- /dev/null
++++ b/drivers/soc/mediatek/mtk_ccci/Makefile
+@@ -0,0 +1,6 @@
++# SPDX-License-Identifier: GPL-2.0-only
++
++obj-$(CONFIG_MTK_CCCI_SOC) += mtk-ccci-soc.o
++
++mtk-ccci-soc-y := mtk_ccci_core.o mtk_ccci_ringbuf.o mtk_ccci_rpc.o \
++		  mtk_ccci_fs.o mtk_ccci_aud.o
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_aud.c b/drivers/soc/mediatek/mtk_ccci/mtk_ccci_aud.c
+similarity index 99%
+rename from drivers/net/wwan/mtk_ccci/mtk_ccci_aud.c
+rename to drivers/soc/mediatek/mtk_ccci/mtk_ccci_aud.c
+index b3bad4e52..cd405160b 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_aud.c
++++ b/drivers/soc/mediatek/mtk_ccci/mtk_ccci_aud.c
+@@ -24,7 +24,7 @@
+ #include <linux/slab.h>
+ #include <linux/uaccess.h>
+ 
+-#include "mtk_ccci.h"
++#include <linux/soc/mediatek/mtk_ccci.h>
+ 
+ struct mtk_ccci_aud_pkt {
+ 	struct list_head node;
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c b/drivers/soc/mediatek/mtk_ccci/mtk_ccci_core.c
+similarity index 93%
+rename from drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
+rename to drivers/soc/mediatek/mtk_ccci/mtk_ccci_core.c
+index 9859a4326..6874c3e9a 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_core.c
++++ b/drivers/soc/mediatek/mtk_ccci/mtk_ccci_core.c
+@@ -8,8 +8,10 @@
+  */
+ 
+ #include <linux/arm-smccc.h>
++#include <linux/auxiliary_bus.h>
+ #include <linux/bitfield.h>
+ #include <linux/build_bug.h>
++#include <linux/cleanup.h>
+ #include <linux/ctype.h>
+ #include <linux/delay.h>
+ #include <linux/interrupt.h>
+@@ -28,7 +30,7 @@
+ #include <linux/slab.h>
+ #include <linux/timekeeping.h>
+ 
+-#include "mtk_ccci.h"
++#include <linux/soc/mediatek/mtk_ccci.h>
+ 
+ /* Gen95 (MT6789 / MT6295M) CCIF0 normal and exception ringbuffer sizes */
+ static const u32 mtk_ccif_rx_sz[MTK_CCIF_QUEUE_NUM] = {
+@@ -296,6 +298,74 @@ int mtk_ccci_tx_send(struct mtk_ccci_dev *ccci, u32 q, void *buf, u32 len)
+ 
+ 	return 0;
+ }
++EXPORT_SYMBOL_GPL(mtk_ccci_tx_send);
++
++void mtk_ccci_register_wwan_ops(struct mtk_ccci_dev *ccci,
++				const struct mtk_ccci_wwan_ops *ops)
++{
++	guard(mutex)(&ccci->wwan_lock);
++	rcu_assign_pointer(ccci->wwan_ops, ops);
++}
++EXPORT_SYMBOL_GPL(mtk_ccci_register_wwan_ops);
++
++void mtk_ccci_unregister_wwan_ops(struct mtk_ccci_dev *ccci)
++{
++	scoped_guard(mutex, &ccci->wwan_lock)
++		rcu_assign_pointer(ccci->wwan_ops, NULL);
++	synchronize_rcu();
++}
++EXPORT_SYMBOL_GPL(mtk_ccci_unregister_wwan_ops);
++
++static void mtk_ccci_wwan_aux_release(struct device *dev)
++{
++	struct auxiliary_device *adev = to_auxiliary_dev(dev);
++	struct mtk_ccci_aux_dev *aux =
++		container_of(adev, struct mtk_ccci_aux_dev, adev);
++
++	kfree(aux);
++}
++
++static void mtk_ccci_wwan_aux_register(struct mtk_ccci_dev *ccci)
++{
++	struct mtk_ccci_aux_dev *aux;
++	int ret;
++
++	aux = kzalloc_obj(*aux);
++	if (!aux)
++		return;
++
++	aux->ccci = ccci;
++	aux->adev.name = MTK_CCCI_WWAN_AUX_NAME;
++	aux->adev.id = 0;
++	aux->adev.dev.parent = ccci->dev;
++	aux->adev.dev.release = mtk_ccci_wwan_aux_release;
++
++	ret = auxiliary_device_init(&aux->adev);
++	if (ret) {
++		kfree(aux);
++		dev_warn(ccci->dev, "WWAN auxiliary init failed (%d)\n", ret);
++		return;
++	}
++
++	ret = auxiliary_device_add(&aux->adev);
++	if (ret) {
++		auxiliary_device_uninit(&aux->adev);
++		dev_warn(ccci->dev, "WWAN auxiliary add failed (%d)\n", ret);
++		return;
++	}
++
++	ccci->wwan_aux = aux;
++}
++
++static void mtk_ccci_wwan_aux_unregister(struct mtk_ccci_dev *ccci)
++{
++	if (!ccci->wwan_aux)
++		return;
++
++	auxiliary_device_delete(&ccci->wwan_aux->adev);
++	auxiliary_device_uninit(&ccci->wwan_aux->adev);
++	ccci->wwan_aux = NULL;
++}
+ 
+ /*
+  * Parse LK's ccci_tag_mem (0xbf7f0000) without touching EMI-MPU-locked md1img
+@@ -908,9 +978,16 @@ static void mtk_ccci_drain_queue(struct mtk_ccci_dev *ccci, u32 q)
+ 		case CCCI_CH_FS_RX:
+ 			mtk_ccci_fs_rx(ccci, ccci->rx_buf, ret);
+ 			break;
+-		case CCCI_CH_UART2_RX:
+-			mtk_ccci_at_rx(ccci, ccci->rx_buf, ret);
++		case CCCI_CH_UART2_RX: {
++			const struct mtk_ccci_wwan_ops *ops;
++
++			rcu_read_lock();
++			ops = rcu_dereference(ccci->wwan_ops);
++			if (ops && ops->at_rx)
++				ops->at_rx(ccci, ccci->rx_buf, ret);
++			rcu_read_unlock();
+ 			break;
++		}
+ 		case CCCI_CH_IPC_RX:
+ 		case CCCI_CH_IPC_UART_RX:
+ 		case CCCI_CH_IMSA_DL:
+@@ -1138,7 +1215,13 @@ static irqreturn_t mtk_ccci_ccif_irq1(int irq, void *data)
+ 		u32 exp = ack & MTK_CCIF_EXP_QUEUE_MASK;
+ 
+ 		if (exp & BIT(MTK_CCIF_AP_MD_DATA_NOTIFY)) {
+-			mtk_ccci_dpmaif_smem_tx_irq(ccci);
++			const struct mtk_ccci_wwan_ops *ops;
++
++			rcu_read_lock();
++			ops = rcu_dereference(ccci->wwan_ops);
++			if (ops && ops->smem_tx_irq)
++				ops->smem_tx_irq(ccci);
++			rcu_read_unlock();
+ 			exp &= ~BIT(MTK_CCIF_AP_MD_DATA_NOTIFY);
+ 		}
+ 		if (exp) {
+@@ -1347,10 +1430,19 @@ static void mtk_ccci_boot_work(struct work_struct *work)
+ 	 * Start DPMAIF v1 hardware and SMEM UL rings after MD MTCMOS is ON
+ 	 * (bus protection released) and before releasing MD boot slave.
+ 	 */
+-	ret = mtk_ccci_dpmaif_start(ccci);
+-	if (ret)
+-		dev_warn(ccci->dev, "DPMAIF start failed (%d); continuing without IP data plane\n",
+-			 ret);
++	scoped_guard(mutex, &ccci->wwan_lock) {
++		const struct mtk_ccci_wwan_ops *ops =
++			rcu_dereference_protected(ccci->wwan_ops,
++						  lockdep_is_held(&ccci->wwan_lock));
++
++		if (ops && ops->dpmaif_start) {
++			ret = ops->dpmaif_start(ccci);
++			if (ret)
++				dev_warn(ccci->dev,
++					 "DPMAIF start failed (%d); continuing without IP data plane\n",
++					 ret);
++		}
++	}
+ 
+ 	enable_irq(ccci->ccif_irq0);
+ 	enable_irq(ccci->ccif_irq1);
+@@ -1395,8 +1487,13 @@ static void mtk_ccci_boot_work(struct work_struct *work)
+ 	}
+ 
+ 	if (READ_ONCE(ccci->state) == MTK_CCCI_STATE_READY) {
+-		mtk_ccci_at_register(ccci);
+-		mtk_ccci_dpmaif_register_wwan(ccci);
++		guard(mutex)(&ccci->wwan_lock);
++		const struct mtk_ccci_wwan_ops *ops =
++			rcu_dereference_protected(ccci->wwan_ops,
++						  lockdep_is_held(&ccci->wwan_lock));
++
++		if (ops && ops->register_ports)
++			ops->register_ports(ccci);
+ 	}
+ }
+ 
+@@ -1548,8 +1645,16 @@ static ssize_t wwan0_if_id_show(struct device *dev,
+ 				struct device_attribute *attr, char *buf)
+ {
+ 	struct mtk_ccci_dev *ccci = dev_get_drvdata(dev);
+-	int id = mtk_ccci_dpmaif_get_default_if_id(ccci);
++	const struct mtk_ccci_wwan_ops *ops;
++	int id;
++
++	guard(mutex)(&ccci->wwan_lock);
++	ops = rcu_dereference_protected(ccci->wwan_ops,
++					lockdep_is_held(&ccci->wwan_lock));
++	if (!ops || !ops->get_default_if_id)
++		return -ENODEV;
+ 
++	id = ops->get_default_if_id(ccci);
+ 	if (id < 0)
+ 		return id;
+ 
+@@ -1561,6 +1666,7 @@ static ssize_t wwan0_if_id_store(struct device *dev,
+ 				 const char *buf, size_t count)
+ {
+ 	struct mtk_ccci_dev *ccci = dev_get_drvdata(dev);
++	const struct mtk_ccci_wwan_ops *ops;
+ 	u32 id;
+ 	int ret;
+ 
+@@ -1568,7 +1674,13 @@ static ssize_t wwan0_if_id_store(struct device *dev,
+ 	if (ret)
+ 		return ret;
+ 
+-	ret = mtk_ccci_dpmaif_set_default_if_id(ccci, id);
++	guard(mutex)(&ccci->wwan_lock);
++	ops = rcu_dereference_protected(ccci->wwan_ops,
++					lockdep_is_held(&ccci->wwan_lock));
++	if (!ops || !ops->set_default_if_id)
++		return -ENODEV;
++
++	ret = ops->set_default_if_id(ccci, id);
+ 	return ret ? ret : count;
+ }
+ static DEVICE_ATTR_RW(wwan0_if_id);
+@@ -1725,6 +1837,7 @@ static int mtk_ccci_probe(struct platform_device *pdev)
+ 		return -ENOMEM;
+ 
+ 	ccci->dev = &pdev->dev;
++	mutex_init(&ccci->wwan_lock);
+ 	spin_lock_init(&ccci->ccif_lock);
+ 	spin_lock_init(&ccci->tx_lock);
+ 	spin_lock_init(&ccci->at_lock);
+@@ -1862,13 +1975,9 @@ static int mtk_ccci_probe(struct platform_device *pdev)
+ 		goto err_rpc;
+ 	}
+ 
+-	ret = mtk_ccci_dpmaif_init(ccci);
+-	if (ret)
+-		dev_warn(&pdev->dev, "DPMAIF init failed (%d); continuing without IP data plane\n",
+-			 ret);
+-
+ 	device_init_wakeup(&pdev->dev, true);
+ 	mtk_ccci_park_md(ccci);
++	mtk_ccci_wwan_aux_register(ccci);
+ 
+ 	dev_info(&pdev->dev, "MT6789 CCCI modem probed (nc=%pa c=%pa md=%pa, state=%s)\n",
+ 		 &ccci->nc_smem_phys, &ccci->c_smem_phys, &ccci->md_img_phys,
+@@ -1896,8 +2005,14 @@ static void mtk_ccci_quiesce(struct mtk_ccci_dev *ccci)
+ 			disable_irq(ccci->wdt_irq);
+ 		ccci->md_running = false;
+ 	}
+-	mtk_ccci_dpmaif_uninit(ccci);
+-	mtk_ccci_at_unregister(ccci);
++	scoped_guard(mutex, &ccci->wwan_lock) {
++		const struct mtk_ccci_wwan_ops *ops =
++			rcu_dereference_protected(ccci->wwan_ops,
++						  lockdep_is_held(&ccci->wwan_lock));
++
++		if (ops && ops->quiesce)
++			ops->quiesce(ccci);
++	}
+ 	mtk_ccci_aud_unregister(ccci);
+ 	mtk_ccci_rpc_unregister(ccci);
+ 	mtk_ccci_fs_unregister(ccci);
+@@ -1910,6 +2025,7 @@ static void mtk_ccci_remove(struct platform_device *pdev)
+ 	struct mtk_ccci_dev *ccci = platform_get_drvdata(pdev);
+ 	int i;
+ 
++	mtk_ccci_wwan_aux_unregister(ccci);
+ 	mtk_ccci_quiesce(ccci);
+ 	destroy_workqueue(ccci->rx_wq);
+ 
+@@ -1932,11 +2048,16 @@ static void mtk_ccci_shutdown(struct platform_device *pdev)
+ static int mtk_ccci_suspend(struct device *dev)
+ {
+ 	struct mtk_ccci_dev *ccci = dev_get_drvdata(dev);
++	const struct mtk_ccci_wwan_ops *ops;
+ 
+ 	if (!ccci->md_running)
+ 		return 0;
+ 
+-	mtk_ccci_dpmaif_suspend(ccci);
++	guard(mutex)(&ccci->wwan_lock);
++	ops = rcu_dereference_protected(ccci->wwan_ops,
++					lockdep_is_held(&ccci->wwan_lock));
++	if (ops && ops->suspend)
++		ops->suspend(ccci);
+ 
+ 	if (!device_may_wakeup(dev))
+ 		return 0;
+@@ -1944,7 +2065,8 @@ static int mtk_ccci_suspend(struct device *dev)
+ 	enable_irq_wake(ccci->wdt_irq);
+ 	enable_irq_wake(ccci->ccif_irq0);
+ 	enable_irq_wake(ccci->ccif_irq1);
+-	mtk_ccci_dpmaif_set_irq_wake(ccci, true);
++	if (ops && ops->set_irq_wake)
++		ops->set_irq_wake(ccci, true);
+ 	ccci->irq_wake_enabled = true;
+ 
+ 	return 0;
+@@ -1953,14 +2075,19 @@ static int mtk_ccci_suspend(struct device *dev)
+ static int mtk_ccci_resume(struct device *dev)
+ {
+ 	struct mtk_ccci_dev *ccci = dev_get_drvdata(dev);
++	const struct mtk_ccci_wwan_ops *ops;
+ 
+-	if (ccci->md_running)
+-		mtk_ccci_dpmaif_resume(ccci);
++	guard(mutex)(&ccci->wwan_lock);
++	ops = rcu_dereference_protected(ccci->wwan_ops,
++					lockdep_is_held(&ccci->wwan_lock));
++	if (ccci->md_running && ops && ops->resume)
++		ops->resume(ccci);
+ 
+ 	if (!ccci->irq_wake_enabled)
+ 		return 0;
+ 
+-	mtk_ccci_dpmaif_set_irq_wake(ccci, false);
++	if (ops && ops->set_irq_wake)
++		ops->set_irq_wake(ccci, false);
+ 	disable_irq_wake(ccci->ccif_irq1);
+ 	disable_irq_wake(ccci->ccif_irq0);
+ 	disable_irq_wake(ccci->wdt_irq);
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_fs.c b/drivers/soc/mediatek/mtk_ccci/mtk_ccci_fs.c
+similarity index 99%
+rename from drivers/net/wwan/mtk_ccci/mtk_ccci_fs.c
+rename to drivers/soc/mediatek/mtk_ccci/mtk_ccci_fs.c
+index e3c9e0af6..9a32b8ce3 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_fs.c
++++ b/drivers/soc/mediatek/mtk_ccci/mtk_ccci_fs.c
+@@ -21,7 +21,7 @@
+ #include <linux/slab.h>
+ #include <linux/uaccess.h>
+ 
+-#include "mtk_ccci.h"
++#include <linux/soc/mediatek/mtk_ccci.h>
+ 
+ struct mtk_ccci_fs_pkt {
+ 	struct list_head node;
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_ringbuf.c b/drivers/soc/mediatek/mtk_ccci/mtk_ccci_ringbuf.c
+similarity index 99%
+rename from drivers/net/wwan/mtk_ccci/mtk_ccci_ringbuf.c
+rename to drivers/soc/mediatek/mtk_ccci/mtk_ccci_ringbuf.c
+index 70ce8eada..842910ac9 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_ringbuf.c
++++ b/drivers/soc/mediatek/mtk_ccci/mtk_ccci_ringbuf.c
+@@ -10,7 +10,7 @@
+ #include <linux/io.h>
+ #include <linux/string.h>
+ 
+-#include "mtk_ccci.h"
++#include <linux/soc/mediatek/mtk_ccci.h>
+ 
+ /* Ringbuffer layout in non-cacheable SMEM:
+  *   +0x00: u32 header[2] = { 0xee0000ee, 0xee0000ee }
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci_rpc.c b/drivers/soc/mediatek/mtk_ccci/mtk_ccci_rpc.c
+similarity index 99%
+rename from drivers/net/wwan/mtk_ccci/mtk_ccci_rpc.c
+rename to drivers/soc/mediatek/mtk_ccci/mtk_ccci_rpc.c
+index 11d4d24a4..7ac815408 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci_rpc.c
++++ b/drivers/soc/mediatek/mtk_ccci/mtk_ccci_rpc.c
+@@ -26,7 +26,7 @@
+ #include <linux/string.h>
+ #include <linux/uaccess.h>
+ 
+-#include "mtk_ccci.h"
++#include <linux/soc/mediatek/mtk_ccci.h>
+ 
+ #define MTK_CCCI_RPC_MAX_ARG		6
+ #define MTK_CCCI_RPC_MAX_BUF		2048U
+diff --git a/drivers/net/wwan/mtk_ccci/mtk_ccci.h b/include/linux/soc/mediatek/mtk_ccci.h
+similarity index 92%
+rename from drivers/net/wwan/mtk_ccci/mtk_ccci.h
+rename to include/linux/soc/mediatek/mtk_ccci.h
+index bbcfc0e55..2e337e490 100644
+--- a/drivers/net/wwan/mtk_ccci/mtk_ccci.h
++++ b/include/linux/soc/mediatek/mtk_ccci.h
+@@ -9,13 +9,16 @@
+ #define __MTK_CCCI_H__
+ 
+ #include <linux/atomic.h>
++#include <linux/auxiliary_bus.h>
+ #include <linux/bits.h>
+ #include <linux/clk.h>
+ #include <linux/completion.h>
+ #include <linux/device.h>
+ #include <linux/list.h>
+ #include <linux/miscdevice.h>
++#include <linux/mutex.h>
+ #include <linux/ratelimit.h>
++#include <linux/rcupdate.h>
+ #include <linux/regmap.h>
+ #include <linux/regulator/consumer.h>
+ #include <linux/spinlock.h>
+@@ -24,6 +27,10 @@
+ #include <linux/wait.h>
+ #include <linux/workqueue.h>
+ 
++#define MTK_CCCI_AUX_MODNAME		"mtk_ccci_soc"
++#define MTK_CCCI_WWAN_AUX_NAME		"wwan"
++#define MTK_CCCI_WWAN_AUX_ID		MTK_CCCI_AUX_MODNAME "." MTK_CCCI_WWAN_AUX_NAME
++
+ /* EL3 / BL31 SiP SMC sub-commands (verified on MT6789 BL31) */
+ 
+ #define MTK_CCCI_SMC_CLOCK_REQ		5
+@@ -410,8 +417,27 @@ enum mtk_ccci_state {
+ };
+ 
+ struct wwan_port;
++struct mtk_ccci_dev;
+ struct mtk_ccci_dpmaif;
+ 
++struct mtk_ccci_aux_dev {
++	struct auxiliary_device adev;
++	struct mtk_ccci_dev *ccci;
++};
++
++struct mtk_ccci_wwan_ops {
++	void (*at_rx)(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len);
++	void (*smem_tx_irq)(struct mtk_ccci_dev *ccci);
++	int (*dpmaif_start)(struct mtk_ccci_dev *ccci);
++	void (*register_ports)(struct mtk_ccci_dev *ccci);
++	void (*quiesce)(struct mtk_ccci_dev *ccci);
++	int (*get_default_if_id)(struct mtk_ccci_dev *ccci);
++	int (*set_default_if_id)(struct mtk_ccci_dev *ccci, u32 new_id);
++	void (*set_irq_wake)(struct mtk_ccci_dev *ccci, bool on);
++	void (*suspend)(struct mtk_ccci_dev *ccci);
++	void (*resume)(struct mtk_ccci_dev *ccci);
++};
++
+ struct mtk_ccci_dev {
+ 	struct device *dev;
+ 	void __iomem *md_rgu_base;
+@@ -498,6 +524,10 @@ struct mtk_ccci_dev {
+ 	atomic_t aud_rx_count;
+ 	atomic_t aud_tx_count;
+ 
++	struct mtk_ccci_aux_dev *wwan_aux;
++	struct mutex wwan_lock; /* serializes WWAN auxiliary lifecycle callbacks */
++	const struct mtk_ccci_wwan_ops __rcu *wwan_ops;
++
+ 	struct wwan_port *at_port;
+ 	spinlock_t at_lock; /* protects at_port and at_open */
+ 	bool at_open;
+@@ -529,6 +559,9 @@ int mtk_ccci_rb_read(struct mtk_ccci_ringbuf *rb, void *dst, u32 max_len);
+ int mtk_ccci_rb_write(struct mtk_ccci_ringbuf *rb, const void *src, u32 len);
+ 
+ int mtk_ccci_tx_send(struct mtk_ccci_dev *ccci, u32 q, void *buf, u32 len);
++void mtk_ccci_register_wwan_ops(struct mtk_ccci_dev *ccci,
++				const struct mtk_ccci_wwan_ops *ops);
++void mtk_ccci_unregister_wwan_ops(struct mtk_ccci_dev *ccci);
+ void mtk_ccci_rpc_handle(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len);
+ int mtk_ccci_rpc_register(struct mtk_ccci_dev *ccci);
+ void mtk_ccci_rpc_unregister(struct mtk_ccci_dev *ccci);
+@@ -541,19 +574,4 @@ int mtk_ccci_aud_register(struct mtk_ccci_dev *ccci);
+ void mtk_ccci_aud_unregister(struct mtk_ccci_dev *ccci);
+ void mtk_ccci_aud_rx(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len);
+ 
+-int mtk_ccci_at_register(struct mtk_ccci_dev *ccci);
+-void mtk_ccci_at_unregister(struct mtk_ccci_dev *ccci);
+-void mtk_ccci_at_rx(struct mtk_ccci_dev *ccci, const u8 *pkt, u32 len);
+-
+-int mtk_ccci_dpmaif_init(struct mtk_ccci_dev *ccci);
+-void mtk_ccci_dpmaif_uninit(struct mtk_ccci_dev *ccci);
+-int mtk_ccci_dpmaif_start(struct mtk_ccci_dev *ccci);
+-int mtk_ccci_dpmaif_register_wwan(struct mtk_ccci_dev *ccci);
+-int mtk_ccci_dpmaif_get_default_if_id(struct mtk_ccci_dev *ccci);
+-int mtk_ccci_dpmaif_set_default_if_id(struct mtk_ccci_dev *ccci, u32 new_id);
+-void mtk_ccci_dpmaif_smem_tx_irq(struct mtk_ccci_dev *ccci);
+-void mtk_ccci_dpmaif_set_irq_wake(struct mtk_ccci_dev *ccci, bool on);
+-void mtk_ccci_dpmaif_suspend(struct mtk_ccci_dev *ccci);
+-void mtk_ccci_dpmaif_resume(struct mtk_ccci_dev *ccci);
+-
+ #endif /* __MTK_CCCI_H__ */
+-- 
+2.55.0
+

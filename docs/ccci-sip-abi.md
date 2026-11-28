@@ -6,18 +6,18 @@ Loki / Little Kernel (LK) bootloader handover contract relied upon by
 
 ---
 
-## 1. Subsystem Placement & Upstream Boundary (`M2b`)
+## 1. Subsystem Placement & Upstream Boundary (`M2b` — Complete)
 
-- **Current location:** `drivers/net/wwan/mtk_ccci/` (`CONFIG_MTK_CCCI_MT6789`).
-- **Rationale:** Phase 5.3+ bring-up (`docs/archive/ccci-bringup-plan.md`) builds the
-  WWAN control port (AT/MBIM/QMI over CCIF0) and DPMAIF IP data plane directly
-  on top of this core. Keeping the driver under `drivers/net/wwan/mtk_ccci/`
-  avoids churning file paths mid-bring-up.
-- **Upstream submission boundary:** If upstreamed to LKML prior to WWAN netdev
-  and DPMAIF data-plane completion, split the SoC modem power/boot + CCIF0
-  ringbuffer transport under `drivers/soc/mediatek/` (or `drivers/remoteproc/`)
-  and keep `drivers/net/wwan/` strictly for the WWAN device / DPMAIF netdev
-  layer.
+- **SoC core (`CONFIG_MTK_CCCI_SOC`, `mtk-ccci-soc`):** `drivers/soc/mediatek/mtk_ccci/`
+  (`mtk_ccci_core.c`, `mtk_ccci_ringbuf.c`, `mtk_ccci_rpc.c`, `mtk_ccci_fs.c`,
+  `mtk_ccci_aud.c`) + public header `include/linux/soc/mediatek/mtk_ccci.h`.
+  Owns MD1 power/EL3 SiP SMC boot, CCIF0 shared-memory ringbuffer transport,
+  RPC/FS/Audio services, and registers the `mtk_ccci_soc.wwan` auxiliary device.
+  Builds standalone even when `CONFIG_WWAN=n`.
+- **WWAN layer (`CONFIG_MTK_CCCI`, `mtk_ccci_wwan`):** `drivers/net/wwan/mtk_ccci/`
+  (`mtk_ccci_wwan_drv.c`, `mtk_ccci_at.c`, `mtk_ccci_dpmaif.c`). Binds to the
+  `mtk_ccci_soc.wwan` auxiliary device and implements strictly the Linux WWAN
+  AT control port and DPMAIF v1 + SMEM UL network data plane.
 
 ---
 

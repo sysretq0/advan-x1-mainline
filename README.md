@@ -12,7 +12,7 @@ SHA-256-verified **U-Boot FIT image** (`advan-x1.itb`) and **`boot.scr`**
 (`bootflow scan -lb`).
 
 - **Pinned upstream baseline:** [`666539eecdf4`](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=666539eecdf4db623f5e3c3e55cf9f2dfad24aa4) (Linux v7.4-rc3/rc4)
-- **Patch queue:** 134 upstream-ready patches across `patches/01-clk`..`07-dts`
+- **Patch queue:** 135 upstream-ready patches across `patches/01-clk`..`07-dts`
 - **Kernel config:** Release-grade Linux/mobile distro baseline (UCLAMP, MGLRU, PSI, Landlock, AppArmor, Yama, Lockdown, hardened allocator/usercopy, BBR, FQ_CODEL/CAKE, full inet nftables/xtables, WireGuard, zram/zswap, compressed firmware, BT LE/RFCOMM/BNEP, USB tethering/WWAN, HID peripherals)
 - **Verification gates:** clean `git apply`, zero DTS drift, 0 `dtc` warnings, 0 `dt-validate` schema errors
 - **Toolchain:** Google's pinned AOSP Clang (`clang-r614150`, matching `android-mainline`'s `bazel/constants.scl`) with `LLVM=1` on `x86_64` hosts/CI (`scripts/setup-google-clang.sh`). Non-`x86_64` hosts (such as `aarch64`) automatically default to host LLVM (`GOOGLE_CLANG=0`).
@@ -64,7 +64,7 @@ subsystem matrix, driver/DT mapping, and hardware verification evidence.
 | Document | Purpose |
 |---|---|
 | [`docs/hardware-status.md`](docs/hardware-status.md) | Authoritative hardware support matrix, driver/DT mapping, and verification evidence. |
-| [`docs/upstream-status.md`](docs/upstream-status.md) | 134-patch upstream series layout, release-grade milestones, Tier A provenance, and `M2b` pre-LKML note. |
+| [`docs/upstream-status.md`](docs/upstream-status.md) | 135-patch upstream series layout, release-grade milestones, Tier A provenance, and upstream readiness (0 deferred items). |
 | [`docs/modem-full-bringup.md`](docs/modem-full-bringup.md) | Vendor-grounded full modem architecture (4G LTE data, VoLTE, IMS SMS, CS voice). |
 | [`docs/ccci-sip-abi.md`](docs/ccci-sip-abi.md) | EL3 BL31 `MTK_SIP_KERNEL_CCCI_CONTROL` SMC ABI and Loki/LK modem handover contract. |
 | [`docs/audio-speaker-protection.md`](docs/audio-speaker-protection.md) | FourSemi FS1599 speaker hardware protection analysis and `-200 mB` LINEOUT mitigation. |
@@ -72,7 +72,7 @@ subsystem matrix, driver/DT mapping, and hardware verification evidence.
 
 ## Repository Layout
 
-- `patches/` — 134 email-ready patches organized by upstream subsystem
+- `patches/` — 135 email-ready patches organized by upstream subsystem
   (`01-clk`, `02-pinctrl`, `03-soc-power`, `04-peripherals`, `05-gpu`,
   `06-display`, `07-dts`), applied onto pristine upstream Linux at build time.
 - `dts/` — `mt6789.dtsi` and `mt6789-advan-x1.dts` (kept byte-identical to
