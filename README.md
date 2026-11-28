@@ -1,68 +1,74 @@
 # Advan X1 Mainline Linux Port
 
-Upstream-oriented mainline Linux port for the **Advan X1** (MediaTek **MT6789 /
-Helio G99**, 8 GiB RAM, 1080×2460 120 Hz VESA DSC panel) maintained as a clean,
-email-ready patch series on pristine upstream Linux (no kernel fork).
+Release-grade, upstream-oriented mainline Linux port for the **Advan X1**
+(MediaTek **MT6789 / Helio G99**, 8 GiB RAM, 1080×2460 120 Hz VESA DSC panel)
+maintained as a clean, email-ready patch series on pristine upstream Linux (no
+kernel fork).
 
 Boots at **Non-Secure EL2** via upstream U-Boot
 ([`advan-x1-uboot`](https://github.com/sysretq0/advan-x1-uboot), chainloaded
-from stock LK via Loki Stage-1) using a SHA-256-verified **U-Boot FIT image**
-(`advan-x1.itb`) and **`boot.scr`** (`bootflow scan -lb`).
+from stock LK via [Loki](https://github.com/sysretq0/loki) EL3+EL2) using a
+SHA-256-verified **U-Boot FIT image** (`advan-x1.itb`) and **`boot.scr`**
+(`bootflow scan -lb`).
 
 - **Pinned upstream baseline:** [`666539eecdf4`](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=666539eecdf4db623f5e3c3e55cf9f2dfad24aa4) (Linux v7.4-rc3/rc4)
 - **Patch queue:** 134 upstream-ready patches across `patches/01-clk`..`07-dts`
+- **Kernel config:** Release-grade Linux/mobile distro baseline (UCLAMP, MGLRU, PSI, Landlock, AppArmor, Yama, Lockdown, hardened allocator/usercopy, BBR, FQ_CODEL/CAKE, full inet nftables/xtables, WireGuard, zram/zswap, compressed firmware, BT LE/RFCOMM/BNEP, USB tethering/WWAN, HID peripherals)
 - **Verification gates:** clean `git apply`, zero DTS drift, 0 `dtc` warnings, 0 `dt-validate` schema errors
-- **Toolchain:** Google's pinned AOSP Clang (`clang-r614150`, matching `android-mainline`'s `bazel/constants.scl`) with `LLVM=1` on `x86_64` hosts/CI (`scripts/setup-google-clang.sh`, defaulting to `../toolchain/clang-r614150/` via `TOOLCHAIN_ROOT`, or `$GITHUB_WORKSPACE/toolchain/clang-r614150/` in CI). Non-`x86_64` hosts (such as `aarch64`) automatically default to host LLVM (`GOOGLE_CLANG=0`).
-- **Initramfs PID 1:** Minimal dracut-shaped static `aarch64` C binary ([`initramfs/src/init.c`](initramfs/src/init.c)) with zero-mutation `/run/firmware` + `firmware_class.path` handoff, native `SYS_finit_module` (`insmod` + `modules.dep`) for curated non-essential `.ko` modules ([`config/initramfs-modules.txt`](config/initramfs-modules.txt)), automatic nested-GPT loop probing (`BLKSSZGET` + `LOOP_CONFIGURE` + `LO_FLAGS_PARTSCAN`, zero hardcoded offsets), and clean `switch_root` to `systemd` (leaving `fstab`, `configfs`/`debugfs`, USB gadget, runtime PM, and diagnostics to `systemd`).
+- **Toolchain:** Google's pinned AOSP Clang (`clang-r614150`, matching `android-mainline`'s `bazel/constants.scl`) with `LLVM=1` on `x86_64` hosts/CI (`scripts/setup-google-clang.sh`). Non-`x86_64` hosts (such as `aarch64`) automatically default to host LLVM (`GOOGLE_CLANG=0`).
+- **Initramfs PID 1:** Minimal dracut-shaped static `aarch64` C binary ([`initramfs/src/init.c`](initramfs/src/init.c)) with zero-mutation `/run/firmware` + `firmware_class.path` handoff, native `SYS_finit_module` (`insmod` + `modules.dep`) for curated `.ko` modules ([`config/initramfs-modules.txt`](config/initramfs-modules.txt)), automatic nested-GPT loop probing (`BLKSSZGET` + `LOOP_CONFIGURE` + `LO_FLAGS_PARTSCAN`, zero hardcoded offsets), and clean `switch_root` to `systemd`.
 
-## Current Status at a Glance
+## Port Status (Release-Grade / Daily-Driver Complete)
 
 See **[`docs/hardware-status.md`](docs/hardware-status.md)** for the full
 subsystem matrix, driver/DT mapping, and hardware verification evidence.
 
-- **Working (hardware-verified):** full 8 GiB LPDDR4X RAM (~7.69 GiB usable,
-  31 `no-map` carveouts), 8-core SMP + `mtk-cpufreq-hw`, 100% of MT6789 clock
-  controllers & all 15 `M8` SCPSYS power domains, suspend-to-RAM (`s2idle` PSCI
-  `0x01011f01` + SPM deep sleep + MIPI-TX/DSI/SMI resume), MT6366/MT6358 PMIC
-  (regulators, keys, RTC, AUXADC, eFuse NVMEM, 4 PMIC thermal zones, vibrator),
-  native `mediatek-drm` 120 Hz DSC display + `disp_iommu` (0 M4U faults) + PWM
-  backlight + GNOME Mobile Wayland desktop, Mali-G57 MC2 GPU (`panfrost` +
-  MFGPLL devfreq), Chipone ICNL9922C SPI touchscreen, UFS 2.2 storage, USB-C
-  Host/OTG (`rt1711h` + `usb-role-switch` + VBUS boost) & ConfigFS gadget (NCM
-  `usb0` `10.15.19.82/24` + ACM `/dev/ttyGS0`), SC89601A charger (18 W 9 V/2 A
-  USB-PD + 2.0 A non-PD wall-charger fallback, verified 4%→92%),
-  CW2217 fuel gauge, 13-zone LVTS thermal (+ STAGE3 HW thermal reboot `113.5 °C`
-  & board NTC zones), watchdog + reboot-mode, pstore/ramoops, Wi-Fi STA/AP &
-  native Bluetooth `hci0` (MT6789 ConnSys `btif_drv`/`wmt_drv`/`wlan_drv_gen4m_6789`
-  /`hci_mtk_stp`), Gen95 CCCI cellular modem (4G LTE data `wwan0` + native VoLTE
-  voice calls & IMS SMSoIP via `mtk-imsd` / `mtk_volte_rtp` / XFRM IPsec /
-  ModemManager `mtk-ccci` IMS bridge), ASoC audio (`mt6789-mt6366`, FourSemi
-  FS1599 amp with `-200 mB` cap, `mt6358-accdet`, UCM2 + PipeWire drop-ins),
-  SCP RV55 sensor hub (5 IIO sensors + native `in_mount_matrix` auto-rotate),
-  Awinic AW3641E rear camera LED flash/torch (`/sys/class/leds/white:flash`),
-  and hardware JPEG encoder (`/dev/video0`, `jpgenc@17030000` + SMI
-  `larb4`/`larb7` + M4U Region 1).
-- **WIP / pending live verification:** 2G/3G CS voice fallback (`ccci_audd`),
-  live microSD card I/O test (`GPIO_ACTIVE_LOW` CD), and firmware-free
-  stateless H.264 hardware video decoder (`mtk-vdec-mt6789` on
-  `vdec@16000000`).
-- **On hold / not yet started:** NFC (`st21nfc` — on hold; `nfc0` probes and
-  IRQ 16 fires, RF polling deferred), GPS (`gps_drv_stp` over ConnSys), cameras
-  & ISP (`camsys` clocks/PDs ready), HEVC/VP9 VDEC & hardware video encode
-  (`venc`), SCP speaker DSP (`FS1599` Re25/F0), fingerprint reader.
+- **Working (hardware-verified):**
+  - **Core SoC, Power & Suspend:** full 8 GiB LPDDR4X RAM (~7.69 GiB usable,
+    31 `no-map` carveouts), 8-core SMP + `mtk-cpufreq-hw`, 100% of MT6789 clock
+    controllers & all 15 `M8` SCPSYS power domains, tuned `s2idle`
+    suspend-to-RAM (PSCI `0x01011f01` + SPM deep sleep + MIPI-TX/DSI/SMI
+    restore + WoWLAN-gated Wi-Fi IRQ wake + `InhibitDelayMaxSec=5` + hardened
+    GNOME Mobile lockscreen PIN/resume flow), MT6366/MT6358 PMIC (regulators,
+    keys, RTC, AUXADC, eFuse NVMEM, 4 PMIC thermal zones, vibrator), 13-zone
+    LVTS thermal (+ STAGE3 HW reboot `113.5 °C` & board NTC), watchdog +
+    reboot-mode, pstore/ramoops, and Loki persistent EL2/EL3 debug console.
+  - **Display, GPU, Touch & Media:** native `mediatek-drm` 120 Hz DSC 1.1
+    display + `disp_iommu` (0 M4U faults) + PWM backlight + GNOME Mobile
+    Wayland desktop, Mali-G57 MC2 GPU (`panfrost` + MFGPLL devfreq), Chipone
+    ICNL9922C SPI touchscreen, Awinic AW3641E rear LED flash/torch, hardware
+    JPEG encoder (`/dev/video0`, `jpgenc@17030000`), and firmware-free
+    stateless H.264 hardware video decoder (`/dev/video1`, `mtk-vdec-mt6789`,
+    verified 170/170 frames 100% bit-exact up to 1080p, 0 IOMMU faults).
+  - **Connectivity & Modem:** Wi-Fi STA/SoftAP Hotspot & native BlueZ
+    Bluetooth `hci0` (MT6789 ConnSys `btif_drv`/`wmt_drv`/`wlan_drv_gen4m_6789`
+    /`hci_mtk_stp` with post-suspend stability & P2P slot protection), Gen95
+    CCCI cellular modem (4G LTE data `wwan0` + native VoLTE voice calls & IMS
+    SMSoIP via `mtk-imsd` / `mtk_volte_rtp` / XFRM IPsec / ModemManager
+    `mtk-ccci` IMS bridge).
+  - **Storage, USB-C, Charging, Audio & Sensors:** UFS 2.2 storage, USB-C
+    Host/OTG (`rt1711h` + `usb-role-switch` + VBUS boost) & ConfigFS gadget
+    (NCM `usb0` `10.15.19.82/24` + ACM `/dev/ttyGS0`), SC89601A charger (18 W
+    9 V/2 A USB-PD + 2.0 A non-PD fallback, verified 4%→92%), CW2217 fuel
+    gauge, ASoC audio (`mt6789-mt6366`, FourSemi FS1599 amp with `-200 mB` cap,
+    `mt6358-accdet`, UCM2 + PipeWire drop-ins), and SCP RV55 sensor hub (5 IIO
+    sensors + native `in_mount_matrix` auto-rotate).
+- **Optional / deferred hardware:** 2G/3G CS voice fallback live confirmation
+  (`ccci_audd`, 4G VoLTE works), physical microSD card I/O test (`GPIO_ACTIVE_LOW`
+  CD verified), NFC RF polling (`nfc0` probes, on hold), GPS (`gps_drv_stp`),
+  cameras & ISP (`camsys` clocks/PDs ready), HEVC/VP9 VDEC & hardware VENC,
+  SCP speaker DSP, and fingerprint reader.
 
 ## Documentation
 
 | Document | Purpose |
 |---|---|
-| [`docs/hardware-status.md`](docs/hardware-status.md) | Authoritative matrix of what works, what is WIP, what is not yet started, and next milestones. |
-| [`docs/upstream-status.md`](docs/upstream-status.md) | 131-patch series layout, completed upstream-deviation & 7.4 modernization summary, Tier A provenance, and remaining pre-LKML items. |
-| [`docs/modem-full-bringup.md`](docs/modem-full-bringup.md) | Vendor-grounded full modem architecture (Internet → Call → SMS → VoLTE) and Wave 1/2 implementation map. |
-| [`docs/ccci-bringup-plan.md`](docs/ccci-bringup-plan.md) | Gen95 cellular modem ground-truth spec (memory map, CCIF0, SCP CCISM, RO NVRAM FS RPC, DPMAIF v1). |
+| [`docs/hardware-status.md`](docs/hardware-status.md) | Authoritative hardware support matrix, driver/DT mapping, and verification evidence. |
+| [`docs/upstream-status.md`](docs/upstream-status.md) | 134-patch upstream series layout, release-grade milestones, Tier A provenance, and `M2b` pre-LKML note. |
+| [`docs/modem-full-bringup.md`](docs/modem-full-bringup.md) | Vendor-grounded full modem architecture (4G LTE data, VoLTE, IMS SMS, CS voice). |
 | [`docs/ccci-sip-abi.md`](docs/ccci-sip-abi.md) | EL3 BL31 `MTK_SIP_KERNEL_CCCI_CONTROL` SMC ABI and Loki/LK modem handover contract. |
 | [`docs/audio-speaker-protection.md`](docs/audio-speaker-protection.md) | FourSemi FS1599 speaker hardware protection analysis and `-200 mB` LINEOUT mitigation. |
-| [`docs/phase-b-backlog.md`](docs/phase-b-backlog.md) | Phase B driver/binding status and deferred hardware items with Tier A evidence. |
-| [`docs/7.4-modernization-plan.md`](docs/7.4-modernization-plan.md) | Linux 7.4 API modernization execution record and verification gates. |
+| [`docs/archive/`](docs/archive/) | Historical bring-up plans and completed audits (ground-truth audit, 7.4 modernization, Phase B backlog, CCCI bring-up plan). |
 
 ## Repository Layout
 

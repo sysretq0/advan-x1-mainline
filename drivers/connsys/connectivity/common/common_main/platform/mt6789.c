@@ -1566,7 +1566,7 @@ static INT32 consys_check_reg_readable(VOID)
 	}
 
 	if (!can_read)
-		WMT_PLAT_PR_INFO("connsys clock check fail 0x18007000(0x%x)\n", value);
+		WMT_PLAT_PR_DBG("connsys clock check fail 0x18007000(0x%x)\n", value);
 
 	return can_read;
 }

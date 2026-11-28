@@ -179,6 +179,7 @@ struct GL_HIF_INFO {
 #if (CFG_SUPPORT_CONNINFRA == 1)
 	uint32_t u4IrqId_1;
 #endif
+	bool fgIrqWakeEnabled;
 	int32_t u4HifCnt;
 
 	/* AXI MMIO Base Address, all access will use */

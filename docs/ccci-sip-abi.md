@@ -9,7 +9,7 @@ Loki / Little Kernel (LK) bootloader handover contract relied upon by
 ## 1. Subsystem Placement & Upstream Boundary (`M2b`)
 
 - **Current location:** `drivers/net/wwan/mtk_ccci/` (`CONFIG_MTK_CCCI_MT6789`).
-- **Rationale:** Phase 5.3+ bring-up (`docs/ccci-bringup-plan.md`) builds the
+- **Rationale:** Phase 5.3+ bring-up (`docs/archive/ccci-bringup-plan.md`) builds the
   WWAN control port (AT/MBIM/QMI over CCIF0) and DPMAIF IP data plane directly
   on top of this core. Keeping the driver under `drivers/net/wwan/mtk_ccci/`
   avoids churning file paths mid-bring-up.

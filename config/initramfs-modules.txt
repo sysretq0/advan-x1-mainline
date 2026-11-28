@@ -39,8 +39,7 @@ drivers/input/misc/regulator-haptic.ko                 CONFIG_INPUT_REGULATOR_HA
 fs/overlayfs/overlay.ko                                CONFIG_OVERLAY_FS
 fs/fuse/fuse.ko                                        CONFIG_FUSE_FS
 
-# Compressed RAM swap (zsmalloc allocator -> zram multi-comp LZ4/ZSTD)
-mm/zsmalloc.ko                                         CONFIG_ZSMALLOC
+# Compressed RAM swap (zram multi-comp LZ4/ZSTD; zsmalloc built-in with CONFIG_ZSWAP=y)
 drivers/block/zram/zram.ko                             CONFIG_ZRAM
 
 # Tier 1: DMA-BUF heaps and optional CPUFreq governors
@@ -173,3 +172,55 @@ net/netlink/netlink_diag.ko                            CONFIG_NETLINK_DIAG
 drivers/block/brd.ko                                   CONFIG_BLK_DEV_RAM
 net/netfilter/xt_comment.ko                            CONFIG_NETFILTER_XT_MATCH_COMMENT
 fs/binfmt_misc.ko                                      CONFIG_BINFMT_MISC
+
+# Tier 5: release-grade distro networking, firewall, DM, BT, USB & HID modules (dep order)
+net/sched/sch_cake.ko                                  CONFIG_NET_SCH_CAKE
+net/sched/sch_htb.ko                                   CONFIG_NET_SCH_HTB
+net/netfilter/nft_reject_inet.ko                       CONFIG_NFT_REJECT_INET
+net/netfilter/nft_limit.ko                             CONFIG_NFT_LIMIT
+net/netfilter/nft_log.ko                               CONFIG_NFT_LOG
+net/netfilter/nft_quota.ko                             CONFIG_NFT_QUOTA
+net/netfilter/nft_hash.ko                              CONFIG_NFT_HASH
+net/netfilter/nft_redir.ko                             CONFIG_NFT_REDIR
+net/netfilter/nft_fib.ko                               CONFIG_NFT_FIB
+net/ipv4/netfilter/nft_fib_ipv4.ko                     CONFIG_NFT_FIB_IPV4
+net/ipv6/netfilter/nft_fib_ipv6.ko                     CONFIG_NFT_FIB_IPV6
+net/netfilter/nft_fib_inet.ko                          CONFIG_NFT_FIB_INET
+net/netfilter/xt_state.ko                              CONFIG_NETFILTER_XT_MATCH_STATE
+net/netfilter/xt_limit.ko                              CONFIG_NETFILTER_XT_MATCH_LIMIT
+net/netfilter/xt_multiport.ko                          CONFIG_NETFILTER_XT_MATCH_MULTIPORT
+net/netfilter/xt_owner.ko                              CONFIG_NETFILTER_XT_MATCH_OWNER
+net/netfilter/xt_cgroup.ko                             CONFIG_NETFILTER_XT_MATCH_CGROUP
+net/netfilter/xt_mac.ko                                CONFIG_NETFILTER_XT_MATCH_MAC
+net/netfilter/xt_iprange.ko                            CONFIG_NETFILTER_XT_MATCH_IPRANGE
+net/netfilter/xt_connmark.ko                           CONFIG_NETFILTER_XT_CONNMARK
+net/netfilter/xt_TCPMSS.ko                             CONFIG_NETFILTER_XT_TARGET_TCPMSS
+drivers/net/ipvlan/ipvlan.ko                           CONFIG_IPVLAN
+drivers/net/dummy.ko                                   CONFIG_DUMMY
+drivers/net/ifb.ko                                     CONFIG_IFB
+drivers/net/slip/slhc.ko                               CONFIG_SLHC
+drivers/net/ppp/ppp_generic.ko                         CONFIG_PPP
+drivers/net/ppp/ppp_async.ko                           CONFIG_PPP_ASYNC
+drivers/net/ppp/ppp_deflate.ko                         CONFIG_PPP_DEFLATE
+drivers/net/ppp/bsd_comp.ko                            CONFIG_PPP_BSDCOMP
+drivers/net/ppp/ppp_mppe.ko                            CONFIG_PPP_MPPE
+drivers/net/ppp/pppox.ko                               CONFIG_PPPOX
+drivers/net/ppp/pppoe.ko                               CONFIG_PPPOE
+drivers/md/dm-bufio.ko                                 CONFIG_DM_BUFIO
+drivers/md/dm-snapshot.ko                              CONFIG_DM_SNAPSHOT
+drivers/md/dm-verity.ko                                CONFIG_DM_VERITY
+net/bluetooth/rfcomm/rfcomm.ko                         CONFIG_BT_RFCOMM
+net/bluetooth/bnep/bnep.ko                             CONFIG_BT_BNEP
+drivers/usb/class/cdc-wdm.ko                           CONFIG_USB_WDM
+drivers/net/usb/rndis_host.ko                          CONFIG_USB_NET_RNDIS_HOST
+drivers/net/usb/qmi_wwan.ko                            CONFIG_USB_NET_QMI_WWAN
+drivers/net/usb/cdc_mbim.ko                            CONFIG_USB_NET_CDC_MBIM
+drivers/hid/hid-multitouch.ko                          CONFIG_HID_MULTITOUCH
+drivers/hid/hid-playstation.ko                         CONFIG_HID_PLAYSTATION
+drivers/hid/hid-nintendo.ko                            CONFIG_HID_NINTENDO
+drivers/hid/hid-microsoft.ko                           CONFIG_HID_MICROSOFT
+drivers/hid/hid-logitech.ko                            CONFIG_HID_LOGITECH
+drivers/hid/hid-logitech-dj.ko                         CONFIG_HID_LOGITECH_DJ
+drivers/hid/hid-logitech-hidpp.ko                      CONFIG_HID_LOGITECH_HIDPP
+drivers/input/joydev.ko                                CONFIG_INPUT_JOYDEV
+drivers/input/joystick/xpad.ko                         CONFIG_JOYSTICK_XPAD

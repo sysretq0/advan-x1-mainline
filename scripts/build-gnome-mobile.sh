@@ -335,7 +335,147 @@ for prop, expr in [
     bm = bm.replace(prop, expr, 1)
 assert bm != orig_bm
 bm_path.write_text(bm)
-print("Patched screenShield.js and brightnessManager.js cleanly")
+
+# 3) authPrompt.js:
+#    - PinEntryIndicator never cleans up this._loadingAnimation on destroy(),
+#      leaving a dangling GLib timeout that crashes on already-disposed actor
+#      after every unlock.
+#    - AuthPrompt._activateNext() calls _completePendingCallback() whenever
+#      this._queryingService is non-null even if this._pendingCallback is null
+#      (e.g. after suspend/resume PAM restart), throwing "No pending request to
+#      complete" AFTER disabling entry sensitivity and starting the PIN spinner
+#      — locking the user out on the lockscreen even with the right PIN.
+ap_path = root / "js/gdm/authPrompt.js"
+ap = ap_path.read_text()
+orig_ap = ap
+
+old_pin_init = """            this.add_child(digitWidget);
+        }
+    }"""
+new_pin_init = """            this.add_child(digitWidget);
+        }
+
+        this.connect('destroy', () => this.setIsLoading(false));
+    }"""
+assert old_pin_init in ap, "expected PinEntryIndicator._init loop in authPrompt.js"
+ap = ap.replace(old_pin_init, new_pin_init, 1)
+
+old_pin_loading = """        if (!loading) {
+            if (this._loadingAnimation) {
+                GLib.source_remove(this._loadingAnimation);
+                delete this._loadingAnimation;
+            }
+
+            return;
+        }
+
+        const playAnimation = () => {
+            let delay = 0;
+            for (let i = 0; i < this._totalNDigits; i++) {
+                const digit = this.get_child_at_index(i);
+
+                digit.ease({"""
+new_pin_loading = """        if (this._loadingAnimation) {
+            GLib.source_remove(this._loadingAnimation);
+            delete this._loadingAnimation;
+        }
+
+        if (!loading)
+            return;
+
+        const playAnimation = () => {
+            let delay = 0;
+            for (let i = 0; i < this._totalNDigits; i++) {
+                const digit = this.get_child_at_index(i);
+                if (!digit)
+                    return;
+
+                digit.ease({"""
+assert old_pin_loading in ap, "expected PinEntryIndicator.setIsLoading in authPrompt.js"
+ap = ap.replace(old_pin_loading, new_pin_loading, 1)
+
+old_activate = """        if (this._queryingService)
+            this._completePendingCallback(this._entry.text);
+        else
+            this._preemptiveAnswer = this._entry.text;"""
+new_activate = """        if (this._queryingService && this._pendingCallback)
+            this._completePendingCallback(this._entry.text);
+        else
+            this._preemptiveAnswer = this._entry.text;"""
+assert old_activate in ap, "expected _activateNext check in authPrompt.js"
+ap = ap.replace(old_activate, new_activate, 1)
+
+old_fail = """        if (wasQueryingService)
+            this._queryingService = null;"""
+new_fail = """        if (wasQueryingService) {
+            this._queryingService = null;
+            this._pendingCallback = null;
+        }"""
+assert old_fail in ap, "expected _onVerificationFailed check in authPrompt.js"
+ap = ap.replace(old_fail, new_fail, 1)
+
+old_reset = """        this._queryingService = null;
+        this.clear({reuseEntryText});"""
+new_reset = """        this._queryingService = null;
+        this._pendingCallback = null;
+        this.clear({reuseEntryText});"""
+assert old_reset in ap, "expected reset _queryingService clear in authPrompt.js"
+ap = ap.replace(old_reset, new_reset, 1)
+
+assert ap != orig_ap
+ap_path.write_text(ap)
+
+# 4) unlockDialog.js:
+#    - Stop PIN loading spinner on retryable 'failed' signal and cancelUnlock().
+#    - Guard auto-submit on textLen === 6 against already-insensitive entry.
+ud_path = root / "js/ui/unlockDialog.js"
+ud = ud_path.read_text()
+orig_ud = ud
+
+old_ud_failed = """            this._authPrompt.connect('failed', () => {
+                wiggle(pinEntryIndicator);
+            });
+
+            this._authPrompt._entry.clutter_text.connect('text-changed', () => {
+                const textLen = this._authPrompt._entry.clutter_text.buffer.get_length();
+                pinEntryIndicator.setActiveDigits(textLen);
+
+                if (textLen === 6 && pinEntryIndicator.visible) {
+                    pinEntryIndicator.setIsLoading(true);
+                    this._authPrompt._entry.clutter_text.activate();
+                }
+            });"""
+new_ud_failed = """            this._authPrompt.connect('failed', () => {
+                pinEntryIndicator.setIsLoading(false);
+                wiggle(pinEntryIndicator);
+            });
+
+            this._authPrompt._entry.clutter_text.connect('text-changed', () => {
+                const textLen = this._authPrompt._entry.clutter_text.buffer.get_length();
+                pinEntryIndicator.setActiveDigits(textLen);
+
+                if (textLen === 6 && pinEntryIndicator.visible &&
+                    this._authPrompt._entry.reactive) {
+                    pinEntryIndicator.setIsLoading(true);
+                    this._authPrompt._entry.clutter_text.activate();
+                }
+            });"""
+assert old_ud_failed in ud, "expected failed/text-changed handlers in unlockDialog.js"
+ud = ud.replace(old_ud_failed, new_ud_failed, 1)
+
+old_ud_cancel = """    cancelUnlock() {
+        this._showClock();
+    }"""
+new_ud_cancel = """    cancelUnlock() {
+        this._pinEntryIndicator?.setIsLoading(false);
+        this._showClock();
+    }"""
+assert old_ud_cancel in ud, "expected cancelUnlock in unlockDialog.js"
+ud = ud.replace(old_ud_cancel, new_ud_cancel, 1)
+
+assert ud != orig_ud
+ud_path.write_text(ud)
+print("Patched screenShield.js, brightnessManager.js, authPrompt.js, and unlockDialog.js cleanly")
 PYEOF
 
 echo "== 2. Building mutter-mobile ($MUTTER_TAG) with Google Clang =="

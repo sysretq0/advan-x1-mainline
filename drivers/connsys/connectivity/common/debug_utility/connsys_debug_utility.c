@@ -808,9 +808,9 @@ static int connlog_eirq_init(const struct connlog_irq_config *irq_config)
 	if (iret) {
 		pr_err("EINT IRQ(%d) NOT AVAILABLE!!\n", gDev.conn2ApIrqId);
 	} else {
-		iret = enable_irq_wake(gDev.conn2ApIrqId);
-		if (iret)
-			pr_err("enable irq wake fail,irq_no(%d),iret(%d)\n", gDev.conn2ApIrqId, iret);
+		/* Do not arm enable_irq_wake on firmware debug log IRQ; otherwise
+		 * asynchronous ConnSys log rings spuriously wake the AP out of s2idle.
+		 */
 		iret = 0;
 	}
 

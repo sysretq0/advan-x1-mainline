@@ -6216,6 +6216,20 @@ int mtk_cfg80211_suspend(struct wiphy *wiphy,
 #if (CFG_SUPPORT_STATISTICS == 1)
 	wlanWakeDumpRes();
 #endif
+	if (wiphy) {
+		WIPHY_PRIV(wiphy, prGlueInfo);
+		/* Mainline has no Android early_suspend; notify N9 firmware
+		 * before entering s2idle so packet filters and low-power state
+		 * take effect and prevent immediate Event 0x07 host wakeups.
+		 */
+		if (prGlueInfo && prGlueInfo->u4ReadyFlag &&
+		    !kalIsHalted() && !prGlueInfo->fgIsInSuspendMode) {
+			prGlueInfo->fgIsInSuspendMode = TRUE;
+			wlanSetSuspendMode(prGlueInfo, TRUE);
+			p2pSetSuspendMode(prGlueInfo, TRUE);
+		}
+	}
+
 	if (kalHaltTryLock())
 		return 0;
 
@@ -6232,6 +6246,13 @@ int mtk_cfg80211_suspend(struct wiphy *wiphy,
 			&prGlueInfo->prAdapter->ulSuspendFlag);
 		if (prGlueInfo->prAdapter->u4HostStatusEmiOffset)
 			kalSetSuspendFlagToEMI(prGlueInfo->prAdapter, TRUE);
+#if defined(_HIF_AXI)
+		if (wow && !prGlueInfo->rHifInfo.fgIrqWakeEnabled &&
+		    prGlueInfo->rHifInfo.u4IrqId > 0) {
+			if (enable_irq_wake(prGlueInfo->rHifInfo.u4IrqId) == 0)
+				prGlueInfo->rHifInfo.fgIrqWakeEnabled = true;
+		}
+#endif
 	}
 end:
 	kalHaltUnlock();
@@ -6269,6 +6290,14 @@ int mtk_cfg80211_resume(struct wiphy *wiphy)
 	if (prAdapter == NULL)
 		goto end;
 
+#if defined(_HIF_AXI)
+	if (prGlueInfo->rHifInfo.fgIrqWakeEnabled &&
+	    prGlueInfo->rHifInfo.u4IrqId > 0) {
+		disable_irq_wake(prGlueInfo->rHifInfo.u4IrqId);
+		prGlueInfo->rHifInfo.fgIrqWakeEnabled = false;
+	}
+#endif
+
 	clear_bit(SUSPEND_FLAG_CLEAR_WHEN_RESUME,
 		  &prAdapter->ulSuspendFlag);
 
@@ -6285,6 +6314,13 @@ int mtk_cfg80211_resume(struct wiphy *wiphy)
 		kalSetSuspendFlagToEMI(prGlueInfo->prAdapter, FALSE);
 end:
 	kalHaltUnlock();
+
+	if (prGlueInfo && prGlueInfo->u4ReadyFlag &&
+	    !kalIsHalted() && prGlueInfo->fgIsInSuspendMode) {
+		prGlueInfo->fgIsInSuspendMode = FALSE;
+		p2pSetSuspendMode(prGlueInfo, FALSE);
+		wlanSetSuspendMode(prGlueInfo, FALSE);
+	}
 
 	return 0;
 }
@@ -6839,9 +6875,23 @@ int mtk_cfg_change_iface(struct wiphy *wiphy,
 		}
 
 		if (prP2pInfo->u4DeviceNum >= KAL_P2P_NUM) {
-			DBGLOG(INIT, ERROR, "resource invalid, u4DeviceNum=%d\n"
-			       , prP2pInfo->u4DeviceNum);
-			return -EFAULT;
+			uint32_t u4Used = 0, u4Slot;
+
+			for (u4Slot = 0; u4Slot < KAL_P2P_NUM; u4Slot++) {
+				if (gprP2pRoleWdev[u4Slot] != NULL)
+					u4Used++;
+			}
+			if (u4Used < KAL_P2P_NUM) {
+				DBGLOG(INIT, WARN,
+				       "resync u4DeviceNum %u -> %u\n",
+				       prP2pInfo->u4DeviceNum, u4Used);
+				prP2pInfo->u4DeviceNum = u4Used;
+			} else {
+				DBGLOG(INIT, ERROR,
+				       "resource invalid, u4DeviceNum=%d\n",
+				       prP2pInfo->u4DeviceNum);
+				return -EFAULT;
+			}
 		}
 
 #ifdef CFG_SUPPORT_SNIFFER_RADIOTAP

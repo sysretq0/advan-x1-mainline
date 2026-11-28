@@ -1152,7 +1152,7 @@ int32_t glBusSetIrq(void *pvData, void *pfnIsr, void *pvCookie)
 #ifdef CONFIG_OF
 	struct device_node *node = NULL;
 #endif
-	int ret = 0, en_wake_ret = 0;
+	int ret = 0;
 
 	ASSERT(pvData);
 	if (!pvData)
@@ -1194,10 +1194,11 @@ int32_t glBusSetIrq(void *pvData, void *pfnIsr, void *pvCookie)
 				prHifInfo->u4IrqId, ret);
 		goto exit;
 	}
-	en_wake_ret = enable_irq_wake(prHifInfo->u4IrqId);
-	if (en_wake_ret)
-		DBGLOG(INIT, INFO, "enable_irq_wake(%u) ERROR(%d)\n",
-				prHifInfo->u4IrqId, en_wake_ret);
+	/* Arm irq_wake only on explicit WoWLAN suspend (mtk_cfg80211_suspend);
+	 * keeping it permanently armed causes N9 firmware events (e.g. 0x07)
+	 * to wake the SoC immediately out of s2idle when Wi-Fi is idle/down.
+	 */
+	prHifInfo->fgIrqWakeEnabled = false;
 #if (CFG_SUPPORT_CONNINFRA == 1)
 	ret = request_threaded_irq(prHifInfo->u4IrqId_1,
 		mtk_sw_int_top_handler,
@@ -1210,11 +1211,6 @@ int32_t glBusSetIrq(void *pvData, void *pfnIsr, void *pvCookie)
 				prHifInfo->u4IrqId_1, ret);
 		goto exit;
 	}
-
-	en_wake_ret = enable_irq_wake(prHifInfo->u4IrqId_1);
-	if (en_wake_ret)
-		DBGLOG(INIT, INFO, "enable_irq_wake(%u) ERROR(%d)\n",
-				prHifInfo->u4IrqId_1, en_wake_ret);
 #endif
 
 exit:
@@ -1254,6 +1250,10 @@ void glBusFreeIrq(void *pvData, void *pvCookie)
 	prHifInfo = &prGlueInfo->rHifInfo;
 	pdev = prHifInfo->pdev;
 
+	if (prHifInfo->fgIrqWakeEnabled) {
+		disable_irq_wake(prHifInfo->u4IrqId);
+		prHifInfo->fgIrqWakeEnabled = false;
+	}
 	synchronize_irq(prHifInfo->u4IrqId);
 	free_irq(prHifInfo->u4IrqId, prGlueInfo);
 #if (CFG_SUPPORT_CONNINFRA == 1)
