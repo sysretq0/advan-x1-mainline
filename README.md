@@ -10,7 +10,7 @@ from stock LK via Loki Stage-1) using a SHA-256-verified **U-Boot FIT image**
 (`advan-x1.itb`) and **`boot.scr`** (`bootflow scan -lb`).
 
 - **Pinned upstream baseline:** [`666539eecdf4`](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=666539eecdf4db623f5e3c3e55cf9f2dfad24aa4) (Linux v7.4-rc3/rc4)
-- **Patch queue:** 131 upstream-ready patches across `patches/01-clk`..`07-dts`
+- **Patch queue:** 134 upstream-ready patches across `patches/01-clk`..`07-dts`
 - **Verification gates:** clean `git apply`, zero DTS drift, 0 `dtc` warnings, 0 `dt-validate` schema errors
 - **Toolchain:** Google's pinned AOSP Clang (`clang-r614150`, matching `android-mainline`'s `bazel/constants.scl`) with `LLVM=1` on `x86_64` hosts/CI (`scripts/setup-google-clang.sh`, defaulting to `../toolchain/clang-r614150/` via `TOOLCHAIN_ROOT`, or `$GITHUB_WORKSPACE/toolchain/clang-r614150/` in CI). Non-`x86_64` hosts (such as `aarch64`) automatically default to host LLVM (`GOOGLE_CLANG=0`).
 - **Initramfs PID 1:** Minimal dracut-shaped static `aarch64` C binary ([`initramfs/src/init.c`](initramfs/src/init.c)) with zero-mutation `/run/firmware` + `firmware_class.path` handoff, native `SYS_finit_module` (`insmod` + `modules.dep`) for curated non-essential `.ko` modules ([`config/initramfs-modules.txt`](config/initramfs-modules.txt)), automatic nested-GPT loop probing (`BLKSSZGET` + `LOOP_CONFIGURE` + `LO_FLAGS_PARTSCAN`, zero hardcoded offsets), and clean `switch_root` to `systemd` (leaving `fstab`, `configfs`/`debugfs`, USB gadget, runtime PM, and diagnostics to `systemd`).
@@ -42,12 +42,14 @@ subsystem matrix, driver/DT mapping, and hardware verification evidence.
   Awinic AW3641E rear camera LED flash/torch (`/sys/class/leds/white:flash`),
   and hardware JPEG encoder (`/dev/video0`, `jpgenc@17030000` + SMI
   `larb4`/`larb7` + M4U Region 1).
-- **WIP / pending live verification:** 2G/3G CS voice fallback (`ccci_audd`) and
-  live microSD card I/O test (`GPIO_ACTIVE_LOW` CD).
+- **WIP / pending live verification:** 2G/3G CS voice fallback (`ccci_audd`),
+  live microSD card I/O test (`GPIO_ACTIVE_LOW` CD), and firmware-free
+  stateless H.264 hardware video decoder (`mtk-vdec-mt6789` on
+  `vdec@16000000`).
 - **On hold / not yet started:** NFC (`st21nfc` — on hold; `nfc0` probes and
   IRQ 16 fires, RF polling deferred), GPS (`gps_drv_stp` over ConnSys), cameras
-  & ISP (`camsys` clocks/PDs ready), hardware video decode/encode (`vdec`/`venc`
-  H.264/HEVC/VP9), SCP speaker DSP (`FS1599` Re25/F0), fingerprint reader.
+  & ISP (`camsys` clocks/PDs ready), HEVC/VP9 VDEC & hardware video encode
+  (`venc`), SCP speaker DSP (`FS1599` Re25/F0), fingerprint reader.
 
 ## Documentation
 
@@ -64,7 +66,7 @@ subsystem matrix, driver/DT mapping, and hardware verification evidence.
 
 ## Repository Layout
 
-- `patches/` — 131 email-ready patches organized by upstream subsystem
+- `patches/` — 134 email-ready patches organized by upstream subsystem
   (`01-clk`, `02-pinctrl`, `03-soc-power`, `04-peripherals`, `05-gpu`,
   `06-display`, `07-dts`), applied onto pristine upstream Linux at build time.
 - `dts/` — `mt6789.dtsi` and `mt6789-advan-x1.dts` (kept byte-identical to

@@ -50,7 +50,7 @@ Status legend:
 | **LED Torch / Flash** | Awinic AW3641E (`GPIO 99` ENM, `GPIO 36` ENF) | `leds-sgm3140` (`awinic,aw3641e` → `/sys/class/leds/white:flash`) | **Working** | Live verified on `3aa67e2`: torch (`brightness` `1→0`) and strobe (`flash_strobe`, `250 ms` timeout, `root:feedbackd`) |
 | **Cameras & ISP** | `camsys` / `imgsensor` | `clk-mt6789-{cam,img}` + `M8` PDs ready | **Not started** | Clocks & `M8` PDs wired; needs V4L2/CSI-2 sensor & ISP drivers |
 | **JPEG Encoder (HW)** | MT6789 `jpgenc@17030000` (`vencsys` + `larb7`) | `mtk-jpeg` (`mediatek,mt6789-jpgenc`) + `larb4`/`larb7` M4U Region 1 | **Working** | Live verified on `3aa67e2`: `/dev/video0` (`mtk-jpeg-enc`) 640×480 YUYV→JPEG pixel-accurate encode, GIC 375 IRQ, 0 IOMMU faults; boot auto-load fixed in `995622f` |
-| **Video Codec (H.264/HEVC/VP9)** | `vdecsys` / `vencsys` (`larb4`/`larb7`) | Clocks, `M8` PDs, SMI `larb4`/`larb7` ready | **Not started** | MT6789 uses Android closed-source `mediatek-vcu` (`vpud`), not ChromeOS SCP firmware; requires open-source stateless/VCU codec driver |
+| **Video Codec (VDEC H.264)** | MT6789 `vdec@16000000` (`vdecsys` + `larb4`) | `mtk-vdec-mt6789` (`mediatek,mt6789-vcodec-dec`) | **WIP** | Firmware-free stateless V4L2 M2M H.264 decoder (`V4L2_PIX_FMT_H264_SLICE` → `MM21`, direct CPU MMIO, GIC SPI 458, M4U Region 1) wired; live mainline decode test pending |
 | **Sensors (IMU/ALS/Prox)** | SCP RV55 sensor hub (`icm-42607-p`, `af6133e`, `STK3335-X`, `stk3a5x`) | `mtk-scp-sensorhub` (`10724000.sensorhub` → Linux IIO) | **Working** | Live verified on `3aa67e2`: all 5 IIO sensors (`iio:device4..8`) + `iio-sensor-proxy` + native kernel `in_mount_matrix` (`-1,0,0;0,-1,0;0,0,1`) + 0 deprecated-wq warnings |
 | **Fingerprint** | Goodix (`goodix-fp` SPI5) / FocalTech | — | **Not started** | Not wired in DTS or driver stack |
 
@@ -135,9 +135,9 @@ Status legend:
    - `ccci_audd` + `Hostless_Speech` + `VoiceCall.conf` are wired for 2G/3G CS
      voice fallback; live 2G/3G CS call confirmation remains (4G VoLTE and IMS
      SMS are Working). See [`docs/modem-full-bringup.md`](modem-full-bringup.md).
-2. **microSD Card (`11240000.mmc`):** `GPIO 7` CD polarity verified (`in hi`
-   when empty under `GPIO_ACTIVE_LOW`); live physical card I/O test pending.
-3. **NFC (`st,st21nfcb-i2c` — on hold):** `nfc0` probes with `XO_NFC` clkbuf
+2. **microSD Card (`11240000.mmc`):** `GPIO 7` CD polarity and pinmux verified bit-exact against live Android DT (`in hi` when empty under `GPIO_ACTIVE_LOW`); live physical card I/O test pending.
+3. **Hardware Video Decoder (`16000000.video-codec`, `mtk-vdec-mt6789`):** Firmware-free stateless V4L2 M2M H.264 decoder (`V4L2_PIX_FMT_H264_SLICE` → `V4L2_PIX_FMT_MM21`, GIC SPI 458, SMI `larb4` M4U Region 1) wired; live mainline H.264 decode verification pending.
+4. **NFC (`st,st21nfcb-i2c` — on hold):** `nfc0` probes with `XO_NFC` clkbuf
    and IRQ 16 fires; live RF polling is intentionally paused.
 
 ---
@@ -148,10 +148,11 @@ Status legend:
 2. **Cameras & ISP (`camsys`, `imgsensor`):**
    Multimedia clock controllers (`camsys_*`, `imgsys1`, `ipesys`) and `M8`
    power domains are wired; V4L2/CSI-2 sensor and ISP drivers are not yet implemented.
-3. **Hardware Video Decode / Encode & MDP (`vdecsys`, `vencsys`, `mdpsys`):**
+3. **Hardware Video Encode (VENC) & HEVC/VP9/MDP (`vencsys`, `mdpsys`):**
    Multimedia clock controllers, `M8` PDs, and SMI `larb4`/`larb7` are wired
-   (with hardware JPEG encoding working on `/dev/video0`); H.264/HEVC/VP9
-   `vdec`/`venc` (Android `vpud`) and MDP drivers are not yet implemented.
+   (with hardware JPEG encoding working on `/dev/video0` and stateless H.264
+   VDEC wired as WIP); HEVC/VP9 decode, hardware `venc` encode, and MDP
+   drivers are not yet implemented.
 4. **Fingerprint Reader (`goodix-fp` / `focaltech,fp`):** Not wired in mainline
    DT or userspace.
 

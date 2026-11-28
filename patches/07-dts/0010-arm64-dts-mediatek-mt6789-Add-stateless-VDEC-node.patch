@@ -1,0 +1,55 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sysretq0 <sysretq0@proton.me>
+Date: Sat, 28 Nov 2026 14:15:00 +0700
+Subject: [PATCH] arm64: dts: mediatek: mt6789: Add stateless VDEC video decoder node
+
+Add the hardware video decoder node (video-codec@16000000,
+mediatek,mt6789-vcodec-dec) wired to VDEC_GCON (0x16000000) and VDEC core
+MMIO (0x16020000, size 0xa000), VDECSYS syscon, GIC_SPI 458,
+MT6789_POWER_DOMAIN_VDEC, VDEC clocks, and all 12 SMI LARB4 disp_iommu
+ports (Region 1, 4 GiB..8 GiB IOVA).
+
+Signed-off-by: sysretq0 <sysretq0@proton.me>
+---
+ arch/arm64/boot/dts/mediatek/mt6789.dtsi | 26 ++++++++++++++++++++++++++
+ 1 file changed, 26 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/mediatek/mt6789.dtsi b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
+index ea8100b..ddd0dd7 100644
+--- a/arch/arm64/boot/dts/mediatek/mt6789.dtsi
++++ b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
+@@ -1542,6 +1542,32 @@
+ 			#clock-cells = <1>;
+ 		};
+ 
++		vdec: video-codec@16000000 {
++			compatible = "mediatek,mt6789-vcodec-dec";
++			reg = <0x00 0x16000000 0x00 0x1000>,
++			      <0x00 0x16020000 0x00 0xa000>;
++			reg-names = "gcon", "core";
++			interrupts = <GIC_SPI 458 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&topckgen CLK_TOP_VDEC_SEL>,
++				 <&vdecsys CLK_VDE2_VDEC_CKEN>,
++				 <&vdecsys CLK_VDE2_LARB1_CKEN>;
++			clock-names = "vdec-sel", "vdec", "larb";
++			power-domains = <&spm MT6789_POWER_DOMAIN_VDEC>;
++			mediatek,vdecsys = <&vdecsys>;
++			iommus = <&disp_iommu M4U_PORT_L4_VDEC_MC_EXT>,
++				 <&disp_iommu M4U_PORT_L4_VDEC_UFO_EXT>,
++				 <&disp_iommu M4U_PORT_L4_VDEC_PP_EXT>,
++				 <&disp_iommu M4U_PORT_L4_VDEC_PRED_RD_EXT>,
++				 <&disp_iommu M4U_PORT_L4_VDEC_PRED_WR_EXT>,
++				 <&disp_iommu M4U_PORT_L4_VDEC_PPWRAP_EXT>,
++				 <&disp_iommu M4U_PORT_L4_VDEC_TILE_EXT>,
++				 <&disp_iommu M4U_PORT_L4_VDEC_VLD_EXT>,
++				 <&disp_iommu M4U_PORT_L4_VDEC_VLD2_EXT>,
++				 <&disp_iommu M4U_PORT_L4_VDEC_AVC_MV_EXT>,
++				 <&disp_iommu M4U_PORT_L4_VDEC_UFO_ENC_EXT>,
++				 <&disp_iommu M4U_PORT_L4_VDEC_RG_CTRL_DMA_EXT>;
++		};
++
+ 		larb4: smi@1602e000 {
+ 			compatible = "mediatek,mt6789-smi-larb";
+ 			reg = <0x00 0x1602e000 0x00 0x1000>;
+-- 
+2.47.2

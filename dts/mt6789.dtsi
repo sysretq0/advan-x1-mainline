@@ -1542,6 +1542,32 @@
 			#clock-cells = <1>;
 		};
 
+		vdec: video-codec@16000000 {
+			compatible = "mediatek,mt6789-vcodec-dec";
+			reg = <0x00 0x16000000 0x00 0x1000>,
+			      <0x00 0x16020000 0x00 0xa000>;
+			reg-names = "gcon", "core";
+			interrupts = <GIC_SPI 458 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&topckgen CLK_TOP_VDEC_SEL>,
+				 <&vdecsys CLK_VDE2_VDEC_CKEN>,
+				 <&vdecsys CLK_VDE2_LARB1_CKEN>;
+			clock-names = "vdec-sel", "vdec", "larb";
+			power-domains = <&spm MT6789_POWER_DOMAIN_VDEC>;
+			mediatek,vdecsys = <&vdecsys>;
+			iommus = <&disp_iommu M4U_PORT_L4_VDEC_MC_EXT>,
+				 <&disp_iommu M4U_PORT_L4_VDEC_UFO_EXT>,
+				 <&disp_iommu M4U_PORT_L4_VDEC_PP_EXT>,
+				 <&disp_iommu M4U_PORT_L4_VDEC_PRED_RD_EXT>,
+				 <&disp_iommu M4U_PORT_L4_VDEC_PRED_WR_EXT>,
+				 <&disp_iommu M4U_PORT_L4_VDEC_PPWRAP_EXT>,
+				 <&disp_iommu M4U_PORT_L4_VDEC_TILE_EXT>,
+				 <&disp_iommu M4U_PORT_L4_VDEC_VLD_EXT>,
+				 <&disp_iommu M4U_PORT_L4_VDEC_VLD2_EXT>,
+				 <&disp_iommu M4U_PORT_L4_VDEC_AVC_MV_EXT>,
+				 <&disp_iommu M4U_PORT_L4_VDEC_UFO_ENC_EXT>,
+				 <&disp_iommu M4U_PORT_L4_VDEC_RG_CTRL_DMA_EXT>;
+		};
+
 		larb4: smi@1602e000 {
 			compatible = "mediatek,mt6789-smi-larb";
 			reg = <0x00 0x1602e000 0x00 0x1000>;

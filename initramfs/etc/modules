@@ -116,9 +116,11 @@ videobuf2-vmalloc
 videobuf2-dma-contig
 videobuf2-v4l2
 v4l2-mem2mem
+v4l2-h264
 mtk-jpeg-enc-hw
 mtk-jpeg-dec-hw
 mtk_jpeg
+mtk-vdec-mt6789
 uvc
 uvcvideo
 snd-hwdep
