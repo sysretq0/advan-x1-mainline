@@ -330,7 +330,10 @@ CONFIG_IP_NF_NAT=m
 # Desktop/user convenience. All non-boot-critical items are =m and staged in
 # config/initramfs-modules.txt (PROC_KCORE is bool so it stays built-in).
 CONFIG_DM_CRYPT=m
-CONFIG_CIFS=m
+# CIFS is built-in: CONFIG_SMBFS is a hidden tristate that defaults to =m when
+# CIFS=m, and its composite smbfs.ko (cifs_md4.o + smb_compress.o) cannot be
+# built as a single .ko target by the curated initramfs kmod builder.
+CONFIG_CIFS=y
 CONFIG_NFSD=m
 CONFIG_F2FS_FS=m
 CONFIG_ISO9660_FS=m

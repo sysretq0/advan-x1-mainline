@@ -134,7 +134,6 @@ pl2303
 ch341
 qcaux
 cfg80211
-libarc4
 mac80211
 bluetooth
 hidp
@@ -157,9 +156,6 @@ hci_mtk_stp
 # Tier 4: filesystems, crypto targets & misc convenience (dep order)
 essiv
 dm-crypt
-nls_ucs2_utils
-smbfs
-cifs
 nfsd
 f2fs
 isofs
