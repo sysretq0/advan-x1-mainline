@@ -199,6 +199,7 @@ drivers/net/ipvlan/ipvlan.ko                           CONFIG_IPVLAN
 drivers/net/dummy.ko                                   CONFIG_DUMMY
 drivers/net/ifb.ko                                     CONFIG_IFB
 drivers/net/slip/slhc.ko                               CONFIG_SLHC
+lib/crc/crc-ccitt.ko                                   CONFIG_CRC_CCITT
 drivers/net/ppp/ppp_generic.ko                         CONFIG_PPP
 drivers/net/ppp/ppp_async.ko                           CONFIG_PPP_ASYNC
 drivers/net/ppp/ppp_deflate.ko                         CONFIG_PPP_DEFLATE
@@ -216,6 +217,7 @@ drivers/net/usb/rndis_host.ko                          CONFIG_USB_NET_RNDIS_HOST
 drivers/net/usb/qmi_wwan.ko                            CONFIG_USB_NET_QMI_WWAN
 drivers/net/usb/cdc_mbim.ko                            CONFIG_USB_NET_CDC_MBIM
 drivers/hid/hid-multitouch.ko                          CONFIG_HID_MULTITOUCH
+drivers/leds/led-class-multicolor.ko                   CONFIG_LEDS_CLASS_MULTICOLOR
 drivers/hid/hid-playstation.ko                         CONFIG_HID_PLAYSTATION
 drivers/hid/hid-nintendo.ko                            CONFIG_HID_NINTENDO
 drivers/hid/hid-microsoft.ko                           CONFIG_HID_MICROSOFT
