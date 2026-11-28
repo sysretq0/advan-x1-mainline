@@ -42,8 +42,8 @@ subsystem matrix, driver/DT mapping, and hardware verification evidence.
   encoder (`/dev/video0`, `jpgenc@17030000` + SMI `larb4`/`larb7` + M4U Region 1).
 - **WIP / pending live verification:** live carrier MO/MT SMS (IMS SMSoIP + CS
   fallback wired & DBus/PDU verified) & CS voice fallback (`ccci_audd`), USB-C
-  host/OTG data enumeration (`rt1711h`), live microSD card I/O test
-  (`GPIO_ACTIVE_LOW` CD), fast charging (SC8547 HV charge pump).
+  host/OTG live peripheral enumeration (`rt1711h` + `musb-hdrc`), live microSD
+  card I/O test (`GPIO_ACTIVE_LOW` CD).
 - **On hold / not yet started:** NFC (`st21nfc` — on hold; `nfc0` probes and
   IRQ 16 fires, RF polling deferred), GPS (`gps_drv_stp` over ConnSys), cameras
   & ISP (`camsys` clocks/PDs ready), hardware video decode/encode (`vdec`/`venc`

@@ -30,7 +30,7 @@ Status legend:
 | **Touchscreen** | Chipone ICNL9922C SPI TDDI | `chipone-icnl9922c` (`spi0.0`) | **Working** | 71,792 B SRAM boot (`fwver 0x0104`), `drm_panel_follower` sync |
 | **Internal Storage** | UFS 2.2 | `ufshcd-mtk` (`11270000.ufshci`) | **Working** | 7 clocks, 3 resets, `vemc` supply, Linux root mount |
 | **USB Gadget (Device)** | MUSB + MT6789 USB2 T-PHY | `musb-hdrc` (`11200000.usb`) + `phy-mtk-tphy` (`11f40000.t-phy`) | **Working** | ConfigFS NCM (`usb0`, `10.15.19.82/24` via `systemd-networkd`) + ACM (`/dev/ttyGS0`) via `advan-x1-usb-gadget.service` |
-| **Charging (Standard)** | Southchip SC89601A | `bq25890` (`&i2c5` / `4-006a`) | **Working** | USB charging + status; D+/D- gadget coexistence fixed; absolute 4.3 V/8.2 V VINDPM + 2.0 A non-PD wall adapter fallback verified live (+1.75 A) |
+| **Charging & USB-PD (18 W)** | Southchip SC89601A (`i2c5@6a`) + RT1711H PD (`9 V / 2 A`) | `bq25890` (`3-006a`) + `rt1711h` (`3-004e`) | **Working** | Standard USB + non-PD 2.0 A fallback (4.3 V VINDPM, verified 4%→92%) + 9 V/2 A (18 W) USB-PD sink PDO & 8.2 V VINDPM wired; `i2c7@6a` SC8547 HV charge pump is not populated on this board (NACKs on stock Android & mainline) |
 | **Battery Fuel Gauge** | CellWise CW2217 | `cw2217` (`&i2c0` / `0-0064`) | **Working** | 80-byte board profile download; live V/I/SOC/temp/cycles |
 | **Thermal** | MT6789 LVTS (13 zones) + Board NTC + MT6366 PMIC (4 zones) | `mtk-lvts-thermal` (`1100b000`), `generic-adc-thermal`, `mt6366_thermal` | **Working** | eFuse calibration, V5 manual RCK, STAGE3 HW reboot (`113.5 °C`) |
 | **Watchdog & Reboot** | MT6789 TOPRGU | `mtk-wdt` (`10007000`) + `syscon-reboot-mode` | **Working** | Clean `reboot: Restarting system`; bootloader/recovery modes |
@@ -41,8 +41,7 @@ Status legend:
 | **Cellular Modem — Voice / SMS** | MT6789 Gen95 Modem + AFE `PCM 2` | `/dev/ccci_aud`, `ccci_audd`, `Hostless_Speech` (`hw:*,5`), UCM2 `VoiceCall.conf`, MM plugin + `mtk-imsd` SMSoIP | **WIP** | VoLTE voice calls verified live; IMS SMS path (`mtk-imsd` + `MMIfaceModemMessaging` bridge, SMSC `+CSCA?`, DBus draft/delete & PDU/RP-DATA verified) + CS `ccci_audd` wired, awaiting live carrier MO/MT SMS & CS call confirmation |
 | **Cellular Modem — VoLTE/IMS** | MT6789 Gen95 IMS channels | `mtk-ccci` + `mtk-imsd` + `mtk_volte_rtp` + XFRM IPsec + MM `MMIfaceModemVoice` IMS bridge | **Working** | Native VoLTE SIP/IPsec + RTP/AMR-WB (`pw-cat`) bridged natively into ModemManager & GNOME Calls (`DIAL`/`ANSWER`/`HANGUP`/`DTMF` + incoming `INVITE`), fast Airplane Mode recovery (`AT+CFUN?` + URC wake), verified live on XL (`51011`) |
 | **USB-C Host / OTG / PD** | Richtek RT1711H TCPC + SC89601A VBUS boost | `rt1711h` (`4-004e`) + `charger_vbus` + `usb-role-switch` (`usb0`) | **WIP** | Dual-role VBUS boost & OF graph role-switch wired; bidirectional charging works, host data enumeration still WIP |
-| **microSD Card** | MT6789 MSDC1 | `mtk-msdc` (`11240000.mmc`, `GPIO 7` `GPIO_ACTIVE_LOW` CD) | **WIP** | Controller + CD polarity fixed (`2abd89e`); live card I/O test pending |
-| **Fast Charging** | SC8547 charge pump (`i2c7@6a`) + PE | — | **WIP** | Standard SC89601A charging works (4%→92% verified on `3aa67e2`); HV charge pump not implemented |
+| **microSD Card** | MT6789 MSDC1 | `mtk-msdc` (`11240000.mmc`, `GPIO 7` `GPIO_ACTIVE_LOW` CD) | **WIP** | Controller + CD polarity verified (`gpio-7` reads high when empty under `ACTIVE_LOW`); live physical card I/O test pending |
 | **NFC** | STMicro ST21NFCD | `st-nci-i2c` (`&i2c3` / `nfc@8`) + `mt6366-clkbuf` (`XO_NFC`) | **On hold** | `nfc0` probes + IRQ 16 fires; intentionally paused to prioritize modem & core features |
 | **Wi-Fi (MT6789 ConnSys)** | MT6789 `SOC2_2` + `MT6631` A-die | `btif_drv` + `wmt_drv` + `wlan_drv_gen4m_6789` + `mtk-wmt-init` | **Working** | Live WPA2/WPA3 STA (`wlan0`) + 4G LTE coexistence verified; Loki LK `consys_init()` opens EMI MPU Regions 27 & 18; `15-mtk-wifi.conf` keeps NM on `wlan0` |
 | **Bluetooth (MT6789 ConnSys)** | MT6789 `SOC2_2` + `MT6631` A-die | `hci_mtk_stp` (native BlueZ `hci0` over STP/WMT) | **Working** | Live verified on `b20bb73`: `hci0` passes full kernel `hci_init1..4` + `le_init4` (`HCI_QUIRK_BROKEN_LOCAL_EXT_FEATURES_PAGE_2`), programs factory `BT_Addr` (`00:0c:e7:55:57:1a`) via `0xfc1a`, and executes LE scan/PHY commands cleanly |
@@ -135,12 +134,11 @@ Status legend:
      wired; live over-the-air MO/MT SMS and 2G/3G CS call confirmation remain.
    - See [`docs/modem-full-bringup.md`](modem-full-bringup.md).
 2. **USB-C Host / OTG / Power Delivery:** Bidirectional USB-C power works; host
-   role data enumeration (`rt1711h` + `usb-role-switch` + `musb-hdrc`) is WIP.
-3. **microSD Card (`11240000.mmc`):** `GPIO 7` CD polarity corrected to
-   `GPIO_ACTIVE_LOW` (`2abd89e`); live physical card I/O test pending.
-4. **Fast Charging:** Standard SC89601A charging works; SC8547 HV charge pump
-   (`i2c7@0x6a`) is not implemented.
-5. **NFC (`st,st21nfcb-i2c` — on hold):** `nfc0` probes with `XO_NFC` clkbuf
+   role data enumeration (`rt1711h` + `usb-role-switch` + `musb-hdrc`) is WIP
+   pending live peripheral attach test.
+3. **microSD Card (`11240000.mmc`):** `GPIO 7` CD polarity verified (`in hi`
+   when empty under `GPIO_ACTIVE_LOW`); live physical card I/O test pending.
+4. **NFC (`st,st21nfcb-i2c` — on hold):** `nfc0` probes with `XO_NFC` clkbuf
    and IRQ 16 fires; live RF polling is intentionally paused.
 
 ---

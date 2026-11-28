@@ -2094,6 +2094,8 @@ void rsnParserCheckForRSNCCMPPSK(struct ADAPTER *prAdapter,
 
 		if ((rRsnIe.u4AuthKeyMgtSuiteCount != 1)
 			|| ((rRsnIe.au4AuthKeyMgtSuite[0] != RSN_AKM_SUITE_PSK)
+			&& (rRsnIe.au4AuthKeyMgtSuite[0] !=
+				RSN_AKM_SUITE_PSK_SHA256)
 #if CFG_SUPPORT_SOFTAP_WPA3
 			&& (rRsnIe.au4AuthKeyMgtSuite[0] != RSN_AKM_SUITE_SAE)
 #endif

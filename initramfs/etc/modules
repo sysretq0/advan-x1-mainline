@@ -72,6 +72,7 @@ nf_tables
 nft_ct
 nf_nat
 nft_nat
+nft_chain_nat
 nft_masq
 x_tables
 xt_tcpudp

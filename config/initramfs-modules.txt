@@ -73,6 +73,7 @@ net/netfilter/nf_tables.ko                             CONFIG_NF_TABLES
 net/netfilter/nft_ct.ko                                CONFIG_NFT_CT
 net/netfilter/nf_nat.ko                                CONFIG_NF_NAT
 net/netfilter/nft_nat.ko                               CONFIG_NFT_NAT
+net/netfilter/nft_chain_nat.ko                         CONFIG_NFT_NAT
 net/netfilter/nft_masq.ko                              CONFIG_NFT_MASQ
 net/netfilter/x_tables.ko                              CONFIG_NETFILTER_XTABLES
 net/netfilter/xt_tcpudp.ko                             CONFIG_NETFILTER_XTABLES
