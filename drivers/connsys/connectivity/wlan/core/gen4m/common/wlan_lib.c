@@ -8269,7 +8269,7 @@ void wlanInitFeatureOption(IN struct ADAPTER *prAdapter)
 #endif
 
 	prWifiVar->fgSapCheckPmkidInDriver = (uint32_t) wlanCfgGetUint32(
-		prAdapter, "SapCheckPmkidInDriver", FEATURE_ENABLED);
+		prAdapter, "SapCheckPmkidInDriver", FEATURE_DISABLED);
 
 	prWifiVar->fgSapOffload = (uint32_t) wlanCfgGetUint32(
 		prAdapter, "SapOffload", FEATURE_DISABLED);
