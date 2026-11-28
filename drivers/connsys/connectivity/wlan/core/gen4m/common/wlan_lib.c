@@ -8243,7 +8243,7 @@ void wlanInitFeatureOption(IN struct ADAPTER *prAdapter)
 
 	prWifiVar->fgReuseRSNIE = (uint32_t) wlanCfgGetUint32(
 			prAdapter, "ReuseRSNIE",
-			FEATURE_DISABLED);
+			FEATURE_ENABLED);
 
 	wlanCfgSetUint32(prAdapter, "MddpSupport", FEATURE_ENABLED);
 

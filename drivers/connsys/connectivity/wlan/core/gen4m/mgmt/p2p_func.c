@@ -4460,7 +4460,6 @@ p2pFuncParseBeaconContent(IN struct ADAPTER *prAdapter,
 						prP2pBssInfo
 						->rApPmfCfg.fgSha256
 						= TRUE;
-						break;
 					} else if (rRsnIe.au4AuthKeyMgtSuite[i]
 					== RSN_AKM_SUITE_SAE)
 						prP2pBssInfo

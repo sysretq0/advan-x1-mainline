@@ -1,6 +1,6 @@
 # Advan X1 (MT6789 / Helio G99) — Hardware Support & Bring-Up Status
 
-**Latest hardware-verified baseline:** `3aa67e2` / `995622f`+ (Linux 7.4-rc4 modernized kernel, full 7.69 GiB RAM, live Wi-Fi STA + 4G LTE + VoLTE voice calls, SCP RV55 IIO sensors + native `mount-matrix` auto-rotate, AW3641E rear LED flash/torch, hardware JPEG encoder `/dev/video0`, SC89601A 2.0 A non-PD charging, audio playback, `s2idle` suspend-to-RAM survival, clean shutdown). All 100% of MT6789 clock controllers and all 15 `M8` SCPSYS power domains are wired; WireGuard/nftables desktop kmods (`c30396e`) and the MT6631 Bluetooth `HCI_QUIRK_BROKEN_LOCAL_EXT_FEATURES_PAGE_2` + factory `BT_Addr` fix are landed in-tree.  
+**Latest hardware-verified baseline:** `491d541`+ (Linux 7.4-rc4 modernized kernel, full 7.69 GiB RAM, live Wi-Fi STA + SoftAP hotspot + native BlueZ Bluetooth `hci0`, 4G LTE + VoLTE voice calls + IMS SMS, USB-C OTG/host + ConfigFS gadget + 18 W USB-PD/non-PD 2.0 A charging, SCP RV55 IIO sensors + native `mount-matrix` auto-rotate, AW3641E rear LED flash/torch, hardware JPEG encoder `/dev/video0`, audio playback, `s2idle` suspend-to-RAM survival, clean shutdown). All 100% of MT6789 clock controllers and all 15 `M8` SCPSYS power domains are wired; WireGuard/nftables/NAT kmods are built in.
 **Upstream kernel baseline:** Linux v7.4-rc3/rc4 (`666539eecdf4db623f5e3c3e55cf9f2dfad24aa4`)  
 **Boot chain:** Stock LK → Loki Stage-1 (EL1) → [`advan-x1-uboot`](https://github.com/sysretq0/advan-x1-uboot) (EL2) → U-Boot FIT (`advan-x1.itb`)
 
@@ -38,9 +38,10 @@ Status legend:
 | **Buses (I²C / SPI / UART)** | `i2c0..i2c7`, `spi0`, `uart0` | `i2c-mt65xx` (`mt6789_compat`, `dma_sync=1`), `spi-mt65xx`, `8250_mtk` | **Working** | Earlycon on `uart0`; all board I²C/SPI clients active |
 | **Audio** | MT6789 AFE + MT6366 + FourSemi FS1599 + ACCDET | `mt6789-mt6366-sound`, `fs1599`, `mt6358-accdet` + UCM2 + PipeWire drop-ins | **Working** | Playback verified; `-200 mB` LINEOUT cap for FS1599; PipeWire/WirePlumber AFE latency drop-ins packaged; `PCM 2` / `VoiceCall.conf` wired for CS calls |
 | **Cellular Modem — Data** | MT6789 Gen95 Modem (`md1img`) | `mtk-ccci` (`d0cf000.modem`) + DPMAIF v1 + ModemManager `mtk-ccci` | **Working** | Live 4G LTE auto-connect (`wwan0` + `/dev/wwan0at0`), IPv4/IPv6 + post-suspend DPMAIF restore & `+CGACT?` reconnect in Wave 1 |
-| **Cellular Modem — Voice / SMS** | MT6789 Gen95 Modem + AFE `PCM 2` | `/dev/ccci_aud`, `ccci_audd`, `Hostless_Speech` (`hw:*,5`), UCM2 `VoiceCall.conf`, MM plugin + `mtk-imsd` SMSoIP | **WIP** | VoLTE voice calls verified live; IMS SMS path (`mtk-imsd` + `MMIfaceModemMessaging` bridge, SMSC `+CSCA?`, DBus draft/delete & PDU/RP-DATA verified) + CS `ccci_audd` wired, awaiting live carrier MO/MT SMS & CS call confirmation |
+| **Cellular Modem — SMS (IMS)** | MT6789 Gen95 IMS SMSoIP | `mtk-imsd` + ModemManager `MMIfaceModemMessaging` bridge | **Working** | Live-verified carrier SMS over IMS (`application/vnd.3gpp.sms` + lazy `+CSCA?` SMSC refresh) |
+| **Cellular Modem — CS Voice (2G/3G)** | MT6789 Gen95 Modem + AFE `PCM 2` | `/dev/ccci_aud`, `ccci_audd`, `Hostless_Speech` (`hw:*,5`), UCM2 `VoiceCall.conf` | **WIP** | Wired for 2G/3G fallback; live 2G/3G CS call confirmation pending (4G VoLTE is Working) |
 | **Cellular Modem — VoLTE/IMS** | MT6789 Gen95 IMS channels | `mtk-ccci` + `mtk-imsd` + `mtk_volte_rtp` + XFRM IPsec + MM `MMIfaceModemVoice` IMS bridge | **Working** | Native VoLTE SIP/IPsec + RTP/AMR-WB (`pw-cat`) bridged natively into ModemManager & GNOME Calls (`DIAL`/`ANSWER`/`HANGUP`/`DTMF` + incoming `INVITE`), fast Airplane Mode recovery (`AT+CFUN?` + URC wake), verified live on XL (`51011`) |
-| **USB-C Host / OTG / PD** | Richtek RT1711H TCPC + SC89601A VBUS boost | `rt1711h` (`4-004e`) + `charger_vbus` + `usb-role-switch` (`usb0`) | **WIP** | Dual-role VBUS boost & OF graph role-switch wired; bidirectional charging works, host data enumeration still WIP |
+| **USB-C Host / OTG / PD** | Richtek RT1711H TCPC + SC89601A VBUS boost | `rt1711h` (`4-004e`) + `charger_vbus` + `usb-role-switch` (`usb0`) | **Working** | Live-verified dual-role USB-C host/OTG peripheral attach + VBUS boost (`usb-otg-vbus`) + bidirectional USB-C PD charging |
 | **microSD Card** | MT6789 MSDC1 | `mtk-msdc` (`11240000.mmc`, `GPIO 7` `GPIO_ACTIVE_LOW` CD) | **WIP** | Controller + CD polarity verified (`gpio-7` reads high when empty under `ACTIVE_LOW`); live physical card I/O test pending |
 | **NFC** | STMicro ST21NFCD | `st-nci-i2c` (`&i2c3` / `nfc@8`) + `mt6366-clkbuf` (`XO_NFC`) | **On hold** | `nfc0` probes + IRQ 16 fires; intentionally paused to prioritize modem & core features |
 | **Wi-Fi (MT6789 ConnSys)** | MT6789 `SOC2_2` + `MT6631` A-die | `btif_drv` + `wmt_drv` + `wlan_drv_gen4m_6789` + `mtk-wmt-init` | **Working** | Live WPA2/WPA3 STA (`wlan0`) + 4G LTE coexistence verified; Loki LK `consys_init()` opens EMI MPU Regions 27 & 18; `15-mtk-wifi.conf` keeps NM on `wlan0` |
@@ -100,12 +101,13 @@ Status legend:
   kcontrols created via `snd_soc_card_jack_new_pins()`). UCM2 `HiFi.conf` +
   `VoiceCall.conf` and PipeWire/WirePlumber AFE latency drop-ins are packaged
   in `advan-x1-support.deb`.
-- **Cellular Modem (4G LTE Data & Native VoLTE):** `mtk-ccci` + DPMAIF v1 +
+- **Cellular Modem (4G LTE Data, Native VoLTE & SMS):** `mtk-ccci` + DPMAIF v1 +
   SMEM UL + read-only NVRAM overlay `ccci_fsd`/`ccci_rpcd` + native ModemManager
   `libmm-plugin-mtk-ccci.so` provide automatic 4G LTE connectivity (`wwan0` +
   `/dev/wwan0at0`). Native VoLTE (`mtk-imsd` + `mtk_volte_rtp` + XFRM IPsec +
-  `MMIfaceModemVoice` IMS bridge on `wwan1`) is live-verified for voice calls
-  in GNOME Calls on XL (`51011`), with fast Airplane Mode recovery (`AT+CFUN?`
+  `MMIfaceModemVoice` IMS bridge on `wwan1`) and IMS SMSoIP (`mtk-imsd` SIP
+  `MESSAGE` + `MMIfaceModemMessaging` bridge + lazy `+CSCA?` SMSC refresh) are
+  live-verified on XL (`51011`), with fast Airplane Mode recovery (`AT+CFUN?`
   + URC wakeup).
 - **Sensors, LED Flash & Hardware JPEG Encoder:** SCP RV55 sensor hub
   (`10724000.sensorhub`) exposes all 5 IIO sensors (`accel`, `gyro`, `magn`,
@@ -115,30 +117,27 @@ Status legend:
   (`17030000.jpeg-encoder` → `/dev/video0`, `mtk-jpeg-enc` over `vencsys` +
   SMI `larb7` + `disp_iommu` Region 1) is live-verified for pixel-accurate
   640×480 YUYV→JPEG encoding with 0 IOMMU faults.
-- **Storage, USB Gadget & Power:** UFS 2.2 (`11270000.ufshci`), MUSB
-  (`11200000.usb`) + MT6789 USB2 T-PHY (`11f40000.t-phy`) composite ConfigFS
+- **Storage, USB-C OTG / Gadget & Power:** UFS 2.2 (`11270000.ufshci`), MUSB
+  (`11200000.usb`) + MT6789 USB2 T-PHY (`11f40000.t-phy`) dual-role USB-C host/OTG
+  (`rt1711h` + `usb-role-switch` + `usb-otg-vbus` boost) and composite ConfigFS
   gadget (NCM `usb0` `10.15.19.82/24` + ACM `/dev/ttyGS0`), Southchip SC89601A
-  (`bq25890`, `4-006a`, including 2.0 A non-PD wall-charger fallback under
-  4.3 V absolute VINDPM verified 4%→92%), CellWise CW2217 (`0-0064`),
-  MT6366/MT6358 PMIC (regulators, RTC, AUXADC, eFuse, thermal, keys, vibrator),
-  13-zone LVTS thermal (+ STAGE3 HW reboot), and `mtk-wdt` + `syscon-reboot-mode`.
+  (`bq25890`, `3-006a`, including 2.0 A non-PD wall-charger fallback under
+  4.3 V absolute VINDPM verified 4%→92% and 9 V/2 A 18 W USB-PD sink), CellWise
+  CW2217 (`0-0064`), MT6366/MT6358 PMIC (regulators, RTC, AUXADC, eFuse, thermal,
+  keys, vibrator), 13-zone LVTS thermal (+ STAGE3 HW reboot), and `mtk-wdt` +
+  `syscon-reboot-mode`.
 
 ---
 
 ## 2. Work in Progress / On Hold
 
-1. **SMS (IMS + CS Fallback) & CS Voice (`ccci_audd`):**
-   - IMS SMS (`mtk-imsd` SIP `MESSAGE` + `application/vnd.3gpp.sms` + ModemManager
-     `MMIfaceModemMessaging` bridge, SMSC `+CSCA?` auto-refresh, DBus draft/delete)
-     and CS voice (`ccci_audd` + `Hostless_Speech` + `VoiceCall.conf`) are fully
-     wired; live over-the-air MO/MT SMS and 2G/3G CS call confirmation remain.
-   - See [`docs/modem-full-bringup.md`](modem-full-bringup.md).
-2. **USB-C Host / OTG / Power Delivery:** Bidirectional USB-C power works; host
-   role data enumeration (`rt1711h` + `usb-role-switch` + `musb-hdrc`) is WIP
-   pending live peripheral attach test.
-3. **microSD Card (`11240000.mmc`):** `GPIO 7` CD polarity verified (`in hi`
+1. **CS Voice Fallback (2G/3G, `ccci_audd`):**
+   - `ccci_audd` + `Hostless_Speech` + `VoiceCall.conf` are wired for 2G/3G CS
+     voice fallback; live 2G/3G CS call confirmation remains (4G VoLTE and IMS
+     SMS are Working). See [`docs/modem-full-bringup.md`](modem-full-bringup.md).
+2. **microSD Card (`11240000.mmc`):** `GPIO 7` CD polarity verified (`in hi`
    when empty under `GPIO_ACTIVE_LOW`); live physical card I/O test pending.
-4. **NFC (`st,st21nfcb-i2c` — on hold):** `nfc0` probes with `XO_NFC` clkbuf
+3. **NFC (`st,st21nfcb-i2c` — on hold):** `nfc0` probes with `XO_NFC` clkbuf
    and IRQ 16 fires; live RF polling is intentionally paused.
 
 ---
@@ -160,11 +159,9 @@ Status legend:
 
 ## 4. Next Milestones
 
-1. **Finalize Remaining WIP Subsystems:** Live-verify native BlueZ Bluetooth
-   (`hci_mtk_stp` after `HCI_QUIRK_BROKEN_LOCAL_EXT_FEATURES_PAGE_2`), live
-   MO/MT SMS over IMS, physical microSD I/O, and USB-C OTG host data enumeration.
-2. **Audio & Peripheral Polish:** Verify headset jack switching (`mt6358-accdet`),
-   CS voice fallback (`ccci_audd`), and optional SC8547 HV fast charging.
-3. **Upstream Submission Prep:** Clear the last pre-LKML structural boundary
+1. **Finalize Remaining WIP Subsystems:** Live-verify physical microSD card I/O
+   (`11240000.mmc`), 2G/3G CS voice fallback (`ccci_audd`), and headset jack
+   switching (`mt6358-accdet`).
+2. **Upstream Submission Prep:** Clear the last pre-LKML structural boundary
    (`M2b` CCCI split; `M8` is complete) tracked in
    [`docs/upstream-status.md`](upstream-status.md).
