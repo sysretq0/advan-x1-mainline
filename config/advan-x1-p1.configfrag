@@ -448,8 +448,9 @@ CONFIG_NETFILTER_XT_MATCH_IPRANGE=m
 CONFIG_NETFILTER_XT_CONNMARK=m
 CONFIG_NETFILTER_XT_TARGET_TCPMSS=m
 CONFIG_IPVLAN=m
-CONFIG_DUMMY=m
-CONFIG_IFB=m
+# Note: keep CONFIG_DUMMY and CONFIG_IFB disabled in the eagerly-loaded
+# initramfs kmod set; their module_init() auto-creates dummy0/ifb0/ifb1 at
+# early boot, causing cloud-init/netplan to wait forever for DHCP on dummy0.
 CONFIG_PPP=m
 CONFIG_PPP_ASYNC=m
 CONFIG_PPP_DEFLATE=m

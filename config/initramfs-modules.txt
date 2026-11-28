@@ -196,8 +196,6 @@ net/netfilter/xt_iprange.ko                            CONFIG_NETFILTER_XT_MATCH
 net/netfilter/xt_connmark.ko                           CONFIG_NETFILTER_XT_CONNMARK
 net/netfilter/xt_TCPMSS.ko                             CONFIG_NETFILTER_XT_TARGET_TCPMSS
 drivers/net/ipvlan/ipvlan.ko                           CONFIG_IPVLAN
-drivers/net/dummy.ko                                   CONFIG_DUMMY
-drivers/net/ifb.ko                                     CONFIG_IFB
 drivers/net/slip/slhc.ko                               CONFIG_SLHC
 lib/crc/crc-ccitt.ko                                   CONFIG_CRC_CCITT
 drivers/net/ppp/ppp_generic.ko                         CONFIG_PPP
