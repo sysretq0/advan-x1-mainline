@@ -295,6 +295,61 @@ CONFIG_IP_ADVANCED_ROUTER=y
 CONFIG_IP_MULTIPLE_TABLES=y
 CONFIG_IPV6_MULTIPLE_TABLES=y
 
+# WireGuard VPN (NetworkManager native WireGuard client).
+# Hidden tristate helpers are selected to =m by CONFIG_WIREGUARD=m and are
+# staged in config/initramfs-modules.txt (udp_tunnel, libpoly1305,
+# libchacha20poly1305, libcurve25519) in dependency order. CRYPTO_LIB_CHACHA
+# stays built-in via CONFIG_CRYPTO_CHACHA20=y.
+CONFIG_WIREGUARD=m
+
+# NAT / nftables: iptables-nft (NetworkManager hotspot masquerade, containers).
+# Without NF_TABLES + NAT, `iptables -t nat -L` dies with
+# "Failed to initialize nft: Protocol not supported" on the running build.
+# NF_TABLES_IPV4 is a hidden bool (defaults n) and must be pinned for NFT_*.
+CONFIG_NF_TABLES=m
+CONFIG_NF_TABLES_IPV4=y
+CONFIG_NF_NAT=m
+CONFIG_NFT_COMPAT=m
+CONFIG_NFT_NAT=m
+CONFIG_NFT_MASQ=m
+CONFIG_NETFILTER_XT_NAT=m
+CONFIG_NETFILTER_XT_TARGET_MASQUERADE=m
+CONFIG_NETFILTER_XT_TARGET_REDIRECT=m
+# nftables reject verdict (firewall policy), plus legacy iptables tables for
+# userspace that still uses iptables-legacy/ebtables (XTABLES_LEGACY is bool).
+CONFIG_NFT_REJECT=m
+CONFIG_NFT_REJECT_IPV4=m
+CONFIG_NFT_REJECT_IPV6=m
+CONFIG_NETFILTER_XTABLES_LEGACY=y
+CONFIG_IP_NF_IPTABLES_LEGACY=m
+CONFIG_IP6_NF_IPTABLES_LEGACY=m
+CONFIG_IP_NF_FILTER=m
+CONFIG_IP6_NF_FILTER=m
+CONFIG_IP_NF_NAT=m
+
+# Desktop/user convenience. All non-boot-critical items are =m and staged in
+# config/initramfs-modules.txt (PROC_KCORE is bool so it stays built-in).
+CONFIG_DM_CRYPT=m
+CONFIG_CIFS=m
+CONFIG_NFSD=m
+CONFIG_F2FS_FS=m
+CONFIG_ISO9660_FS=m
+CONFIG_UDF_FS=m
+CONFIG_NTFS_FS=m
+CONFIG_NTFS3_FS=m
+CONFIG_VXLAN=m
+CONFIG_GENEVE=m
+CONFIG_NETLINK_DIAG=m
+CONFIG_PROC_KCORE=y
+CONFIG_BLK_DEV_RAM=m
+CONFIG_NETFILTER_XT_MATCH_COMMENT=m
+CONFIG_NF_TABLES_IPV6=y
+CONFIG_BINFMT_MISC=m
+# Common USB-serial adapters (debug cables / external modems); OPTION already =m.
+CONFIG_USB_SERIAL_PL2303=m
+CONFIG_USB_SERIAL_CH341=m
+CONFIG_USB_SERIAL_QCAUX=m
+
 # Compressed RAM swap (loadable module + multi-comp LZ4/ZSTD to match packaged zram-generator.conf)
 CONFIG_SWAP=y
 CONFIG_ZSMALLOC=m

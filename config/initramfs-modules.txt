@@ -59,14 +59,41 @@ net/bridge/bridge.ko                                   CONFIG_BRIDGE
 drivers/net/veth.ko                                    CONFIG_VETH
 drivers/net/macvlan.ko                                 CONFIG_MACVLAN
 drivers/net/tap.ko                                     CONFIG_TAP
+# WireGuard + hidden tristate crypto/UDP-tunnel helpers (dep order)
+net/ipv4/udp_tunnel.ko                                 CONFIG_NET_UDP_TUNNEL
+lib/crypto/libpoly1305.ko                              CONFIG_CRYPTO_LIB_POLY1305
+lib/crypto/libchacha20poly1305.ko                      CONFIG_CRYPTO_LIB_CHACHA20POLY1305
+lib/crypto/libcurve25519.ko                            CONFIG_CRYPTO_LIB_CURVE25519
+drivers/net/wireguard/wireguard.ko                     CONFIG_WIREGUARD
 net/ipv4/netfilter/nf_defrag_ipv4.ko                   CONFIG_NF_DEFRAG_IPV4
 net/ipv6/netfilter/nf_defrag_ipv6.ko                   CONFIG_NF_DEFRAG_IPV6
 net/netfilter/nf_conntrack.ko                          CONFIG_NF_CONNTRACK
+net/netfilter/nf_tables.ko                             CONFIG_NF_TABLES
+net/netfilter/nf_nat.ko                                CONFIG_NF_NAT
+net/netfilter/nft_nat.ko                               CONFIG_NFT_NAT
+net/netfilter/nft_masq.ko                              CONFIG_NFT_MASQ
 net/netfilter/x_tables.ko                              CONFIG_NETFILTER_XTABLES
 net/netfilter/xt_tcpudp.ko                             CONFIG_NETFILTER_XTABLES
 net/netfilter/xt_conntrack.ko                          CONFIG_NETFILTER_XT_MATCH_CONNTRACK
 net/netfilter/xt_addrtype.ko                           CONFIG_NETFILTER_XT_MATCH_ADDRTYPE
 net/netfilter/xt_mark.ko                               CONFIG_NETFILTER_XT_MARK
+net/netfilter/nft_compat.ko                            CONFIG_NFT_COMPAT
+net/netfilter/xt_nat.ko                                CONFIG_NETFILTER_XT_NAT
+net/netfilter/xt_MASQUERADE.ko                         CONFIG_NETFILTER_XT_TARGET_MASQUERADE
+net/netfilter/xt_REDIRECT.ko                           CONFIG_NETFILTER_XT_TARGET_REDIRECT
+# nftables reject + legacy iptables tables (dep order)
+net/ipv4/netfilter/nf_reject_ipv4.ko                   CONFIG_NF_REJECT_IPV4
+net/ipv6/netfilter/nf_reject_ipv6.ko                   CONFIG_NF_REJECT_IPV6
+net/netfilter/nft_reject.ko                            CONFIG_NFT_REJECT
+net/ipv4/netfilter/nft_reject_ipv4.ko                  CONFIG_NFT_REJECT_IPV4
+net/ipv6/netfilter/nft_reject_ipv6.ko                  CONFIG_NFT_REJECT_IPV6
+net/ipv4/netfilter/ip_tables.ko                        CONFIG_IP_NF_IPTABLES_LEGACY
+net/ipv6/netfilter/ip6_tables.ko                       CONFIG_IP6_NF_IPTABLES_LEGACY
+net/ipv4/netfilter/iptable_filter.ko                   CONFIG_IP_NF_FILTER
+net/ipv6/netfilter/ip6table_filter.ko                  CONFIG_IP6_NF_FILTER
+net/ipv4/netfilter/iptable_mangle.ko                   CONFIG_IP_NF_MANGLE
+net/ipv6/netfilter/ip6table_mangle.ko                  CONFIG_IP6_NF_MANGLE
+net/ipv4/netfilter/iptable_nat.ko                      CONFIG_IP_NF_NAT
 net/netfilter/nf_log_syslog.ko                         CONFIG_NF_LOG_SYSLOG
 net/netfilter/xt_LOG.ko                                CONFIG_NETFILTER_XT_TARGET_LOG
 net/bridge/br_netfilter.ko                             CONFIG_BRIDGE_NETFILTER
@@ -104,6 +131,10 @@ drivers/usb/class/cdc-acm.ko                           CONFIG_USB_ACM
 drivers/usb/serial/usbserial.ko                        CONFIG_USB_SERIAL
 drivers/usb/serial/cp210x.ko                           CONFIG_USB_SERIAL_CP210X
 drivers/usb/serial/ftdi_sio.ko                         CONFIG_USB_SERIAL_FTDI_SIO
+drivers/usb/serial/option.ko                           CONFIG_USB_SERIAL_OPTION
+drivers/usb/serial/pl2303.ko                           CONFIG_USB_SERIAL_PL2303
+drivers/usb/serial/ch341.ko                            CONFIG_USB_SERIAL_CH341
+drivers/usb/serial/qcaux.ko                            CONFIG_USB_SERIAL_QCAUX
 net/wireless/cfg80211.ko                               CONFIG_CFG80211
 lib/crypto/libarc4.ko                                  CONFIG_CRYPTO_LIB_ARC4
 net/mac80211/mac80211.ko                               CONFIG_MAC80211
@@ -116,3 +147,22 @@ drivers/bluetooth/btqca.ko                             CONFIG_BT_QCA
 drivers/bluetooth/btmtk.ko                             CONFIG_BT_MTK
 drivers/bluetooth/btusb.ko                             CONFIG_BT_HCIBTUSB
 drivers/bluetooth/hci_uart.ko                          CONFIG_BT_HCIUART
+
+# Tier 4: filesystems, crypto targets & misc convenience (dep order)
+crypto/essiv.ko                                        CONFIG_CRYPTO_ESSIV
+drivers/md/dm-crypt.ko                                 CONFIG_DM_CRYPT
+fs/nls/nls_ucs2_utils.ko                               CONFIG_NLS_UCS2_UTILS
+fs/smb/common/smbfs.ko                                 CONFIG_SMBFS
+fs/smb/client/cifs.ko                                  CONFIG_CIFS
+fs/nfsd/nfsd.ko                                        CONFIG_NFSD
+fs/f2fs/f2fs.ko                                        CONFIG_F2FS_FS
+fs/isofs/isofs.ko                                      CONFIG_ISO9660_FS
+fs/udf/udf.ko                                          CONFIG_UDF_FS
+fs/ntfs/ntfs.ko                                        CONFIG_NTFS_FS
+fs/ntfs3/ntfs3.ko                                      CONFIG_NTFS3_FS
+drivers/net/vxlan/vxlan.ko                             CONFIG_VXLAN
+drivers/net/geneve.ko                                  CONFIG_GENEVE
+net/netlink/netlink_diag.ko                            CONFIG_NETLINK_DIAG
+drivers/block/brd.ko                                   CONFIG_BLK_DEV_RAM
+net/netfilter/xt_comment.ko                            CONFIG_NETFILTER_XT_MATCH_COMMENT
+fs/binfmt_misc.ko                                      CONFIG_BINFMT_MISC
