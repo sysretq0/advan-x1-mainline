@@ -19,6 +19,7 @@
 
 #define NVDATA_WIFI_PATH	"/run/ccci_fs/.lower/nvdata/APCFG/APRDEB/WIFI"
 #define FALLBACK_WIFI_PATH	"/lib/firmware/WIFI"
+#define NVDATA_BT_PATH		"/run/ccci_fs/.lower/nvdata/APCFG/APRDEB/BT_Addr"
 
 #define WMT_DETECT_IOC_MAGIC		'w'
 #define COMBO_IOCTL_GET_CHIP_ID		_IOR(WMT_DETECT_IOC_MAGIC, 0, int)
@@ -144,6 +145,31 @@ static int init_wifi(void)
 
 static void init_bluetooth(void)
 {
+	/* Pass factory BT MAC from RO nvdata if present and valid */
+	int nv_fd = open(NVDATA_BT_PATH, O_RDONLY);
+	if (nv_fd >= 0) {
+		uint8_t mac[6];
+		ssize_t n = read(nv_fd, mac, sizeof(mac));
+		close(nv_fd);
+		if (n == 6 &&
+		    (mac[0] | mac[1] | mac[2] | mac[3] | mac[4] | mac[5]) != 0x00 &&
+		    (mac[0] & mac[1] & mac[2] & mac[3] & mac[4] & mac[5]) != 0xff) {
+			int bfd = open("/sys/module/hci_mtk_stp/parameters/bdaddr", O_WRONLY);
+			if (bfd >= 0) {
+				char buf[20];
+				int len = snprintf(buf, sizeof(buf),
+						   "%02x:%02x:%02x:%02x:%02x:%02x\n",
+						   mac[0], mac[1], mac[2],
+						   mac[3], mac[4], mac[5]);
+				if (len > 0) {
+					ssize_t bw = write(bfd, buf, (size_t)len);
+					printf("[mtk-wmt-init] Set factory BT MAC: %zd\n", bw);
+				}
+				close(bfd);
+			}
+		}
+	}
+
 	int fd = open("/sys/module/hci_mtk_stp/parameters/enable", O_WRONLY);
 	if (fd < 0)
 		return;

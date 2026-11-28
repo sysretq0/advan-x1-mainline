@@ -1661,6 +1661,10 @@ class Ims:
     def send_tpdu(self, tpdu):
         if not self.registered:
             return False, "not registered"
+        if not self.smsc:
+            self.smsc = self.m.smsc()
+        if not self.smsc:
+            return False, "SMSC (+CSCA?) unavailable"
         with self.mr_lock:
             self.mr = (self.mr + 1) & 0xFF
             mr = self.mr
@@ -1756,6 +1760,7 @@ class Ims:
                         "pdn": self.pdn.ifname,
                         "addr": self.pdn.addr,
                         "pcscf": self.pdn.pcscf,
+                        "smsc": self.smsc,
                         "expires": self.expires,
                         "codecs": [c[0] for c in supported_codecs()],
                         "call": call_info,
@@ -1800,6 +1805,8 @@ class Ims:
         while True:
             try:
                 self.register()
+                if not self.smsc:
+                    self.smsc = self.m.smsc()
                 backoff = 10
                 deadline = time.time() + (rereg or max(60, self.expires // 2))
                 while time.time() < deadline:

@@ -47,6 +47,10 @@ struct hci_mtk_stp {
 static DEFINE_MUTEX(g_mtk_bt_lock);
 static struct hci_mtk_stp *g_mtk_bt;
 static bool g_mtk_bt_enabled;
+static char g_mtk_bt_bdaddr[18];
+
+module_param_string(bdaddr, g_mtk_bt_bdaddr, sizeof(g_mtk_bt_bdaddr), 0644);
+MODULE_PARM_DESC(bdaddr, "Optional factory Bluetooth MAC (XX:XX:XX:XX:XX:XX) programmed in hdev->setup");
 
 static size_t h4_hdr_len(u8 pkt_type)
 {
@@ -346,6 +350,38 @@ static int hci_mtk_stp_set_bdaddr(struct hci_dev *hdev, const bdaddr_t *bdaddr)
 	return 0;
 }
 
+static bool hci_mtk_stp_parse_bdaddr(const char *str, bdaddr_t *out)
+{
+	unsigned int b[6];
+
+	if (!str || !str[0])
+		return false;
+	if (sscanf(str, "%2x:%2x:%2x:%2x:%2x:%2x",
+		   &b[5], &b[4], &b[3], &b[2], &b[1], &b[0]) != 6)
+		return false;
+	if ((b[0] | b[1] | b[2] | b[3] | b[4] | b[5]) == 0 ||
+	    (b[0] & b[1] & b[2] & b[3] & b[4] & b[5]) == 0xff)
+		return false;
+	for (int i = 0; i < 6; i++)
+		out->b[i] = (u8)b[i];
+	return true;
+}
+
+static int hci_mtk_stp_setup(struct hci_dev *hdev)
+{
+	bdaddr_t bdaddr;
+
+	if (hci_mtk_stp_parse_bdaddr(g_mtk_bt_bdaddr, &bdaddr)) {
+		int err = hci_mtk_stp_set_bdaddr(hdev, &bdaddr);
+
+		if (err)
+			bt_dev_warn(hdev, "factory BD_ADDR setup ignored (%d)", err);
+		else
+			bt_dev_info(hdev, "programmed factory BD_ADDR %pMR", &bdaddr);
+	}
+	return 0;
+}
+
 static int hci_mtk_stp_register(void)
 {
 	struct hci_mtk_stp *bt;
@@ -383,8 +419,15 @@ static int hci_mtk_stp_register(void)
 	hdev->close = hci_mtk_stp_close;
 	hdev->flush = hci_mtk_stp_flush;
 	hdev->send = hci_mtk_stp_send_frame;
+	hdev->setup = hci_mtk_stp_setup;
 	hdev->set_bdaddr = hci_mtk_stp_set_bdaddr;
 	hci_set_quirk(hdev, HCI_QUIRK_NON_PERSISTENT_SETUP);
+	/*
+	 * MT6789/MT6631 CONNSYS ("MTK SOC2_2 #1") advertises LMP_SYNC_TRAIN
+	 * (bit 2) in Extended Features Page 2, but rejects HCI_OP_READ_SYNC_TRAIN_PARAMS
+	 * (0x0c77) with HCI 0x01 (Unknown Command / -EBADRQC), aborting hci_init4.
+	 */
+	hci_set_quirk(hdev, HCI_QUIRK_BROKEN_LOCAL_EXT_FEATURES_PAGE_2);
 
 	WRITE_ONCE(g_mtk_bt, bt);
 	err = hci_register_dev(hdev);
